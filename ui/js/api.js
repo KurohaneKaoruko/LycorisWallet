@@ -57,7 +57,10 @@ export const api = {
   exportPrivateKey: (chain, password) => call("export_private_key", { chain, password }),
   changePassword: (current, newPassword) =>
     call("change_password", { current, newPassword }),
-  renameWallet: (label) => call("rename_wallet", { label }),
+  renameWallet: (id, label) => call("rename_wallet", { id, label }),
+  addWallet: (request) => call("add_wallet", { request }),
+  switchWallet: (id) => call("switch_wallet", { id }),
+  deleteWallet: (id, password) => call("delete_wallet", { id, password }),
   refreshPortfolio: () => call("refresh_portfolio"),
   quoteSend: (request) => call("quote_send", { request }),
   sendTransaction: (request) => call("send_transaction", { request }),

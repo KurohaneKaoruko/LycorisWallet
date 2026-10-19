@@ -8,7 +8,7 @@ import {
   relativeTime,
   shortAddress,
 } from "../format.js";
-import { toast } from "../ui.js";
+import { icon, toast } from "../ui.js";
 
 export function render(ctx) {
   const wallet = ctx.state.wallet;
@@ -74,6 +74,11 @@ export function render(ctx) {
           <span>${escapeHtml(wallet?.label ?? "")}</span>
           <span class="fingerprint">${escapeHtml(wallet?.fingerprint ?? "")}</span>
           ${modeChip}
+          ${
+            (wallet?.wallets?.length ?? 1) > 1
+              ? `<span>共 ${wallet.wallets.length} 个钱包</span>`
+              : ""
+          }
           <span>${portfolio ? `更新于 ${relativeTime(portfolio.fetchedAt)}` : "正在同步…"}</span>
         </div>
         <div class="hero-actions">
@@ -90,6 +95,9 @@ export function render(ctx) {
           }>
             <svg viewBox="0 0 24 24"><path d="M19.6 12a7.6 7.6 0 1 1-2.3-5.4"/><path d="M19.8 4.6v4.2h-4.2"/></svg>
             刷新余额
+          </button>
+          <button class="btn btn-ghost" data-action="wallets" type="button">
+            ${icon("wallet")}钱包管理
           </button>
         </div>
       </div>
@@ -134,6 +142,7 @@ export function render(ctx) {
       });
       root.querySelector('[data-action="receive"]')?.addEventListener("click", () => ctx.go("receive"));
       root.querySelector('[data-action="send"]')?.addEventListener("click", () => ctx.go("send"));
+      root.querySelector('[data-action="wallets"]')?.addEventListener("click", () => ctx.go("wallets"));
       root.querySelector('[data-action="refresh"]')?.addEventListener("click", async () => {
         try {
           await ctx.refreshPortfolio({ force: true });

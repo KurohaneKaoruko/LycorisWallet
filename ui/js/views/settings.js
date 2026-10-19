@@ -41,6 +41,7 @@ function walletCard(wallet) {
     wallet.mode === "passphrase"
       ? `口令 · ${wallet.derivation === "strict" ? "严格" : "隔离"}`
       : "助记词 · BIP-39";
+  const count = wallet.wallets?.length ?? 1;
   return `<div class="card card-pad stack-sm">
     <div class="section-title"><h2>钱包</h2><span class="chip">${escapeHtml(modeLabel)}</span></div>
     <div class="kv"><span class="kv-key">名称</span><span class="kv-value">${escapeHtml(wallet.label)}</span></div>
@@ -63,6 +64,9 @@ function walletCard(wallet) {
           : ""
       }
       <button class="btn btn-ghost btn-sm" type="button" data-action="export">${icon("key")}导出私钥</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-action="wallets">${icon(
+        "wallet",
+      )}钱包管理（共 ${count} 个）</button>
     </div>
     <p class="hint">${
       wallet.mode === "mnemonic"
@@ -150,7 +154,7 @@ function securityCard(wallet) {
 function dangerCard() {
   return `<div class="card card-pad">
     <div class="section-title"><h2>危险区域</h2></div>
-    <div class="note note-danger">${icon("warn")}<div>删除会移除本机的加密钱包文件。<strong>如果你没有备份助记词（或忘记了口令），资产将永久无法恢复。</strong></div></div>
+    <div class="note note-danger">${icon("warn")}<div>删除会移除本机的加密钱包文件（其中可能保存着多个钱包）。<strong>如果你没有备份助记词（或忘记了口令），资产将永久无法恢复。</strong></div></div>
     <div class="row" style="margin-top:14px">
       <button class="btn btn-danger" type="button" data-action="delete">${icon(
         "trash",
@@ -192,6 +196,9 @@ function bind(ctx, container, paint) {
     void patch({ autoLockMinutes: Number(event.target.value) });
   });
   container.querySelector('[data-action="rename"]')?.addEventListener("click", () => void rename(ctx, paint));
+  container
+    .querySelector('[data-action="wallets"]')
+    ?.addEventListener("click", () => ctx.go("wallets"));
   container.querySelector('[data-action="backup"]')?.addEventListener("click", () => void backup());
   container.querySelector('[data-action="export"]')?.addEventListener("click", () => void exportKeys(ctx));
   container.querySelector('[data-action="change-password"]')?.addEventListener("click", () => changePassword());
@@ -228,7 +235,7 @@ async function rename(ctx, paint) {
           }
           setBusy(button, true, "保存中…");
           try {
-            const view = await api.renameWallet(value);
+            const view = await api.renameWallet(wallet.id, value);
             ctx.setWallet(view);
             close();
             paint();

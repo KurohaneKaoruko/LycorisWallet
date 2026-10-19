@@ -25,4 +25,4 @@ pub use derive::{
 };
 pub use error::{Error, Result};
 pub use models::*;
-pub use vault::{VaultData, VaultFile};
+pub use vault::{VaultData, VaultFile, WalletEntry};

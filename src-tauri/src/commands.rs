@@ -116,8 +116,8 @@ pub fn reveal_mnemonic(
     if !state.verify_password(&password)? {
         return Err(ApiError::from(lycoris_core::Error::IncorrectPassword));
     }
-    let data = state.data()?;
-    let mnemonic = data.secret.mnemonic()?;
+    let secret = state.active_secret()?;
+    let mnemonic = secret.mnemonic()?;
     Ok(mnemonic.to_string())
 }
 
@@ -130,8 +130,8 @@ pub fn export_private_key(
     if !state.verify_password(&password)? {
         return Err(ApiError::from(lycoris_core::Error::IncorrectPassword));
     }
-    let data = state.data()?;
-    let material = lycoris_core::derive::derive_private_key(&data.secret, chain)?;
+    let secret = state.active_secret()?;
+    let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
     let value = material.export()?;
     let format = match chain {
         ChainId::Bitcoin | ChainId::Litecoin => "WIF".to_string(),
@@ -157,17 +157,54 @@ pub fn change_password(
     Ok(())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddWalletRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    pub secret: SecretRequest,
+}
+
+/// Add another wallet to the unlocked vault and select it.
+#[tauri::command]
+pub fn add_wallet(
+    state: State<'_, crate::state::AppState>,
+    request: AddWalletRequest,
+) -> ApiResult<WalletView> {
+    let secret = request.secret.into_secret()?;
+    Ok(state.add_wallet(request.name, secret)?)
+}
+
+#[tauri::command]
+pub fn switch_wallet(
+    state: State<'_, crate::state::AppState>,
+    id: String,
+) -> ApiResult<WalletView> {
+    Ok(state.switch_wallet(&id)?)
+}
+
 #[tauri::command]
 pub fn rename_wallet(
     state: State<'_, crate::state::AppState>,
+    id: String,
     label: String,
 ) -> ApiResult<WalletView> {
     let trimmed = label.trim().to_string();
     if trimmed.is_empty() {
         return Err(ApiError::new("INVALID_LABEL", "钱包名称不能为空"));
     }
-    state.mutate(|data| data.label = trimmed)?;
-    Ok(state.wallet()?)
+    Ok(state.rename_wallet(&id, &trimmed)?)
+}
+
+/// Remove a wallet from the vault. The password guard makes sure a stray click
+/// cannot drop a wallet the user still needs.
+#[tauri::command]
+pub fn delete_wallet(
+    state: State<'_, crate::state::AppState>,
+    id: String,
+    password: String,
+) -> ApiResult<WalletView> {
+    Ok(state.delete_wallet(&id, &password)?)
 }
 
 #[tauri::command]

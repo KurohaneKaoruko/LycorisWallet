@@ -11,6 +11,7 @@ import { render as renderReceive } from "./views/receive.js";
 import { render as renderSend } from "./views/send.js";
 import { render as renderSettings } from "./views/settings.js";
 import { render as renderUnlock } from "./views/unlock.js";
+import { render as renderWallets } from "./views/wallets.js";
 
 const VERSION = "0.1.0";
 const PORTFOLIO_TTL = 60; // seconds
@@ -26,6 +27,7 @@ const VIEWS = {
   activity: renderActivity,
   contacts: renderContacts,
   settings: renderSettings,
+  wallets: renderWallets,
 };
 
 const RAIL_GROUPS = [
@@ -41,6 +43,7 @@ const RAIL_GROUPS = [
   {
     label: "管理",
     items: [
+      { id: "wallets", label: "钱包管理", icon: "wallet" },
       { id: "contacts", label: "地址簿", icon: "contacts" },
       { id: "settings", label: "设置", icon: "settings" },
     ],
@@ -100,8 +103,9 @@ function syncChrome() {
   rail.querySelectorAll(".rail-item").forEach((item) => {
     item.setAttribute("aria-current", item.dataset.view === state.view ? "true" : "false");
   });
+  const walletCount = state.wallet?.wallets?.length ?? 0;
   tbCenter.textContent = state.wallet
-    ? `${state.wallet.label} · ${state.wallet.fingerprint}`
+    ? `${state.wallet.label}${walletCount > 1 ? `（共 ${walletCount} 个钱包）` : ""} · ${state.wallet.fingerprint}`
     : state.view === "onboarding"
       ? "创建或导入钱包"
       : state.status?.exists

@@ -207,6 +207,20 @@ pub fn delete_wallet(
     Ok(state.delete_wallet(&id, &password)?)
 }
 
+/// Delete the whole wallet file. Used when the password is lost: the file
+/// cannot be decrypted without it, so the only way forward is to start over.
+/// `confirm` must be true, because this destroys the only copy of the file.
+#[tauri::command]
+pub fn reset_vault(state: State<'_, crate::state::AppState>, confirm: bool) -> ApiResult<()> {
+    if !confirm {
+        return Err(ApiError::new(
+            "CONFIRM_REQUIRED",
+            "删除钱包文件需要用户明确确认",
+        ));
+    }
+    Ok(state.reset_vault()?)
+}
+
 #[tauri::command]
 pub async fn refresh_portfolio(state: State<'_, crate::state::AppState>) -> ApiResult<Portfolio> {
     portfolio::refresh(&state).await
@@ -324,7 +338,8 @@ pub fn open_external(app: tauri::AppHandle, url: String) -> ApiResult<()> {
 }
 
 /// Erase the vault file and wipe the session. Guarded by the password so a
-/// stray click cannot destroy funds.
+/// stray click cannot destroy funds. `reset_vault` is the password-less
+/// variant used when the password itself is lost.
 #[tauri::command]
 pub fn delete_vault(
     state: State<'_, crate::state::AppState>,
@@ -333,12 +348,7 @@ pub fn delete_vault(
     if state.status().exists && !state.verify_password(&password)? {
         return Err(ApiError::from(lycoris_core::Error::IncorrectPassword));
     }
-    let path = state.vault_path();
-    state.lock_now();
-    if path.exists() {
-        std::fs::remove_file(&path)?;
-    }
-    Ok(())
+    Ok(state.reset_vault()?)
 }
 
 /// Called by the frontend on any user interaction so the idle timer resets.

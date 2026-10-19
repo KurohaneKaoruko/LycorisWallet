@@ -1,8 +1,8 @@
 /** Receive: chain picker, QR code, copyable address, wallet-path details. */
 
-import { api } from "../api.js";
-import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js";
-import { bindCopy, icon, toast } from "../ui.js";
+import { api } from "../api.js?v=7";
+import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=7";
+import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=7";
 
 export function render(ctx, params = {}) {
   const wallet = ctx.state.wallet;
@@ -98,10 +98,13 @@ export function render(ctx, params = {}) {
 
     mount(root) {
       const view = root.querySelector("#receive-view");
+      let disposeScroll = () => {};
       const draw = async () => {
         const account = accountFor(chainId);
         view.innerHTML = shell(account);
         bind(view);
+        disposeScroll();
+        disposeScroll = enhanceTabScroll(view.querySelector(".tabs"));
         const token = ++qrToken;
         try {
           const svg = await api.qrSvg(account.address, "#1b1a19", "#f7f1e8");
@@ -147,6 +150,8 @@ export function render(ctx, params = {}) {
       };
 
       void draw();
+
+      return () => disposeScroll();
     },
   };
 }

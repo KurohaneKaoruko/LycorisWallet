@@ -1,9 +1,9 @@
 /** Send: chain + recipient + amount, live fee quotes from Rust, then a
  *  confirmation dialog before broadcasting. */
 
-import { api } from "../api.js";
-import { copyText, escapeHtml, groupDigits, normalizeAmountInput, shortAddress } from "../format.js";
-import { confirmDialog, debounce, icon, openModal, setBusy, toast } from "../ui.js";
+import { api } from "../api.js?v=7";
+import { copyText, escapeHtml, groupDigits, normalizeAmountInput, shortAddress } from "../format.js?v=7";
+import { confirmDialog, debounce, enhanceTabScroll, icon, openModal, setBusy, toast } from "../ui.js?v=7";
 
 export function render(ctx, params = {}) {
   const wallet = ctx.state.wallet;
@@ -28,6 +28,7 @@ export function render(ctx, params = {}) {
     mount(root) {
       const view = root.querySelector("#send-view");
       const body = () => view.querySelector("#send-body");
+      let disposeScroll = () => {};
 
       const paint = () => {
         if (local.result) {
@@ -124,6 +125,8 @@ export function render(ctx, params = {}) {
           </div>
         </div>`;
         bind();
+        disposeScroll();
+        disposeScroll = enhanceTabScroll(view.querySelector(".tabs"));
       };
 
       const feeMarkup = (state) => {
@@ -398,6 +401,8 @@ export function render(ctx, params = {}) {
 
       paint();
       if (local.to) runQuote();
+
+      return () => disposeScroll();
     },
   };
 }

@@ -840,7 +840,34 @@ code,
   gap: 6px;
   overflow-x: auto;
   padding-bottom: 2px;
-  scrollbar-width: thin;
+  /* 隐藏原生滚动条（Windows 上很丑），改用两侧渐隐提示还有内容 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* 渐隐只在真的溢出时出现：右侧还有内容才淡出右侧，滚过头再淡出左侧 */
+.tabs.has-right {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 26px), transparent 100%);
+}
+
+.tabs.has-left {
+  mask-image: linear-gradient(to right, transparent 0, #000 26px, #000 100%);
+}
+
+.tabs.has-left.has-right {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 26px,
+    #000 calc(100% - 26px),
+    transparent 100%
+  );
 }
 
 .tab {

@@ -184,12 +184,15 @@ function nowSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
+/* 演示模式的口令：任何状态都能用它解锁，避免测试数据把人锁在门外。 */
+const DEMO_PASSWORD = "lycoris-demo";
+
 const store = {
   version: 2,
   exists: false,
   locked: true,
-  password: "lycoris-demo",
-  hint: "演示口令：lycoris-demo",
+  password: DEMO_PASSWORD,
+  hint: `演示口令：${DEMO_PASSWORD}`,
   wallets: [],
   activeId: null,
   settings: {
@@ -529,7 +532,8 @@ export async function mockCall(command, args = {}) {
       store.exists = true;
       store.locked = false;
       store.password = request.password;
-      store.hint = request.hint ?? null;
+      // 提示必须与真实口令一致，否则演示里会出现「按提示输入却报密码错误」。
+      store.hint = request.hint ?? `演示口令：${request.password}`;
       store.contacts = [];
       persist();
       return walletView();
@@ -537,7 +541,8 @@ export async function mockCall(command, args = {}) {
 
     case "unlock_vault": {
       if (!store.exists) throw { code: "VAULT_NOT_FOUND", message: "找不到本地钱包文件" };
-      if (args.password !== store.password) {
+      // 演示口令在任何状态下都能解锁（数据只是内存假数据）。
+      if (args.password !== store.password && args.password !== DEMO_PASSWORD) {
         throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
       }
       store.locked = false;
@@ -790,6 +795,23 @@ export async function mockCall(command, args = {}) {
         wallets: [],
         activeId: null,
         contacts: [],
+      });
+      persist();
+      return null;
+
+    case "reset_vault":
+      // 忘记密码时的兜底：不需要密码，但前端必须显式确认。
+      if (!args.confirm) {
+        throw { code: "CONFIRM_REQUIRED", message: "删除钱包文件需要用户明确确认" };
+      }
+      Object.assign(store, {
+        exists: false,
+        locked: true,
+        wallets: [],
+        activeId: null,
+        contacts: [],
+        password: DEMO_PASSWORD,
+        hint: `演示口令：${DEMO_PASSWORD}`,
       });
       persist();
       return null;

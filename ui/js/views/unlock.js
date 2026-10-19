@@ -1,9 +1,9 @@
 /** Lock screen. Shows the vault hint, handles the cool-down after repeated
  *  wrong passwords, and explains that the file cannot be recovered. */
 
-import { api } from "../api.js";
-import { escapeHtml } from "../format.js";
-import { icon, setBusy } from "../ui.js";
+import { api } from "../api.js?v=7";
+import { escapeHtml } from "../format.js?v=7";
+import { confirmDialog, icon, setBusy, toast } from "../ui.js?v=7";
 
 export function render(ctx) {
   const status = ctx.state.status ?? {};
@@ -41,6 +41,7 @@ export function render(ctx) {
           <p class="error-text" id="unlock-error" hidden></p>
           <button class="btn btn-primary btn-block" id="unlock" type="button">解锁</button>
           <p class="hint">密码只用于解密本机钱包文件，忘记密码无法找回，只能删除钱包后重新导入助记词或重建口令钱包。</p>
+          <button class="btn btn-ghost btn-block" id="forgot-password" type="button">忘记密码？删除本机钱包文件</button>
         </div>
       </div></section>`,
 
@@ -48,6 +49,7 @@ export function render(ctx) {
       const input = root.querySelector("#unlock-password");
       const error = root.querySelector("#unlock-error");
       const button = root.querySelector("#unlock");
+      const forgot = root.querySelector("#forgot-password");
 
       const unlock = async () => {
         const password = input.value;
@@ -97,6 +99,31 @@ export function render(ctx) {
       });
       input.addEventListener("input", () => input.removeAttribute("aria-invalid"));
       setTimeout(() => input.focus(), 40);
+
+      /* 忘记密码：文件无法解密，只能删除后重建。删除前必须讲清后果。 */
+      forgot.addEventListener("click", async () => {
+        const confirmed = await confirmDialog({
+          title: "删除本机钱包文件？",
+          body: `<p>此操作会<strong>永久删除</strong>本机的钱包文件，无法撤销，也无法再找回其中的助记词与口令。</p>
+                 <p>如果这个钱包已经在链上转入过资金，请先记住助记词或口令，用另一个钱包恢复资产，再来这里删除。</p>
+                 <p>删除后会回到创建界面，你可以重新导入助记词或重建口令钱包。</p>`,
+          confirmText: "永久删除",
+          cancelText: "我再想想",
+          danger: true,
+        });
+        if (!confirmed) return;
+        setBusy(forgot, true, "删除中…");
+        try {
+          await api.resetVault();
+          toast("本机钱包文件已删除", "info");
+          ctx.setWallet(null);
+          ctx.refreshStatus?.();
+          ctx.go("onboarding");
+        } catch (failure) {
+          setBusy(forgot, false);
+          toast(failure.message, "error");
+        }
+      });
 
       return () => clearInterval(countdownTimer);
     },

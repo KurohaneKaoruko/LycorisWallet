@@ -985,16 +985,10 @@
   }
 
   .tabs {
-    /* 横向滚动更顺滑，隐藏滚动条，加右侧渐隐提示 */
+    /* 横向滚动更顺滑；滚动条已在 theme.css 隐藏，两侧渐隐由 .has-left/.has-right 控制 */
     gap: 7px;
     scroll-snap-type: x proximity;
-    scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
-  }
-
-  .tabs::-webkit-scrollbar {
-    display: none;
   }
 
   .tabs .tab {

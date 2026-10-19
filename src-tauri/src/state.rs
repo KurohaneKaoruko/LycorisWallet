@@ -214,6 +214,29 @@ impl AppState {
         session.clear();
     }
 
+    /// Delete the wallet file and drop the session.
+    ///
+    /// This is the escape hatch for a forgotten password: the file is
+    /// encrypted with a key that only the password can derive, so without it
+    /// the file is unreadable anyway. The caller must make the consequences
+    /// explicit to the user before calling this.
+    pub fn reset_vault(&self) -> CoreResult<()> {
+        let path = self.vault_path();
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        let mut session = self.session();
+        session.vault = None;
+        session.key = None;
+        session.data = None;
+        session.active = None;
+        session.summaries.clear();
+        session.failures = 0;
+        session.locked_until = 0;
+        session.last_active = now();
+        Ok(())
+    }
+
     pub fn touch(&self) {
         let mut session = self.session();
         if session.is_unlocked() {
@@ -543,6 +566,32 @@ mod tests {
         state.lock_now();
         let again = state.unlock("correct horse battery").unwrap();
         assert!(again.contacts.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reset_vault_removes_the_file_and_the_session() {
+        let dir = temp_dir("reset");
+        let state = AppState::new(&dir);
+        state
+            .create(passphrase("a quiet garden at dusk"), "correct horse battery", None, None)
+            .unwrap();
+        assert!(state.status().exists);
+        assert!(state.vault_path().exists());
+
+        // The "password lost" escape hatch wipes the file and the session.
+        state.reset_vault().unwrap();
+        assert!(!state.status().exists);
+        assert!(!state.vault_path().exists());
+        assert!(state.wallet().is_err());
+
+        // A fresh vault can be created afterwards.
+        state
+            .create(passphrase("a quiet garden at dusk"), "correct horse battery", None, None)
+            .unwrap();
+        assert!(state.status().exists);
+        assert!(!state.status().locked);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -40,6 +40,8 @@ const ICONS = {
   plus: '<path d="M12 5.4v13.2M5.4 12h13.2"/>',
   search: '<circle cx="11" cy="11" r="6.2"/><path d="m15.6 15.6 3.8 3.8"/>',
   chevronLeft: '<path d="M14.5 6.5 9 12l5.5 5.5"/>',
+  chevronRight: '<path d="M9.5 6.5 15 12l-5.5 5.5"/>',
+  menu: '<path d="M4.5 7h15M4.5 12h15M4.5 17h15"/>',
   clock: '<circle cx="12" cy="12" r="8.4"/><path d="M12 7.8V12l3 1.8"/>',
   sparkle:
     '<path d="M12 4.4l1.7 4.6 4.6 1.7-4.6 1.7L12 17l-1.7-4.6L5.7 10.7l4.6-1.7L12 4.4Z"/><path d="M18.6 16.4l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z"/>',

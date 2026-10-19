@@ -853,6 +853,7 @@
 
 /* --------------------------------------------------------------- responsive */
 
+/* 平板/窄桌面：侧栏收窄为图标 */
 @media (max-width: 900px) {
   :root {
     --rail-w: 64px;
@@ -882,4 +883,291 @@
     grid-column: 2;
     justify-content: flex-start;
   }
+}
+
+/* ------------------------------------------------------------- mobile shell */
+
+/* 手机：侧栏变成底部标签栏，内容区占满全宽 */
+@media (max-width: 760px) {
+  :root {
+    --rail-w: 0px;
+    --titlebar-h: 46px;
+  }
+
+  .titlebar {
+    padding-left: 12px;
+    /* 状态栏刘海/圆角 */
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .tb-title {
+    display: none;
+  }
+
+  .tb-center {
+    justify-content: flex-start;
+    font-size: 12px;
+  }
+
+  .shell {
+    flex-direction: column;
+  }
+
+  .rail {
+    width: 100%;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 2px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-right: 0;
+    border-top: 1px solid var(--hair);
+    background: color-mix(in srgb, var(--paper-raised) 94%, transparent);
+    backdrop-filter: blur(10px);
+    overflow-x: auto;
+    overflow-y: hidden;
+    order: 2; /* 移到底部 */
+  }
+
+  .rail-group,
+  .rail-foot {
+    display: none;
+  }
+
+  .rail-item {
+    flex: 1 1 0;
+    min-width: 56px;
+    flex-direction: column;
+    gap: 3px;
+    padding: 7px 4px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 10.5px;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .rail-item span {
+    display: block;
+  }
+
+  .rail-item svg {
+    width: 20px;
+    height: 20px;
+    flex-basis: auto;
+  }
+
+  .stage {
+    order: 1;
+    flex: 1;
+    padding: 16px 14px calc(20px + env(safe-area-inset-bottom));
+    -webkit-overflow-scrolling: touch;
+  }
+
+  h1 {
+    font-size: 21px;
+  }
+
+  h2 {
+    font-size: 17px;
+  }
+
+  .page-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  /* 触控目标：所有胶囊 tab 与小按钮加高 */
+  .tab {
+    padding: 9px 14px;
+    font-size: 13px;
+  }
+
+  .tabs {
+    /* 横向滚动更顺滑，隐藏滚动条，加右侧渐隐提示 */
+    gap: 7px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tabs .tab {
+    scroll-snap-align: start;
+  }
+
+  /* 总览资产行：窄屏改两行布局，余额右对齐 */
+  .asset-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "mark main balance"
+      "mark sub balance";
+    row-gap: 3px;
+    align-items: center;
+  }
+
+  .asset-row > .asset-mark {
+    grid-area: mark;
+    align-self: start;
+    margin-top: 2px;
+  }
+
+  .asset-row > div:nth-child(2) {
+    grid-area: main;
+    min-width: 0;
+  }
+
+  .asset-row > div:nth-child(2) .asset-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .asset-row > div:nth-child(3) {
+    display: none;
+  }
+
+  .asset-row > .asset-balance {
+    grid-area: balance;
+    text-align: right;
+    align-self: center;
+  }
+
+  /* 输入 16px 起，避免 iOS 聚焦自动放大 */
+  .input,
+  .textarea,
+  .select {
+    font-size: 16px;
+  }
+
+  /* 小按钮触控加高（32 → 38px），仍小于常规按钮保持层级 */
+  .btn-sm {
+    min-height: 38px;
+  }
+
+  /* toast 避开底部标签栏 */
+  .toasts {
+    right: 12px;
+    left: 12px;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    align-items: flex-end;
+  }
+
+  .kv-value,
+  .kv-key {
+    font-size: 12.5px;
+  }
+
+  /* 弹窗在小屏改为底部抽屉 */
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+    max-height: 86vh;
+    align-self: end;
+    border-bottom: 0;
+  }
+
+  .modal-backdrop {
+    place-items: end center;
+    padding: 0;
+    align-items: end;
+  }
+
+  .modal-foot {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+
+  /* 表格类横向滚动容器 */
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .send-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .receive-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .contact-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero .total {
+    font-size: 30px;
+  }
+
+  .hero-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  /* 触摸滚动时的悬停态清理 */
+  .asset-row:hover,
+  .wallet-row:hover {
+    background: transparent;
+  }
+
+  .wallet-row.is-active:hover {
+    background: var(--vermilion-tint);
+  }
+}
+
+/* 极窄屏（<360px）：进一步压缩 */
+@media (max-width: 359px) {
+  .rail-item {
+    min-width: 48px;
+    font-size: 10px;
+  }
+
+  .hero .total {
+    font-size: 26px;
+  }
+}
+
+/* ---------------------------------------------------------- 更多 抽屉列表 */
+
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.more-item span {
+  flex: 1;
+}
+
+.more-item svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--ink-3);
+}
+
+.more-item:hover {
+  background: var(--hair);
+}
+
+.more-item.is-current {
+  color: var(--vermilion);
+  font-weight: 600;
 }

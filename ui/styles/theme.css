@@ -302,6 +302,11 @@ code,
   border-right: 1px solid var(--hair);
   background: color-mix(in srgb, var(--paper-inset) 55%, transparent);
   overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
 }
 
 .rail-group {

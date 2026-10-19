@@ -2,7 +2,7 @@
 
 import { api, hasTauri, isMock, listen } from "./api.js";
 import { escapeHtml } from "./format.js";
-import { icon, toast } from "./ui.js";
+import { icon, openModal, toast } from "./ui.js";
 import { render as renderActivity } from "./views/activity.js";
 import { render as renderContacts } from "./views/contacts.js";
 import { render as renderDashboard } from "./views/dashboard.js";
@@ -70,6 +70,16 @@ const state = {
 let cleanup = null;
 let portfolioFetch = null;
 let lastTouch = 0;
+let compactRail = window.matchMedia("(max-width: 760px)").matches;
+
+// 桌面侧栏 ↔ 手机底部标签栏：跨越断点时重建导航。
+const compactQuery = window.matchMedia("(max-width: 760px)");
+compactQuery.addEventListener?.("change", (event) => {
+  if (event.matches !== compactRail) {
+    compactRail = event.matches;
+    if (state.wallet) renderRail();
+  }
+});
 
 const ctx = { state, go, setWallet, refreshPortfolio, applyTheme, lockNow };
 
@@ -114,23 +124,76 @@ function syncChrome() {
 }
 
 function renderRail() {
+  const compact = compactRail;
+  if (!compact) {
+    rail.innerHTML =
+      RAIL_GROUPS.map(
+        (group) => `<div class="rail-group">${escapeHtml(group.label)}</div>
+          ${group.items
+            .map(
+              (item) =>
+                `<button class="rail-item" type="button" data-view="${item.id}">${icon(
+                  item.icon,
+                )}<span>${escapeHtml(item.label)}</span></button>`,
+            )
+            .join("")}`,
+      ).join("") +
+      `<div class="rail-foot">Lycoris Wallet v${VERSION}<br />${
+        isMock ? "演示模式 · 数据不会离开浏览器" : "密钥仅保存在本机"
+      }</div>`;
+    rail.querySelectorAll(".rail-item").forEach((button) => {
+      button.addEventListener("click", () => go(button.dataset.view));
+    });
+    return;
+  }
+
+  // 手机底部标签栏：常用四项 + 「更多」抽屉
+  const primary = ["dashboard", "receive", "send", "activity"];
+  const primaryItems = RAIL_GROUPS.flatMap((group) => group.items).filter((item) =>
+    primary.includes(item.id),
+  );
+  const moreItems = RAIL_GROUPS.flatMap((group) => group.items).filter(
+    (item) => !primary.includes(item.id),
+  );
   rail.innerHTML =
-    RAIL_GROUPS.map(
-      (group) => `<div class="rail-group">${escapeHtml(group.label)}</div>
-        ${group.items
+    primaryItems
+      .map(
+        (item) =>
+          `<button class="rail-item" type="button" data-view="${item.id}">${icon(
+            item.icon,
+          )}<span>${escapeHtml(item.label)}</span></button>`,
+      )
+      .join("") +
+    `<button class="rail-item" type="button" data-more aria-expanded="false">${icon(
+      "menu",
+    )}<span>更多</span></button>`;
+  rail.querySelectorAll(".rail-item[data-view]").forEach((button) => {
+    button.addEventListener("click", () => go(button.dataset.view));
+  });
+  rail.querySelector("[data-more]")?.addEventListener("click", () => {
+    const current = state.view;
+    openModal(
+      `<h2>更多</h2><div class="stack-sm" style="margin-top:12px">
+        ${moreItems
           .map(
             (item) =>
-              `<button class="rail-item" type="button" data-view="${item.id}">${icon(
+              `<button class="more-item${item.id === current ? " is-current" : ""}" type="button" data-view="${item.id}">${icon(
                 item.icon,
-              )}<span>${escapeHtml(item.label)}</span></button>`,
+              )}<span>${escapeHtml(item.label)}</span>${icon("chevronRight")}</button>`,
           )
-          .join("")}`,
-    ).join("") +
-    `<div class="rail-foot">Lycoris Wallet v${VERSION}<br />${
-      isMock ? "演示模式 · 数据不会离开浏览器" : "密钥仅保存在本机"
-    }</div>`;
-  rail.querySelectorAll(".rail-item").forEach((button) => {
-    button.addEventListener("click", () => go(button.dataset.view));
+          .join("")}
+      </div>`,
+      {
+        onMount(element, close) {
+          element.querySelectorAll("[data-view]").forEach((button) => {
+            button.addEventListener("click", () => {
+              close();
+              go(button.dataset.view);
+            });
+          });
+        },
+      },
+    );
   });
 }
 

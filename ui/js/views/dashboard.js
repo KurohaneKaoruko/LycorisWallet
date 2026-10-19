@@ -20,7 +20,7 @@ export function render(ctx) {
 
   const total = portfolio ? (currency === "cny" ? portfolio.totalCny : portfolio.totalUsd) : null;
   const assetRows = loading
-    ? Array.from({ length: 6 })
+    ? Array.from({ length: 13 })
         .map(
           () =>
             `<div class="asset-row"><div class="skeleton" style="width:32px;height:32px;border-radius:50%"></div>

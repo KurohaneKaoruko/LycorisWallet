@@ -1,9 +1,9 @@
 /** Onboarding: choose a wallet mode, then either a BIP-39 mnemonic or a
  *  hashed passphrase, and finally encrypt everything behind a local password. */
 
-import { api } from "../api.js?v=8";
-import { escapeHtml, shortAddress, copyText } from "../format.js?v=8";
-import { bindCopy, debounce, icon, setBusy, toast } from "../ui.js?v=8";
+import { api } from "../api.js?v=10";
+import { escapeHtml, shortAddress, copyText } from "../format.js?v=10";
+import { bindCopy, debounce, icon, setBusy, toast } from "../ui.js?v=10";
 
 const STEPS = ["选择模式", "生成密钥", "设置密码"];
 
@@ -384,7 +384,7 @@ function paintPassphrase(body, local, ctx, state) {
         <p class="hint" id="derivation-hint">${
           local.derivation === "isolated"
             ? '消息 = "lycoris/v1/&lt;链名&gt;\\0" + 口令，每条链的私钥都不同。'
-            : "直接哈希口令本身。Ethereum / BNB Chain / Polygon 使用同一算法，会得到同一把私钥。"
+            : "直接哈希口令本身。Ethereum / Ethereum Classic / BNB Chain / Polygon 使用同一算法，会得到同一把私钥。"
         }</p>
       </div>
 

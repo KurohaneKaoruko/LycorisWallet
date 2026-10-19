@@ -63,6 +63,7 @@ pub fn run() {
             commands::switch_wallet,
             commands::rename_wallet,
             commands::delete_wallet,
+            commands::reset_vault,
             commands::generate_mnemonic,
             commands::preview_derivation,
             commands::reveal_mnemonic,

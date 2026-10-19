@@ -1,17 +1,17 @@
 /** Application shell: boot sequence, router, rail, titlebar and auto-lock. */
 
-import { api, hasTauri, isMock, listen } from "./api.js";
-import { escapeHtml } from "./format.js";
-import { icon, openModal, toast } from "./ui.js";
-import { render as renderActivity } from "./views/activity.js";
-import { render as renderContacts } from "./views/contacts.js";
-import { render as renderDashboard } from "./views/dashboard.js";
-import { render as renderOnboarding } from "./views/onboarding.js";
-import { render as renderReceive } from "./views/receive.js";
-import { render as renderSend } from "./views/send.js";
-import { render as renderSettings } from "./views/settings.js";
-import { render as renderUnlock } from "./views/unlock.js";
-import { render as renderWallets } from "./views/wallets.js";
+import { api, hasTauri, isMock, listen } from "./api.js?v=7";
+import { escapeHtml } from "./format.js?v=7";
+import { icon, openModal, toast } from "./ui.js?v=7";
+import { render as renderActivity } from "./views/activity.js?v=7";
+import { render as renderContacts } from "./views/contacts.js?v=7";
+import { render as renderDashboard } from "./views/dashboard.js?v=7";
+import { render as renderOnboarding } from "./views/onboarding.js?v=7";
+import { render as renderReceive } from "./views/receive.js?v=7";
+import { render as renderSend } from "./views/send.js?v=7";
+import { render as renderSettings } from "./views/settings.js?v=7";
+import { render as renderUnlock } from "./views/unlock.js?v=7";
+import { render as renderWallets } from "./views/wallets.js?v=7";
 
 const VERSION = "0.1.0";
 const PORTFOLIO_TTL = 60; // seconds
@@ -81,7 +81,18 @@ compactQuery.addEventListener?.("change", (event) => {
   }
 });
 
-const ctx = { state, go, setWallet, refreshPortfolio, applyTheme, lockNow };
+/** Re-read the vault status. Needed after the wallet file is deleted. */
+async function refreshStatus() {
+  try {
+    state.status = await api.vaultStatus();
+  } catch (error) {
+    state.status = { exists: false, locked: true, hasHint: false, hint: null, label: null };
+  }
+  syncChrome();
+  return state.status;
+}
+
+const ctx = { state, go, setWallet, refreshPortfolio, refreshStatus, applyTheme, lockNow };
 
 /* ------------------------------------------------------------------ router */
 

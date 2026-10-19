@@ -5,7 +5,7 @@
  * (or adding `?mock=1`) switches to an in-memory mock so the interface can be
  * developed and reviewed without building the desktop app. */
 
-import { mockCall } from "./mock.js";
+import { mockCall } from "./mock.js?v=7";
 
 const tauri = globalThis.__TAURI__;
 const forceMock = new URLSearchParams(location.search).has("mock");
@@ -90,6 +90,7 @@ export const api = {
   qrSvg: (text, dark, light) => call("qr_svg", { text, dark, light }),
   openExternal: (url) => call("open_external", { url }),
   deleteVault: (password) => call("delete_vault", { password }),
+  resetVault: () => call("reset_vault", { confirm: true }),
   touchSession: () => call("touch_session"),
   windowMinimize: () => call("window_minimize"),
   windowToggleMaximize: () => call("window_toggle_maximize"),

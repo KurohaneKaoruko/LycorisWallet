@@ -1,6 +1,6 @@
 /** Shared UI primitives: icons, toasts, modals, password prompts. */
 
-import { copyText, escapeHtml } from "./format.js";
+import { copyText, escapeHtml } from "./format.js?v=7";
 
 const ICONS = {
   dashboard:
@@ -241,5 +241,28 @@ export function debounce(fn, delay = 320) {
   return (...args) => {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delay);
+  };
+}
+
+/**
+ * Polish a horizontally scrollable chip row: the native scrollbar is hidden
+ * (it is ugly on Windows) and the overflow is hinted with a soft fade on
+ * whichever side still has content.
+ */
+export function enhanceTabScroll(container) {
+  if (!container) return () => {};
+  const update = () => {
+    const overflow = container.scrollWidth - container.clientWidth;
+    const left = container.scrollLeft;
+    container.classList.toggle("has-left", left > 4);
+    container.classList.toggle("has-right", overflow > 4 && left < overflow - 4);
+  };
+  container.addEventListener("scroll", update, { passive: true });
+  const observer = new ResizeObserver(update);
+  observer.observe(container);
+  update();
+  return () => {
+    container.removeEventListener("scroll", update);
+    observer.disconnect();
   };
 }

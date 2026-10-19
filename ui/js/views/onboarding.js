@@ -1,9 +1,9 @@
 /** Onboarding: choose a wallet mode, then either a BIP-39 mnemonic or a
  *  hashed passphrase, and finally encrypt everything behind a local password. */
 
-import { api } from "../api.js?v=7";
-import { escapeHtml, shortAddress, copyText } from "../format.js?v=7";
-import { bindCopy, debounce, icon, setBusy, toast } from "../ui.js?v=7";
+import { api } from "../api.js?v=8";
+import { escapeHtml, shortAddress, copyText } from "../format.js?v=8";
+import { bindCopy, debounce, icon, setBusy, toast } from "../ui.js?v=8";
 
 const STEPS = ["选择模式", "生成密钥", "设置密码"];
 
@@ -93,7 +93,7 @@ function paintMode(body, local, ctx, state) {
       </button>
     </div>
     <div class="note note-warn" style="margin-top:18px">${icon("warn")}
-      <div>口令钱包把安全性完全交给这句话：太短或太常见的口令会被暴力猜测。请使用足够长、只有你记得的句子，并先转入少量资产验证地址正确。</div>
+      <div>口令钱包把安全性完全交给这句话：太短或太常见的口令会被暴力猜测。请使用足够长、只有你记得的句子。</div>
     </div>`;
 
   body.querySelectorAll("[data-mode]").forEach((button) => {

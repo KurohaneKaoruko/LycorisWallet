@@ -1,0 +1,8 @@
+# Line endings: LF in the repository and in the working tree.
+# The project targets Linux/macOS builds as well, so keep the tree identical
+# on every platform and silence core.autocrlf churn.
+* text=auto eol=lf
+
+# Binary assets: never text-normalise.
+*.png binary
+*.ico binary

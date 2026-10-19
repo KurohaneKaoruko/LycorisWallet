@@ -1,0 +1,27 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Tauri
+/src-tauri/target
+/src-tauri/gen
+/src-tauri/.tauri
+
+# Frontend / tooling
+node_modules
+dist
+.DS_Store
+Thumbs.db
+
+# Hidden directories (editor/tool caches, etc.) — never commit dot-dirs
+.*/
+
+# Local secrets and runtime data
+*.vault
+vault.json
+.env
+.env.*
+
+# Screenshots / scratch
+/screenshots
+/scratch

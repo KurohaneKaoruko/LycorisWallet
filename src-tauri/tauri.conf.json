@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lycoris Wallet",
+  "version": "0.1.0",
+  "identifier": "com.lycoris.wallet",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Lycoris Wallet",
+        "width": 1180,
+        "height": 780,
+        "minWidth": 940,
+        "minHeight": 660,
+        "resizable": true,
+        "center": true,
+        "decorations": false,
+        "visible": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost; font-src 'self' data:; base-uri 'none'; form-action 'none'",
+      "freezePrototype": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "deb", "appimage"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "category": "Finance",
+    "shortDescription": "本地优先的多链钱包",
+    "longDescription": "Lycoris Wallet 是一个本地优先的多链钱包：助记词走标准 BIP-39/BIP-32/SLIP-0010 路径，口令模式用每条链自己的哈希算法直接把一句话变成私钥。所有密钥与签名都留在本机。",
+    "windows": {
+      "nsis": {
+        "languages": ["SimpChinese", "English"]
+      }
+    }
+  }
+}

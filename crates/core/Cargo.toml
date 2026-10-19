@@ -16,6 +16,7 @@ ripemd.workspace = true
 hmac.workspace = true
 k256.workspace = true
 ed25519-dalek.workspace = true
+curve25519-dalek.workspace = true
 rand.workspace = true
 bip39.workspace = true
 bech32.workspace = true

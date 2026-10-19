@@ -20,6 +20,7 @@ ripemd = "0.1"
 hmac = "0.12"
 k256 = { version = "0.13", features = ["ecdsa", "arithmetic", "std"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
+curve25519-dalek = { version = "4", features = ["digest"] }
 rand = "0.8"
 bip39 = { version = "2.2", features = ["rand", "zeroize", "all-languages"] }
 bech32 = "0.11"

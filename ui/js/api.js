@@ -22,10 +22,30 @@ function normalizeError(error) {
   return { code: "ERROR", message: String(error ?? "未知错误") };
 }
 
+/** 链开关：仅过滤 UI 展示的账户，密钥派生不受影响。空数组/未设置 = 全部显示。 */
+export function applyVisibleChains(wallet, visibleChains) {
+  if (!Array.isArray(visibleChains) || visibleChains.length === 0 || !Array.isArray(wallet?.accounts)) {
+    return wallet;
+  }
+  return { ...wallet, accounts: wallet.accounts.filter((a) => visibleChains.includes(a.chain)) };
+}
+
 export async function call(command, args = {}) {
-  if (isMock) return mockCall(command, args);
+  const unwrap = (result) =>
+    command === "wallet" ? applyVisibleChains(result, result?.settings?.visibleChains) : result;
+  if (isMock) return unwrap(await mockCall(command, args));
   try {
-    return await tauri.core.invoke(command, args);
+    return unwrap(await tauri.core.invoke(command, args));
+  } catch (error) {
+    throw normalizeError(error);
+  }
+}
+
+/** 未应用链开关过滤的完整钱包视图（设置页的链开关需要全量列表）。 */
+export async function walletFull() {
+  if (isMock) return mockCall("wallet", {});
+  try {
+    return await tauri.core.invoke("wallet", {});
   } catch (error) {
     throw normalizeError(error);
   }

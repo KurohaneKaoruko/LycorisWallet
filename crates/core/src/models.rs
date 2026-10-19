@@ -35,6 +35,9 @@ pub struct Settings {
     pub hide_balances: bool,
     pub auto_lock_minutes: u32,
     pub price_service: bool,
+    /// UI 展示的链（链开关）。空 = 全部显示；派生始终覆盖全部链。
+    #[serde(default)]
+    pub visible_chains: Vec<ChainId>,
 }
 
 impl Default for Settings {
@@ -45,6 +48,7 @@ impl Default for Settings {
             hide_balances: false,
             auto_lock_minutes: 5,
             price_service: true,
+            visible_chains: Vec::new(),
         }
     }
 }

@@ -155,9 +155,16 @@ function explorerUrlFor(chain, address, accountExplorer) {
   const table = {
     bitcoin: "https://mempool.space/address/",
     litecoin: "https://litecoinspace.org/address/",
+    dogecoin: "https://blockchair.com/dogecoin/address/",
+    bitcoincash: "https://blockchair.com/bitcoin-cash/address/",
     ethereum: "https://etherscan.io/address/",
+    "ethereum-classic": "https://blockscout.com/etc/mainnet/address/",
     bsc: "https://bscscan.com/address/",
     polygon: "https://polygonscan.com/address/",
+    arbitrum: "https://arbiscan.io/address/",
+    optimism: "https://optimistic.etherscan.io/address/",
+    base: "https://basescan.org/address/",
+    avalanche: "https://snowtrace.io/address/",
     solana: "https://solscan.io/account/",
   };
   const base = accountExplorer?.startsWith("http") ? accountExplorer : table[chain] ?? table.bitcoin;

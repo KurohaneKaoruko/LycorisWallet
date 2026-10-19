@@ -1,7 +1,6 @@
 use crate::chains::ChainId;
 use crate::error::{Error, Result};
-use bech32::{segwit, Hrp};
-use k256::elliptic_curve::sec1::ToEncodedPoint;
+use bech32::{segwit, Hrp};use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::SecretKey;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
@@ -153,11 +152,19 @@ pub fn parse_evm_address(address: &str) -> Result<[u8; 20]> {
 
 pub fn validate_address(chain: ChainId, address: &str) -> Result<()> {
     match chain {
-        ChainId::Ethereum | ChainId::Bsc | ChainId::Polygon => {
-            parse_evm_address(address).map(|_| ())
-        }
+        ChainId::Ethereum
+        | ChainId::EthereumClassic
+        | ChainId::Bsc
+        | ChainId::Polygon
+        | ChainId::Arbitrum
+        | ChainId::Optimism
+        | ChainId::Base
+        | ChainId::Avalanche => parse_evm_address(address).map(|_| ()),
         ChainId::Solana => parse_solana_address(address).map(|_| ()),
-        ChainId::Bitcoin | ChainId::Litecoin => validate_utxo_address(chain, address),
+        ChainId::Bitcoin
+        | ChainId::Litecoin
+        | ChainId::Dogecoin
+        | ChainId::BitcoinCash => validate_utxo_address(chain, address),
     }
 }
 
@@ -253,6 +260,86 @@ pub fn wif(secret: &SecretKey, chain: ChainId) -> Result<String> {
     Ok(bs58::encode(data).with_check().into_string())
 }
 
+/* ---------------------------------------------------------------- cashaddr */
+
+const CASHADDR_CHARSET: &[u8] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+
+/// Polymod over the BCH cashaddr generator matrix (see the cashaddr spec).
+fn cashaddr_polymod(values: &[u8]) -> u64 {
+    const GENERATORS: [u64; 5] = [
+        0x98f2_bc8e_61,
+        0x79b7_6d99_e2,
+        0xf33e_5fb3_c4,
+        0xae2e_abe2_a8,
+        0x1e4f_43e4_70,
+    ];
+    let mut c: u64 = 1;
+    for value in values {
+        let c0 = c >> 35;
+        c = ((c & 0x07ff_ffff_ffff) << 5) ^ u64::from(*value);
+        for (index, mask) in GENERATORS.iter().enumerate() {
+            if (c0 >> index) & 1 == 1 {
+                c ^= mask;
+            }
+        }
+    }
+    c ^ 1
+}
+
+fn cashaddr_data(payload: &[u8], version: u8) -> Vec<u8> {
+    // The payload is `version byte || hash` converted to 5-bit groups, msb
+    // first, padded to a full group with zeroes.
+    let mut bits: Vec<bool> = Vec::with_capacity(8 + payload.len() * 8);
+    for index in (0..8).rev() {
+        bits.push((version >> index) & 1 == 1);
+    }
+    for byte in payload {
+        for index in (0..8).rev() {
+            bits.push((*byte >> index) & 1 == 1);
+        }
+    }
+    while bits.len() % 5 != 0 {
+        bits.push(false);
+    }
+    bits.chunks(5)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .fold(0u8, |acc, bit| (acc << 1) | u8::from(*bit))
+        })
+        .collect()
+}
+
+/// Encode a hash160 payload as a BCH cashaddr string (`prefix:address`).
+pub fn cashaddr_encode(hash160: &[u8], prefix: &str) -> Result<String> {
+    if hash160.len() != 20 {
+        return Err(Error::InvalidAddress(
+            "cashaddr payload must be 20 bytes".into(),
+        ));
+    }
+    let prefix_lower: Vec<u8> = prefix.bytes().map(|b| b.to_ascii_lowercase()).collect();
+    let data = cashaddr_data(hash160, 0);
+    let mut values: Vec<u8> = Vec::with_capacity(prefix_lower.len() + 1 + data.len() + 8);
+    for byte in &prefix_lower {
+        values.push(byte & 0x1f);
+    }
+    values.push(0);
+    values.extend_from_slice(&data);
+    // The checksum covers eight zero groups that hold the result.
+    values.extend_from_slice(&[0u8; 8]);
+    let checksum = cashaddr_polymod(&values);
+    let mut body = String::new();
+    for value in &data {
+        body.push(CASHADDR_CHARSET[*value as usize] as char);
+    }
+    let mut checksum_chars = String::new();
+    for index in (0..8).rev() {
+        checksum_chars.push(CASHADDR_CHARSET[((checksum >> (index * 5)) & 0x1f) as usize] as char);
+    }
+    let prefix_text: String = prefix.chars().map(|c| c.to_ascii_lowercase()).collect();
+    Ok(format!("{prefix_text}:{body}{checksum_chars}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,5 +366,17 @@ mod tests {
         let decoded = decode_base58check(&encoded).unwrap();
         assert_eq!(decoded[0], 0x00);
         assert_eq!(&decoded[1..], &[0x11; 20]);
+    }
+
+    #[test]
+    fn cashaddr_known_vector() {
+        // Official test vector from the cashaddr specification: 20-byte
+        // P2PKH payload F5BF…DAC9 on mainnet.
+        let hash = hex::decode("f5bf48b397dae70be82b3cca4793f8eb2b6cdac9").unwrap();
+        let encoded = cashaddr_encode(&hash, "bitcoincash").unwrap();
+        assert_eq!(
+            encoded,
+            "bitcoincash:qr6m7j9njldwwzlg9v7v53unlr4jkmx6eylep8ekg2"
+        );
     }
 }

@@ -52,7 +52,9 @@ export function render(ctx, params = {}) {
             .map(
               (item) => `<button class="tab" role="tab" data-chain="${item.chain}" aria-selected="${
                 item.chain === local.chain
-              }"><span class="dot" style="--accent:${item.accent}"></span>${escapeHtml(item.symbol)}</button>`,
+              }" ${item.sendSupported === false ? 'data-coming="1" title="转账即将支持"' : ""}><span class="dot" style="--accent:${item.accent}"></span>${escapeHtml(item.symbol)}${
+                item.sendSupported === false ? '<span class="tab-soon">即将</span>' : ""
+              }</button>`,
             )
             .join("")}
         </div>
@@ -406,6 +408,10 @@ function placeholderFor(chain) {
       return "bc1q…";
     case "litecoin":
       return "ltc1q…";
+    case "dogecoin":
+      return "D…（Base58）";
+    case "bitcoincash":
+      return "bitcoincash:q…";
     case "solana":
       return "Base58 地址";
     default:
@@ -417,9 +423,16 @@ function accentFor(chain) {
   const table = {
     bitcoin: "#F7931A",
     litecoin: "#345D9D",
+    dogecoin: "#C2A633",
+    bitcoincash: "#8DC351",
     ethereum: "#627EEA",
+    "ethereum-classic": "#3AB83A",
     bsc: "#F3BA2F",
     polygon: "#8247E5",
+    arbitrum: "#12AAFF",
+    optimism: "#FF0420",
+    base: "#0052FF",
+    avalanche: "#E84142",
     solana: "#14F195",
   };
   return table[chain] ?? "var(--ink-3)";

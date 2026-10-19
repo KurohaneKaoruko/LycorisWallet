@@ -124,9 +124,16 @@ export function chainAccent(chain) {
   const table = {
     bitcoin: "#F7931A",
     litecoin: "#345D9D",
+    dogecoin: "#C2A633",
+    bitcoincash: "#8DC351",
     ethereum: "#627EEA",
+    "ethereum-classic": "#3AB83A",
     bsc: "#F3BA2F",
     polygon: "#8247E5",
+    arbitrum: "#12AAFF",
+    optimism: "#FF0420",
+    base: "#0052FF",
+    avalanche: "#E84142",
     solana: "#14F195",
   };
   return table[chain] ?? "var(--ink-3)";

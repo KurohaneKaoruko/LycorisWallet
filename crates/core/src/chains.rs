@@ -1,26 +1,41 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// The chains supported by the first release. Every chain in this list has
-/// full receive support, and all of them can sign native transfers.
+/// The supported chains. Every chain in this list has full receive support,
+/// and all of them can sign native transfers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChainId {
     Bitcoin,
     Litecoin,
+    Dogecoin,
+    BitcoinCash,
     Ethereum,
+    #[serde(rename = "ethereum-classic")]
+    EthereumClassic,
     Bsc,
     Polygon,
+    Arbitrum,
+    Optimism,
+    Base,
+    Avalanche,
     Solana,
 }
 
 impl ChainId {
-    pub const ALL: [ChainId; 6] = [
+    pub const ALL: [ChainId; 13] = [
         ChainId::Bitcoin,
         ChainId::Litecoin,
+        ChainId::Dogecoin,
+        ChainId::BitcoinCash,
         ChainId::Ethereum,
+        ChainId::EthereumClassic,
         ChainId::Bsc,
         ChainId::Polygon,
+        ChainId::Arbitrum,
+        ChainId::Optimism,
+        ChainId::Base,
+        ChainId::Avalanche,
         ChainId::Solana,
     ];
 
@@ -59,6 +74,40 @@ impl ChainId {
                 rpc: "https://litecoinspace.org/api",
                 price_id: "litecoin",
                 send_note: "Native SegWit (Bech32)",
+            },
+            ChainId::Dogecoin => ChainInfo {
+                id: self,
+                name: "Dogecoin",
+                symbol: "DOGE",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Scrypt,
+                bip44_coin: 3,
+                derivation_path: "m/44'/3'/0'/0/0",
+                accent: "#C2A633",
+                explorer: "https://blockchair.com/dogecoin",
+                explorer_tx: "https://blockchair.com/dogecoin/transaction/",
+                explorer_address: "https://blockchair.com/dogecoin/address/",
+                rpc: "https://api.blockchair.com/dogecoin",
+                price_id: "dogecoin",
+                send_note: "Legacy P2PKH (Base58)",
+            },
+            ChainId::BitcoinCash => ChainInfo {
+                id: self,
+                name: "Bitcoin Cash",
+                symbol: "BCH",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Sha256,
+                bip44_coin: 145,
+                derivation_path: "m/44'/145'/0'/0/0",
+                accent: "#8DC351",
+                explorer: "https://blockchair.com/bitcoin-cash",
+                explorer_tx: "https://blockchair.com/bitcoin-cash/transaction/",
+                explorer_address: "https://blockchair.com/bitcoin-cash/address/",
+                rpc: "https://api.blockchair.com/bitcoin-cash",
+                price_id: "bitcoin-cash",
+                send_note: "Legacy P2PKH / cashaddr",
             },
             ChainId::Ethereum => ChainInfo {
                 id: self,
@@ -111,6 +160,91 @@ impl ChainId {
                 price_id: "polygon-ecosystem-token",
                 send_note: "EIP-1559",
             },
+            ChainId::Arbitrum => ChainInfo {
+                id: self,
+                name: "Arbitrum One",
+                symbol: "ETH",
+                decimals: 18,
+                kind: ChainKind::Evm,
+                hash: HashAlgorithm::Keccak256,
+                bip44_coin: 60,
+                derivation_path: "m/44'/60'/0'/0/0",
+                accent: "#12AAFF",
+                explorer: "https://arbiscan.io",
+                explorer_tx: "https://arbiscan.io/tx/",
+                explorer_address: "https://arbiscan.io/address/",
+                rpc: "https://arbitrum-one-rpc.publicnode.com",
+                price_id: "ethereum",
+                send_note: "EIP-1559",
+            },
+            ChainId::Optimism => ChainInfo {
+                id: self,
+                name: "OP Mainnet",
+                symbol: "ETH",
+                decimals: 18,
+                kind: ChainKind::Evm,
+                hash: HashAlgorithm::Keccak256,
+                bip44_coin: 60,
+                derivation_path: "m/44'/60'/0'/0/0",
+                accent: "#FF0420",
+                explorer: "https://optimistic.etherscan.io",
+                explorer_tx: "https://optimistic.etherscan.io/tx/",
+                explorer_address: "https://optimistic.etherscan.io/address/",
+                rpc: "https://optimism-rpc.publicnode.com",
+                price_id: "ethereum",
+                send_note: "EIP-1559",
+            },
+            ChainId::Base => ChainInfo {
+                id: self,
+                name: "Base",
+                symbol: "ETH",
+                decimals: 18,
+                kind: ChainKind::Evm,
+                hash: HashAlgorithm::Keccak256,
+                bip44_coin: 60,
+                derivation_path: "m/44'/60'/0'/0/0",
+                accent: "#0052FF",
+                explorer: "https://basescan.org",
+                explorer_tx: "https://basescan.org/tx/",
+                explorer_address: "https://basescan.org/address/",
+                rpc: "https://base-rpc.publicnode.com",
+                price_id: "ethereum",
+                send_note: "EIP-1559",
+            },
+            ChainId::Avalanche => ChainInfo {
+                id: self,
+                name: "Avalanche C-Chain",
+                symbol: "AVAX",
+                decimals: 18,
+                kind: ChainKind::Evm,
+                hash: HashAlgorithm::Keccak256,
+                bip44_coin: 60,
+                derivation_path: "m/44'/60'/0'/0/0",
+                accent: "#E84142",
+                explorer: "https://snowtrace.io",
+                explorer_tx: "https://snowtrace.io/tx/",
+                explorer_address: "https://snowtrace.io/address/",
+                rpc: "https://avalanche-c-chain-rpc.publicnode.com",
+                price_id: "avalanche-2",
+                send_note: "EIP-1559",
+            },
+            ChainId::EthereumClassic => ChainInfo {
+                id: self,
+                name: "Ethereum Classic",
+                symbol: "ETC",
+                decimals: 18,
+                kind: ChainKind::Evm,
+                hash: HashAlgorithm::Keccak256,
+                bip44_coin: 61,
+                derivation_path: "m/44'/61'/0'/0/0",
+                accent: "#3AB83A",
+                explorer: "https://blockscout.com/etc/mainnet",
+                explorer_tx: "https://blockscout.com/etc/mainnet/tx/",
+                explorer_address: "https://blockscout.com/etc/mainnet/address/",
+                rpc: "https://etc.rubypass.workers.dev",
+                price_id: "ethereum-classic",
+                send_note: "Legacy gas · EIP-155 replay protection",
+            },
             ChainId::Solana => ChainInfo {
                 id: self,
                 name: "Solana",
@@ -142,20 +276,46 @@ impl ChainId {
         match self {
             ChainId::Bitcoin => "bitcoin",
             ChainId::Litecoin => "litecoin",
+            ChainId::Dogecoin => "dogecoin",
+            ChainId::BitcoinCash => "bitcoincash",
             ChainId::Ethereum => "ethereum",
+            ChainId::EthereumClassic => "ethereum-classic",
             ChainId::Bsc => "bsc",
             ChainId::Polygon => "polygon",
+            ChainId::Arbitrum => "arbitrum",
+            ChainId::Optimism => "optimism",
+            ChainId::Base => "base",
+            ChainId::Avalanche => "avalanche",
             ChainId::Solana => "solana",
         }
     }
 
+    /// EIP-155 chain id used for signing and replay protection.
     pub fn evm_chain_id(self) -> Option<u64> {
         match self {
             ChainId::Ethereum => Some(1),
+            ChainId::EthereumClassic => Some(61),
             ChainId::Bsc => Some(56),
             ChainId::Polygon => Some(137),
+            ChainId::Arbitrum => Some(42161),
+            ChainId::Optimism => Some(10),
+            ChainId::Base => Some(8453),
+            ChainId::Avalanche => Some(43114),
             _ => None,
         }
+    }
+
+    /// True when the chain supports EIP-1559 fee logic end to end.
+    pub fn supports_eip1559(self) -> bool {
+        matches!(
+            self,
+            ChainId::Ethereum
+                | ChainId::Polygon
+                | ChainId::Arbitrum
+                | ChainId::Optimism
+                | ChainId::Base
+                | ChainId::Avalanche
+        )
     }
 
     pub fn utxo_params(self) -> Option<UtxoParams> {
@@ -171,6 +331,18 @@ impl ChainId {
                 p2pkh_version: 0x30,
                 p2sh_version: 0x32,
                 wif_version: 0xb0,
+            }),
+            ChainId::Dogecoin => Some(UtxoParams {
+                hrp: "doge",
+                p2pkh_version: 0x1e,
+                p2sh_version: 0x16,
+                wif_version: 0x9e,
+            }),
+            ChainId::BitcoinCash => Some(UtxoParams {
+                hrp: "bitcoincash",
+                p2pkh_version: 0x00,
+                p2sh_version: 0x05,
+                wif_version: 0x80,
             }),
             _ => None,
         }
@@ -248,7 +420,9 @@ pub struct ChainInfo {
 
 impl ChainInfo {
     pub fn send_supported(&self) -> bool {
-        true
+        // Legacy-P2PKH signing for Dogecoin / Bitcoin Cash lands in a follow-up
+        // change; receive and history already work.
+        !matches!(self.id, ChainId::Dogecoin | ChainId::BitcoinCash)
     }
 }
 

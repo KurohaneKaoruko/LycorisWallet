@@ -14,7 +14,7 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
 - **多钱包管理**：同一个加密文件里可以保存多个钱包（助记词 / 口令混搭），共用一个本地密码；
   支持新建、导入、重命名、切换与删除（删除需密码确认），交易记录按钱包隔离，地址簿与设置全局共享。
   旧版单钱包文件在解锁时自动迁移到新格式。
-- **六条链**：Bitcoin、Litecoin、Ethereum、BNB Chain、Polygon、Solana。
+- **十三条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Arbitrum One、OP Mainnet、Base、Avalanche C-Chain、Solana。
 - **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 / UTXO P2WPKH / Solana 系统转账）、交易记录、地址簿。
 - **本地加密**：Argon2id + XChaCha20-Poly1305 加密的钱包文件，自动锁定、密码尝试冷却。
 - **演示模式**：`ui/index.html?mock=1` 在浏览器里用内存假数据预览完整界面，不需要 Rust 后端。
@@ -25,10 +25,19 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
 | --- | --- | --- | --- | --- |
 | Bitcoin | BTC | SHA-256 | `m/84'/0'/0'/0/0` | bech32（P2WPKH） |
 | Litecoin | LTC | scrypt（N=16384, r=8, p=1） | `m/84'/2'/0'/0/0` | bech32（P2WPKH） |
+| Dogecoin | DOGE | scrypt（N=16384, r=8, p=1） | `m/44'/3'/0'/0/0` | base58（P2PKH） |
+| Bitcoin Cash | BCH | SHA-256 | `m/44'/145'/0'/0/0` | cashaddr |
 | Ethereum | ETH | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
+| Ethereum Classic | ETC | Keccak-256 | `m/44'/61'/0'/0/0` | EIP-55 |
 | BNB Chain | BNB | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 | Polygon | POL | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
+| Arbitrum One | ETH | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
+| OP Mainnet | ETH | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
+| Base | ETH | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
+| Avalanche C-Chain | AVAX | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 | Solana | SOL | SHA-256 → ed25519 | `m/44'/501'/0'/0'` | base58 |
+
+> Dogecoin / Bitcoin Cash 的收款与余额查询已可用，转账签名（legacy P2PKH / SIGHASH-FORKID）在下一轮加入。
 
 ### 口令派生规则
 
@@ -101,8 +110,8 @@ cargo clippy --all-targets
 交易签名字节级对照（需要 Python：`eth-account`、`coincurve`、`solders`）：
 
 ```bash
-cargo run -q -p lycoris-core --example tx_fixtures > /tmp/fixtures.json
-python tools/verify_tx.py             # 独立实现逐字节比对，输出 all fixtures match
+cargo run -q -p lycoris-core --example tx_fixtures > out/fixtures.json
+python tools/verify_tx.py out/fixtures.json   # 独立实现逐字节比对，输出 all fixtures match
 ```
 
 二维码矩阵用独立解码器回读（需要 Python：`pillow`、`pyzbar`；另装 `segno` 会追加尺寸对照）：
@@ -110,6 +119,8 @@ python tools/verify_tx.py             # 独立实现逐字节比对，输出 all
 ```bash
 python tools/verify_qr.py             # 自行调用 qr_fixtures 示例，输出 all QR fixtures decode
 ```
+
+> 验证产物（fixtures、解码位图、日志等）统一放在 `out/` 目录，该目录已被 `.gitignore` 排除，不会误提交。
 
 ## 已知限制
 

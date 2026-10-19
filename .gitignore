@@ -25,3 +25,6 @@ vault.json
 # Screenshots / scratch
 /screenshots
 /scratch
+
+# Verification artifacts (fixtures, decoded rasters, logs) — never commit
+/out

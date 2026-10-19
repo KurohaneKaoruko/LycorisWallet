@@ -86,10 +86,15 @@ async fn load_prices(
 ) -> HashMap<String, HashMap<String, f64>> {
     let ids: Vec<&str> = match chain {
         Some(chain) => vec![chain.info().price_id],
-        None => ChainId::ALL
-            .iter()
-            .map(|chain| chain.info().price_id)
-            .collect(),
+        None => {
+            let mut ids: Vec<&str> = ChainId::ALL
+                .iter()
+                .map(|chain| chain.info().price_id)
+                .collect();
+            ids.sort_unstable();
+            ids.dedup();
+            ids
+        }
     };
     prices::fetch_prices(client, &ids, &["usd", "cny"])
         .await
@@ -389,17 +394,17 @@ async fn evm_quote(
     address::parse_evm_address(to)?;
     let adapter = EvmClient::new(client.clone(), info.rpc);
     let balance = adapter.balance(address).await?;
-    let base_fee = if matches!(chain, ChainId::Ethereum | ChainId::Polygon) {
+    let base_fee = if chain.supports_eip1559() {
         adapter.latest_base_fee().await?
     } else {
         None
     };
-    let priority = if matches!(chain, ChainId::Ethereum | ChainId::Polygon) {
+    let priority = if chain.supports_eip1559() {
         adapter.max_priority_fee().await?
     } else {
         None
     };
-    let gas_price = if matches!(chain, ChainId::Ethereum | ChainId::Polygon) {
+    let gas_price = if chain.supports_eip1559() {
         None
     } else {
         Some(adapter.gas_price().await?)
@@ -503,6 +508,12 @@ pub async fn quote(state: &AppState, request: &QuoteRequest) -> ApiResult<SendQu
     // Fail fast (and loudly) if the vault locked itself mid-session.
     state.active_secret()?;
     let info = request.chain.info();
+    if !info.send_supported() {
+        return Err(ApiError::new(
+            "SEND_UNSUPPORTED",
+            format!("{} 的转账功能即将支持，收款地址已可用", info.name),
+        ));
+    }
     let client = lycoris_core::network::http_client();
     let amount = parse_amount(&request.amount, info.decimals)?;
 

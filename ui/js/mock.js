@@ -8,54 +8,96 @@
 const CHAINS = [
   { id: "bitcoin", name: "Bitcoin", symbol: "BTC", decimals: 8, accent: "#F7931A", kind: "utxo" },
   { id: "litecoin", name: "Litecoin", symbol: "LTC", decimals: 8, accent: "#345D9D", kind: "utxo" },
+  { id: "dogecoin", name: "Dogecoin", symbol: "DOGE", decimals: 8, accent: "#C2A633", kind: "utxo" },
+  { id: "bitcoincash", name: "Bitcoin Cash", symbol: "BCH", decimals: 8, accent: "#8DC351", kind: "utxo" },
   { id: "ethereum", name: "Ethereum", symbol: "ETH", decimals: 18, accent: "#627EEA", kind: "evm" },
+  { id: "ethereum-classic", name: "Ethereum Classic", symbol: "ETC", decimals: 18, accent: "#3AB83A", kind: "evm" },
   { id: "bsc", name: "BNB Chain", symbol: "BNB", decimals: 18, accent: "#F3BA2F", kind: "evm" },
   { id: "polygon", name: "Polygon", symbol: "POL", decimals: 18, accent: "#8247E5", kind: "evm" },
+  { id: "arbitrum", name: "Arbitrum One", symbol: "ETH", decimals: 18, accent: "#12AAFF", kind: "evm" },
+  { id: "optimism", name: "OP Mainnet", symbol: "ETH", decimals: 18, accent: "#FF0420", kind: "evm" },
+  { id: "base", name: "Base", symbol: "ETH", decimals: 18, accent: "#0052FF", kind: "evm" },
+  { id: "avalanche", name: "Avalanche C-Chain", symbol: "AVAX", decimals: 18, accent: "#E84142", kind: "evm" },
   { id: "solana", name: "Solana", symbol: "SOL", decimals: 9, accent: "#14F195", kind: "ed25519" },
 ];
 
 const PRICES = {
   bitcoin: { usd: 96320.5, cny: 692450.0 },
   litecoin: { usd: 118.42, cny: 851.3 },
+  dogecoin: { usd: 0.1284, cny: 0.923 },
+  bitcoincash: { usd: 486.7, cny: 3500.2 },
   ethereum: { usd: 3182.7, cny: 22880.4 },
+  "ethereum-classic": { usd: 24.18, cny: 173.8 },
   bsc: { usd: 642.18, cny: 4616.9 },
   polygon: { usd: 0.5124, cny: 3.683 },
+  arbitrum: { usd: 3182.7, cny: 22880.4 },
+  optimism: { usd: 3182.7, cny: 22880.4 },
+  base: { usd: 3182.7, cny: 22880.4 },
+  avalanche: { usd: 38.42, cny: 276.2 },
   solana: { usd: 187.63, cny: 1348.9 },
 };
 
 const BALANCES = {
   bitcoin: 42_186_400n,
   litecoin: 152_300_000n,
+  dogecoin: 88_400_000_000n,
+  bitcoincash: 1_260_000_000n,
   ethereum: 512_400_000_000_000_000n,
+  "ethereum-classic": 96_200_000_000_000_000_000n,
   bsc: 1_240_000_000_000_000_000n,
   polygon: 486_000_000_000_000_000_000n,
+  arbitrum: 820_000_000_000_000_000n,
+  optimism: 640_000_000_000_000_000n,
+  base: 1_180_000_000_000_000_000n,
+  avalanche: 2_460_000_000_000_000_000n,
   solana: 8_420_000_000n,
 };
 
 const ALGOS = {
   bitcoin: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
   litecoin: ["scrypt", "N=16384, r=8, p=1 · 32 字节摘要"],
+  dogecoin: ["scrypt", "N=16384, r=8, p=1 · 32 字节摘要"],
+  bitcoincash: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
   ethereum: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
+  "ethereum-classic": ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   bsc: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   polygon: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
+  arbitrum: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
+  optimism: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
+  base: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
+  avalanche: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   solana: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
 };
 
 const PATHS = {
   bitcoin: "m/84'/0'/0'/0/0",
   litecoin: "m/84'/2'/0'/0/0",
+  dogecoin: "m/44'/3'/0'/0/0",
+  bitcoincash: "m/44'/145'/0'/0/0",
   ethereum: "m/44'/60'/0'/0/0",
+  "ethereum-classic": "m/44'/61'/0'/0/0",
   bsc: "m/44'/60'/0'/0/0",
   polygon: "m/44'/60'/0'/0/0",
+  arbitrum: "m/44'/60'/0'/0/0",
+  optimism: "m/44'/60'/0'/0/0",
+  base: "m/44'/60'/0'/0/0",
+  avalanche: "m/44'/60'/0'/0/0",
   solana: "m/44'/501'/0'/0'",
 };
 
 const TX_EXPLORERS = {
   bitcoin: "https://mempool.space/tx/",
   litecoin: "https://litecoinspace.org/tx/",
+  dogecoin: "https://blockchair.com/dogecoin/transaction/",
+  bitcoincash: "https://blockchair.com/bitcoin-cash/transaction/",
   ethereum: "https://etherscan.io/tx/",
+  "ethereum-classic": "https://blockscout.com/etc/mainnet/tx/",
   bsc: "https://bscscan.com/tx/",
   polygon: "https://polygonscan.com/tx/",
+  arbitrum: "https://arbiscan.io/tx/",
+  optimism: "https://optimistic.etherscan.io/tx/",
+  base: "https://basescan.org/tx/",
+  avalanche: "https://snowtrace.io/tx/",
   solana: "https://solscan.io/tx/",
 };
 
@@ -100,6 +142,10 @@ function fakeAddress(chain, seedText) {
       return `bc1q${pick(rand, BASE32, 38)}`;
     case "litecoin":
       return `ltc1q${pick(rand, BASE32, 38)}`;
+    case "dogecoin":
+      return `D${pick(rand, BASE58, 33)}`;
+    case "bitcoincash":
+      return `bitcoincash:q${pick(rand, BASE32, 34)}`;
     case "solana":
       return pick(rand, BASE58, 44);
     default:
@@ -250,7 +296,7 @@ function accountsFor(secret) {
       publicKey: `0x${pick(mulberry32(fnv1a(`${chain.id}:${seedText}:pub`)), HEX, 64)}`,
       accent: chain.accent,
       explorerUrl: "#",
-      sendSupported: true,
+      sendSupported: !["dogecoin", "bitcoincash"].includes(chain.id),
       decimals: chain.decimals,
     };
   });
@@ -328,6 +374,9 @@ function levelLabel(level) {
 function quoteFor(request) {
   const chain = CHAINS.find((item) => item.id === request.chain);
   if (!chain) throw { code: "UNSUPPORTED_CHAIN", message: "不支持的链" };
+  if (["dogecoin", "bitcoincash"].includes(chain.id)) {
+    throw { code: "SEND_UNSUPPORTED", message: "该链的转账功能即将支持，收款地址已可用" };
+  }
   if (!request.to || request.to.length < 12) {
     throw { code: "INVALID_ADDRESS", message: "地址格式不正确" };
   }
@@ -336,7 +385,7 @@ function quoteFor(request) {
   const price = PRICES[chain.id].usd;
 
   const feeBase =
-    chain.id === "bitcoin" || chain.id === "litecoin"
+    chain.kind === "utxo"
       ? 2_400n
       : chain.id === "solana"
         ? 5_000n
@@ -377,7 +426,16 @@ function quoteFor(request) {
     feeOptions: levels,
     canSend,
     warning: canSend ? null : "可用余额不足以支付金额与手续费",
-    note: chain.kind === "utxo" ? "原生 SegWit（Bech32）" : chain.kind === "evm" ? "EIP-1559 · 21,000 gas" : "Ed25519 系统转账",
+    note:
+      chain.kind === "utxo"
+        ? chain.id === "dogecoin"
+          ? "Legacy P2PKH（转账即将支持）"
+          : chain.id === "bitcoincash"
+            ? "cashaddr（转账即将支持）"
+            : "原生 SegWit（Bech32）"
+        : chain.kind === "evm"
+          ? "EIP-1559 · 21,000 gas"
+          : "Ed25519 系统转账",
   };
 }
 

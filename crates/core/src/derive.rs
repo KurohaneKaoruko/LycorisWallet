@@ -1,5 +1,6 @@
 use crate::address::{
-    compressed_pubkey, evm_address, p2wpkh_address, solana_address, uncompressed_pubkey,
+    cashaddr_encode, compressed_pubkey, evm_address, p2pkh_address, p2wpkh_address,
+    solana_address, uncompressed_pubkey,
 };
 use crate::bip32;
 use crate::chains::{ChainId, ChainKind};
@@ -285,9 +286,22 @@ fn account_from_secp(
             let params = chain.utxo_params().expect("utxo params");
             p2wpkh_address(&compressed_pubkey(key), params.hrp)?
         }
-        ChainId::Ethereum | ChainId::Bsc | ChainId::Polygon => {
-            evm_address(&uncompressed_pubkey(key))?
+        ChainId::Dogecoin => {
+            let params = chain.utxo_params().expect("utxo params");
+            p2pkh_address(&compressed_pubkey(key), params.p2pkh_version)
         }
+        ChainId::BitcoinCash => {
+            let params = chain.utxo_params().expect("utxo params");
+            cashaddr_encode(&crate::address::hash160(&compressed_pubkey(key)), params.hrp)?
+        }
+        ChainId::Ethereum
+        | ChainId::EthereumClassic
+        | ChainId::Bsc
+        | ChainId::Polygon
+        | ChainId::Arbitrum
+        | ChainId::Optimism
+        | ChainId::Base
+        | ChainId::Avalanche => evm_address(&uncompressed_pubkey(key))?,
         ChainId::Solana => return Err(Error::UnsupportedChain(chain.to_string())),
     };
     Ok(Account {
@@ -606,5 +620,85 @@ mod tests {
             .unwrap();
         let bsc = accounts.iter().find(|a| a.chain == ChainId::Bsc).unwrap();
         assert_eq!(eth.address, bsc.address);
+    }
+
+    #[test]
+    fn bip39_extended_chain_vectors() {
+        // Independent vectors generated with bip_utils (BIP-44 account 0,
+        // external index 0) for the mnemonic used across the test suite.
+        let mnemonic = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+        let secret = WalletSecret::new_mnemonic(mnemonic).unwrap();
+        let accounts = derive_accounts(&secret).unwrap();
+        let address = |chain: ChainId| {
+            accounts
+                .iter()
+                .find(|a| a.chain == chain)
+                .unwrap()
+                .address
+                .clone()
+        };
+
+        // EVM L2s share the m/44'/60' key, so they reuse the ETH address.
+        let eth = address(ChainId::Ethereum);
+        assert_eq!(eth, "0x58A57ed9d8d624cBD12e2C467D34787555bB1b25");
+        for chain in [
+            ChainId::Bsc,
+            ChainId::Polygon,
+            ChainId::Arbitrum,
+            ChainId::Optimism,
+            ChainId::Base,
+            ChainId::Avalanche,
+        ] {
+            assert_eq!(address(chain), eth, "{chain:?} must share the ETH address");
+        }
+        // Ethereum Classic uses its own coin type 61.
+        assert_eq!(
+            address(ChainId::EthereumClassic),
+            "0x80857C0c11b30003Cf74F99Ed4D68DA41C7224aa"
+        );
+        // Legacy P2PKH (base58) and cashaddr formats.
+        assert_eq!(
+            address(ChainId::Dogecoin),
+            "DMM78DyiwEPzWmykiQQUFcPcUv13YPe2ZK"
+        );
+        assert_eq!(
+            address(ChainId::BitcoinCash),
+            "bitcoincash:qpdtccrxx78kcuc65mceurfwg60gmmqu9cwpjdt25n"
+        );
+    }
+
+    #[test]
+    fn passphrase_extended_chains_are_isolated() {
+        let secret =
+            WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated)
+                .unwrap();
+        let accounts = derive_accounts(&secret).unwrap();
+        let find = |chain: ChainId| accounts.iter().find(|a| a.chain == chain).unwrap();
+        // Keccak chains in isolated mode mix the chain name into the message,
+        // so every EVM chain gets its own key.
+        let eth = find(ChainId::Ethereum).address.clone();
+        for chain in [
+            ChainId::Bsc,
+            ChainId::Polygon,
+            ChainId::Arbitrum,
+            ChainId::Optimism,
+            ChainId::Base,
+            ChainId::Avalanche,
+            ChainId::EthereumClassic,
+        ] {
+            assert_ne!(
+                find(chain).address,
+                eth,
+                "{chain:?} must differ from Ethereum in isolated mode"
+            );
+        }
+        // Dogecoin shares the scrypt parameters with Litecoin but is still a
+        // different chain name, hence a different key.
+        assert_ne!(
+            find(ChainId::Dogecoin).address,
+            find(ChainId::Litecoin).address
+        );
+        assert!(!find(ChainId::Dogecoin).send_supported);
+        assert!(!find(ChainId::BitcoinCash).send_supported);
     }
 }

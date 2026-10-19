@@ -194,6 +194,7 @@ pub struct PrivateKeyMaterial {
 enum PrivateKeyInner {
     Secp(SecretKey),
     Ed25519([u8; 32]),
+    Monero(crate::cryptonote::MoneroKeys),
 }
 
 impl std::fmt::Debug for PrivateKeyMaterial {
@@ -210,6 +211,7 @@ impl Drop for PrivateKeyMaterial {
         if let PrivateKeyInner::Ed25519(bytes) = &mut self.inner {
             bytes.zeroize();
         }
+        // MoneroKeys zeroises itself in its own Drop impl.
     }
 }
 
@@ -244,6 +246,15 @@ impl PrivateKeyMaterial {
                 pair[32..].copy_from_slice(signing.verifying_key().as_bytes());
                 let encoded = bs58::encode(pair).into_string();
                 pair.zeroize();
+                Ok(encoded)
+            }
+            PrivateKeyInner::Monero(keys) => {
+                // Monero wallets conventionally export `spend‖view` hex.
+                let mut raw = [0u8; 64];
+                raw[..32].copy_from_slice(&keys.private_spend);
+                raw[32..].copy_from_slice(&keys.private_view);
+                let encoded = hex::encode(raw);
+                raw.zeroize();
                 Ok(encoded)
             }
         }
@@ -297,12 +308,10 @@ fn account_from_secp(
         ChainId::Ethereum
         | ChainId::EthereumClassic
         | ChainId::Bsc
-        | ChainId::Polygon
-        | ChainId::Arbitrum
-        | ChainId::Optimism
-        | ChainId::Base
-        | ChainId::Avalanche => evm_address(&uncompressed_pubkey(key))?,
-        ChainId::Solana => return Err(Error::UnsupportedChain(chain.to_string())),
+        | ChainId::Polygon => evm_address(&uncompressed_pubkey(key))?,
+        ChainId::Solana | ChainId::Monero => {
+            return Err(Error::UnsupportedChain(chain.to_string()))
+        }
     };
     Ok(Account {
         chain,
@@ -352,6 +361,33 @@ fn account_from_ed25519(
     })
 }
 
+fn account_from_monero(
+    chain: ChainId,
+    keys: &crate::cryptonote::MoneroKeys,
+    path: &str,
+    derivation: &str,
+    hash_algorithm: &str,
+    hash_detail: &str,
+) -> Result<Account> {
+    let info = chain.info();
+    Ok(Account {
+        chain,
+        name: info.name.to_string(),
+        symbol: info.symbol.to_string(),
+        address: keys.primary_address(),
+        path: path.to_string(),
+        derivation: derivation.to_string(),
+        hash_algorithm: hash_algorithm.to_string(),
+        hash_detail: hash_detail.to_string(),
+        address_format: info.kind.address_format().to_string(),
+        public_key: hex::encode(keys.public_spend),
+        accent: info.accent.to_string(),
+        explorer_url: info.explorer_address.to_string(),
+        send_supported: info.send_supported(),
+        decimals: info.decimals,
+    })
+}
+
 pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
     secret.validate()?;
     match secret {
@@ -367,10 +403,10 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                         let algorithm = match info.kind {
                             ChainKind::Utxo => "BIP-32 / BIP-84",
                             ChainKind::Evm => "BIP-32 / BIP-44",
-                            ChainKind::Ed25519 => unreachable!(),
+                            ChainKind::Ed25519 | ChainKind::Cryptonote => unreachable!(),
                         };
                         let detail = if chain == ChainId::Bsc || chain == ChainId::Polygon {
-                            "BIP-44 coin 60 · shared EVM account"
+                            "BIP-44 coin 60 · 与 Ethereum 共享账户"
                         } else {
                             "BIP-39 seed · standard path"
                         };
@@ -392,6 +428,26 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                             "BIP-39 / SLIP-0010",
                             "SLIP-0010 ed25519",
                             "Hardened ed25519 derivation",
+                        )?);
+                    }
+                    ChainKind::Cryptonote => {
+                        // SLIP-10 ed25519-kholaw (Monero's unclamped variant),
+                        // then the standard spend/view expansion:
+                        // spend = reduce(Keccak(kL ‖ kR)), view = reduce(Keccak(spend)).
+                        let mut k64 = [0u8; 64];
+                        k64.copy_from_slice(&crate::slip10::derive_kholaw_path(
+                            &seed,
+                            info.derivation_path,
+                        )?);
+                        let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+                        k64.zeroize();
+                        accounts.push(account_from_monero(
+                            chain,
+                            &keys,
+                            info.derivation_path,
+                            "BIP-39 / SLIP-0010 kholaw",
+                            "Keccak-256 · CryptoNote",
+                            "spend = reduce(kholaw) · view = reduce(Keccak(spend))",
                         )?);
                     }
                 }
@@ -431,6 +487,17 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                             info.hash.label(),
                         )?);
                     }
+                    ChainKind::Cryptonote => {
+                        let keys = crate::cryptonote::MoneroKeys::from_spend_seed(&digest);
+                        accounts.push(account_from_monero(
+                            chain,
+                            &keys,
+                            path,
+                            info.hash.label(),
+                            info.hash.detail(),
+                            "spend = reduce(H(phrase)) · view = reduce(Keccak(spend))",
+                        )?);
+                    }
                 }
             }
             Ok(accounts)
@@ -460,6 +527,16 @@ pub fn derive_private_key(secret: &WalletSecret, chain: ChainId) -> Result<Priva
                         inner: PrivateKeyInner::Ed25519(derived.key),
                     })
                 }
+                ChainKind::Cryptonote => {
+                    let mut k64 = [0u8; 64];
+                    k64.copy_from_slice(&slip10::derive_kholaw_path(&seed, info.derivation_path)?);
+                    let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+                    k64.zeroize();
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Monero(keys),
+                    })
+                }
             }
         }
         WalletSecret::Passphrase { phrase, derivation } => {
@@ -472,6 +549,12 @@ pub fn derive_private_key(secret: &WalletSecret, chain: ChainId) -> Result<Priva
                 ChainKind::Ed25519 => Ok(PrivateKeyMaterial {
                     chain,
                     inner: PrivateKeyInner::Ed25519(digest),
+                }),
+                ChainKind::Cryptonote => Ok(PrivateKeyMaterial {
+                    chain,
+                    inner: PrivateKeyInner::Monero(
+                        crate::cryptonote::MoneroKeys::from_spend_seed(&digest),
+                    ),
                 }),
             }
         }
@@ -638,17 +721,10 @@ mod tests {
                 .clone()
         };
 
-        // EVM L2s share the m/44'/60' key, so they reuse the ETH address.
+        // EVM chains sharing coin type 60 reuse the ETH address.
         let eth = address(ChainId::Ethereum);
         assert_eq!(eth, "0x58A57ed9d8d624cBD12e2C467D34787555bB1b25");
-        for chain in [
-            ChainId::Bsc,
-            ChainId::Polygon,
-            ChainId::Arbitrum,
-            ChainId::Optimism,
-            ChainId::Base,
-            ChainId::Avalanche,
-        ] {
+        for chain in [ChainId::Bsc, ChainId::Polygon] {
             assert_eq!(address(chain), eth, "{chain:?} must share the ETH address");
         }
         // Ethereum Classic uses its own coin type 61.
@@ -665,6 +741,12 @@ mod tests {
             address(ChainId::BitcoinCash),
             "bitcoincash:qpdtccrxx78kcuc65mceurfwg60gmmqu9cwpjdt25n"
         );
+        // CryptoNote dual-key address (SLIP-10 kholaw m/44'/128'/0'/0/0,
+        // spend = reduce(Keccak(kL ‖ kR)) — verified against bip_utils).
+        assert_eq!(
+            address(ChainId::Monero),
+            "46XrxrAa5aXcfkFrdSACS2EfmfxHdJkXLcGuDD2ezLNFfrfMgBJPoP5NAEz3N9WSJuhPox5S78AY3PGVeZQczueyDDT66tY"
+        );
     }
 
     #[test]
@@ -680,10 +762,6 @@ mod tests {
         for chain in [
             ChainId::Bsc,
             ChainId::Polygon,
-            ChainId::Arbitrum,
-            ChainId::Optimism,
-            ChainId::Base,
-            ChainId::Avalanche,
             ChainId::EthereumClassic,
         ] {
             assert_ne!(

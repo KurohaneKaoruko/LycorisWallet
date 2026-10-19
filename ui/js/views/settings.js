@@ -1,10 +1,13 @@
 /** Settings: wallet identity, backups, appearance, security, danger zone. */
 
-import { api } from "../api.js";
+import { api, walletFull } from "../api.js";
 import { copyText, escapeHtml, formatDateTime } from "../format.js";
 import { askPassword, bindCopy, confirmDialog, icon, openModal, setBusy, toast } from "../ui.js";
 
 const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 60];
+
+/** 链开关计算用的全量链 id（顺序无关，仅用于集合运算）。 */
+const ALL_CHAINS = [];
 
 export function render(ctx) {
   return {
@@ -20,20 +23,26 @@ export function render(ctx) {
 
     mount(root) {
       const container = root.querySelector("#settings-root");
-      const paint = () => {
-        container.innerHTML = markup(ctx);
+      const paint = (allAccounts) => {
+        const accounts = allAccounts ?? ctx.state.wallet?.accounts ?? [];
+        ALL_CHAINS.length = 0;
+        ALL_CHAINS.push(...accounts.map((a) => a.chain));
+        container.innerHTML = markup(ctx, accounts);
         bind(ctx, container, paint);
       };
-      paint();
+      // 链开关需要全量账户列表（state.wallet 已被过滤）
+      walletFull()
+        .then((full) => paint(full?.accounts ?? []))
+        .catch(() => paint());
     },
   };
 }
 
 /* ------------------------------------------------------------------ markup */
 
-function markup(ctx) {
+function markup(ctx, allAccounts = ctx.state.wallet?.accounts ?? []) {
   const wallet = ctx.state.wallet;
-  return `${walletCard(wallet)}${appearanceCard(wallet.settings)}${securityCard(wallet)}${dangerCard()}`;
+  return `${walletCard(wallet)}${chainsCard(wallet, allAccounts)}${appearanceCard(wallet.settings)}${securityCard(wallet)}${dangerCard()}`;
 }
 
 function walletCard(wallet) {
@@ -73,6 +82,32 @@ function walletCard(wallet) {
         ? "助记词是恢复资产的唯一凭证，请离线抄写并妥善保存。"
         : "口令钱包没有助记词：口令一旦忘记，任何人都无法帮你找回。"
     }</p>
+  </div>`;
+}
+
+function chainsCard(wallet, allAccounts) {
+  const visible = wallet.settings?.visibleChains;
+  const isAll = !Array.isArray(visible) || visible.length === 0;
+  return `<div class="card card-pad">
+    <div class="section-title"><h2>链开关</h2></div>
+    <div class="setting-row" style="border-bottom:1px dashed var(--hair)">
+      <div class="text"><div class="name">显示的链</div><div class="desc">关闭只是隐藏入口，地址与密钥仍会为全部 ${allAccounts.length} 条链派生。</div></div>
+      <button class="btn btn-ghost btn-sm" type="button" data-chains-all>全部开启</button>
+    </div>
+    <div class="chain-toggle-list" id="chain-toggle-list">
+      ${allAccounts
+        .map((a) => {
+          const on = isAll || visible.includes(a.chain);
+          return `<div class="chain-toggle-row">
+            <span class="asset-mark" style="--accent:${a.accent}">${escapeHtml(a.symbol.slice(0, 2))}</span>
+            <div class="text" style="flex:1;min-width:0">
+              <div class="name">${escapeHtml(a.name)} <span class="muted small">${escapeHtml(a.symbol)}</span></div>
+            </div>
+            <button class="switch" type="button" role="switch" aria-checked="${on}" data-chain-toggle="${a.chain}" aria-label="显示 ${escapeHtml(a.name)}"></button>
+          </div>`;
+        })
+        .join("")}
+    </div>
   </div>`;
 }
 
@@ -166,12 +201,12 @@ function dangerCard() {
 /* ----------------------------------------------------------------- binding */
 
 function bind(ctx, container, paint) {
-  const patch = async (changes) => {
+  const patch = async (changes, { repaint = true } = {}) => {
     try {
       const next = await api.saveSettings({ ...ctx.state.wallet.settings, ...changes });
       ctx.state.wallet = { ...ctx.state.wallet, settings: next };
       ctx.applyTheme();
-      paint();
+      if (repaint) paint();
     } catch (error) {
       toast(error.message, "error");
       paint();
@@ -195,6 +230,44 @@ function bind(ctx, container, paint) {
   container.querySelector('[data-select="autoLockMinutes"]')?.addEventListener("change", (event) => {
     void patch({ autoLockMinutes: Number(event.target.value) });
   });
+
+  // 链开关：切换单链显示 / 一键全开。
+  // 不整页重绘（连续快速点击会互相覆盖），只翻转开关本体；保存串行排队，
+  // 每次保存读取闭包里最新的 visible 集合，后点击的永远最后落盘。
+  const chainToggles = container.querySelectorAll("[data-chain-toggle]");
+  if (chainToggles.length) {
+    let visible;
+    const raw = ctx.state.wallet.settings.visibleChains;
+    if (Array.isArray(raw) && raw.length > 0) visible = new Set(raw);
+    else visible = new Set(ALL_CHAINS); // null/空 = 全部显示
+
+    let saveQueue = Promise.resolve();
+    const persist = () => {
+      saveQueue = saveQueue.then(() =>
+        patch({ visibleChains: [...visible] }, { repaint: false }),
+      );
+      return saveQueue;
+    };
+    chainToggles.forEach((button) => {
+      button.addEventListener("click", () => {
+        const chain = button.dataset.chainToggle;
+        if (visible.has(chain)) {
+          if (visible.size <= 1) return; // 至少保留一条链
+          visible.delete(chain);
+        } else {
+          visible.add(chain);
+        }
+        button.setAttribute("aria-checked", String(visible.has(chain)));
+        persist();
+      });
+    });
+    container.querySelector("[data-chains-all]")?.addEventListener("click", () => {
+      if (visible.size === ALL_CHAINS.length) return;
+      visible = new Set(ALL_CHAINS);
+      chainToggles.forEach((b) => b.setAttribute("aria-checked", "true"));
+      persist();
+    });
+  }
   container.querySelector('[data-action="rename"]')?.addEventListener("click", () => void rename(ctx, paint));
   container
     .querySelector('[data-action="wallets"]')

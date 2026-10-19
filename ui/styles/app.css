@@ -1132,6 +1132,26 @@
   }
 }
 
+/* ------------------------------------------------------------ 链开关列表 */
+
+.chain-toggle-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 2px 18px;
+}
+
+.chain-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--hair);
+}
+
+.chain-toggle-row .name {
+  font-size: 13px;
+}
+
 /* ---------------------------------------------------------- 更多 抽屉列表 */
 
 .more-item {

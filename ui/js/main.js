@@ -238,8 +238,23 @@ async function refreshPortfolio({ force = false } = {}) {
   portfolioFetch = api
     .refreshPortfolio()
     .then((portfolio) => {
-      state.portfolio = portfolio;
-      return portfolio;
+      // 链开关：总览仅展示可见链，法币总额按可见资产重算
+      const visible = state.wallet?.settings?.visibleChains;
+      if (Array.isArray(visible) && visible.length > 0 && Array.isArray(portfolio?.assets)) {
+        const keep = new Set(visible);
+        const assets = portfolio.assets.filter((a) => keep.has(a.chain));
+        const sum = (key) =>
+          assets.reduce((acc, a) => acc + (typeof a[key] === "number" ? a[key] : 0), 0);
+        state.portfolio = {
+          ...portfolio,
+          assets,
+          totalUsd: assets.some((a) => typeof a.valueUsd === "number") ? sum("valueUsd") : null,
+          totalCny: assets.some((a) => typeof a.valueCny === "number") ? sum("valueCny") : null,
+        };
+      } else {
+        state.portfolio = portfolio;
+      }
+      return state.portfolio;
     })
     .finally(() => {
       state.portfolioLoading = false;

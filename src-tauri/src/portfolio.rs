@@ -149,6 +149,9 @@ async fn fetch_balance(
             .await
             .map(u128::from)
             .map_err(|error| error.to_string()),
+        ChainKind::Cryptonote => Err(format!(
+            "Monero 为隐私链，地址余额需视图密钥扫描本地节点，暂不支持在线查询（地址可正常收款）"
+        )),
     }
 }
 
@@ -485,6 +488,12 @@ async fn quote_fees(
         ChainKind::Utxo => utxo_quote(client, chain, address, to, amount).await,
         ChainKind::Evm => evm_quote(client, chain, address, to, amount).await,
         ChainKind::Ed25519 => solana_quote(client, chain, address, to, amount).await,
+        // Monero send is guarded by send_supported(); reaching this arm
+        // means a stale frontend, so surface a clear error.
+        ChainKind::Cryptonote => Err(ApiError::new(
+            "UNSUPPORTED",
+            "Monero 转账需要环签名，当前版本暂不支持",
+        )),
     }
 }
 
@@ -499,6 +508,7 @@ fn chain_note(chain: ChainId) -> String {
             }
         }
         ChainKind::Ed25519 => "Ed25519 系统转账".to_string(),
+        ChainKind::Cryptonote => "CryptoNote · RingCT（即将支持）".to_string(),
     }
 }
 
@@ -805,6 +815,12 @@ pub async fn send(state: &AppState, request: &SendRequest) -> ApiResult<SendResu
                 &level,
             )
             .await?
+        }
+        ChainKind::Cryptonote => {
+            return Err(ApiError::new(
+                "UNSUPPORTED",
+                "Monero 转账需要环签名，当前版本暂不支持",
+            ))
         }
     };
 

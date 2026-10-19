@@ -14,7 +14,7 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
 - **多钱包管理**：同一个加密文件里可以保存多个钱包（助记词 / 口令混搭），共用一个本地密码；
   支持新建、导入、重命名、切换与删除（删除需密码确认），交易记录按钱包隔离，地址簿与设置全局共享。
   旧版单钱包文件在解锁时自动迁移到新格式。
-- **十三条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Arbitrum One、OP Mainnet、Base、Avalanche C-Chain、Solana。
+- **十条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Solana、Monero。
 - **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 / UTXO P2WPKH / Solana 系统转账）、交易记录、地址簿。
 - **本地加密**：Argon2id + XChaCha20-Poly1305 加密的钱包文件，自动锁定、密码尝试冷却。
 - **演示模式**：`ui/index.html?mock=1` 在浏览器里用内存假数据预览完整界面，不需要 Rust 后端。
@@ -31,13 +31,11 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
 | Ethereum Classic | ETC | Keccak-256 | `m/44'/61'/0'/0/0` | EIP-55 |
 | BNB Chain | BNB | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 | Polygon | POL | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
-| Arbitrum One | ETH | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
-| OP Mainnet | ETH | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
-| Base | ETH | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
-| Avalanche C-Chain | AVAX | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 | Solana | SOL | SHA-256 → ed25519 | `m/44'/501'/0'/0'` | base58 |
+| Monero | XMR | Keccak-256 → CryptoNote | `m/44'/128'/0'/0/0`（SLIP-10 kholaw） | Monero base58 |
 
 > Dogecoin / Bitcoin Cash 的收款与余额查询已可用，转账签名（legacy P2PKH / SIGHASH-FORKID）在下一轮加入。
+> Monero 的收款地址派生已可用；隐私链余额需视图密钥扫描本地节点，转账（RingCT 环签名）在后续版本加入。
 
 ### 口令派生规则
 
@@ -54,6 +52,11 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
 | LTC | `ltc1qg06z6x74fe6f2qyqkfqk7kle8llgty3s78tfql` |
 | ETH | `0x9231e3Fa53ABF00CeC08DB45a7dEDe19f939a0CB` |
 | SOL | `5HeimWLA7nee4kKKL8mWbPjMHPXKYTY6gM43LgMk9Q4a` |
+| XMR | `48zQvBdmMxj9ByEJWD3uPAVdSKJEnJEsMS8ppnVdJXuh5GjcU9wRcuBck7NTZidFd44bFJmpumZRRi5yufFhd3dP7mHe5Eb` |
+
+Monero 口令模式的派生：`spend = sc_reduce32(Keccak-256(message))`、`view = sc_reduce32(Keccak-256(spend))`，
+地址为 CryptoNote 双公钥 + Keccak-4 校验的 Monero base58（与 bip_utils 独立实现互相验证）；
+助记词模式走 SLIP-10 kholaw（ed25519 非强化变体）`m/44'/128'/0'/0/0`，`spend = sc_reduce32(Keccak-256(kL ‖ kR))`。
 
 ## 仓库结构
 

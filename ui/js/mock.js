@@ -14,11 +14,8 @@ const CHAINS = [
   { id: "ethereum-classic", name: "Ethereum Classic", symbol: "ETC", decimals: 18, accent: "#3AB83A", kind: "evm" },
   { id: "bsc", name: "BNB Chain", symbol: "BNB", decimals: 18, accent: "#F3BA2F", kind: "evm" },
   { id: "polygon", name: "Polygon", symbol: "POL", decimals: 18, accent: "#8247E5", kind: "evm" },
-  { id: "arbitrum", name: "Arbitrum One", symbol: "ETH", decimals: 18, accent: "#12AAFF", kind: "evm" },
-  { id: "optimism", name: "OP Mainnet", symbol: "ETH", decimals: 18, accent: "#FF0420", kind: "evm" },
-  { id: "base", name: "Base", symbol: "ETH", decimals: 18, accent: "#0052FF", kind: "evm" },
-  { id: "avalanche", name: "Avalanche C-Chain", symbol: "AVAX", decimals: 18, accent: "#E84142", kind: "evm" },
   { id: "solana", name: "Solana", symbol: "SOL", decimals: 9, accent: "#14F195", kind: "ed25519" },
+  { id: "monero", name: "Monero", symbol: "XMR", decimals: 12, accent: "#FF6600", kind: "cryptonote" },
 ];
 
 const PRICES = {
@@ -30,11 +27,8 @@ const PRICES = {
   "ethereum-classic": { usd: 24.18, cny: 173.8 },
   bsc: { usd: 642.18, cny: 4616.9 },
   polygon: { usd: 0.5124, cny: 3.683 },
-  arbitrum: { usd: 3182.7, cny: 22880.4 },
-  optimism: { usd: 3182.7, cny: 22880.4 },
-  base: { usd: 3182.7, cny: 22880.4 },
-  avalanche: { usd: 38.42, cny: 276.2 },
   solana: { usd: 187.63, cny: 1348.9 },
+  monero: { usd: 176.4, cny: 1269.2 },
 };
 
 const BALANCES = {
@@ -46,11 +40,8 @@ const BALANCES = {
   "ethereum-classic": 96_200_000_000_000_000_000n,
   bsc: 1_240_000_000_000_000_000n,
   polygon: 486_000_000_000_000_000_000n,
-  arbitrum: 820_000_000_000_000_000n,
-  optimism: 640_000_000_000_000_000n,
-  base: 1_180_000_000_000_000_000n,
-  avalanche: 2_460_000_000_000_000_000n,
   solana: 8_420_000_000n,
+  monero: 0n,
 };
 
 const ALGOS = {
@@ -62,11 +53,8 @@ const ALGOS = {
   "ethereum-classic": ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   bsc: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   polygon: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
-  arbitrum: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
-  optimism: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
-  base: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
-  avalanche: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   solana: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
+  monero: ["Keccak-256", "CryptoNote 原生哈希 · 32 字节摘要"],
 };
 
 const PATHS = {
@@ -78,11 +66,8 @@ const PATHS = {
   "ethereum-classic": "m/44'/61'/0'/0/0",
   bsc: "m/44'/60'/0'/0/0",
   polygon: "m/44'/60'/0'/0/0",
-  arbitrum: "m/44'/60'/0'/0/0",
-  optimism: "m/44'/60'/0'/0/0",
-  base: "m/44'/60'/0'/0/0",
-  avalanche: "m/44'/60'/0'/0/0",
   solana: "m/44'/501'/0'/0'",
+  monero: "m/44'/128'/0'/0/0",
 };
 
 const TX_EXPLORERS = {
@@ -94,11 +79,8 @@ const TX_EXPLORERS = {
   "ethereum-classic": "https://blockscout.com/etc/mainnet/tx/",
   bsc: "https://bscscan.com/tx/",
   polygon: "https://polygonscan.com/tx/",
-  arbitrum: "https://arbiscan.io/tx/",
-  optimism: "https://optimistic.etherscan.io/tx/",
-  base: "https://basescan.org/tx/",
-  avalanche: "https://snowtrace.io/tx/",
   solana: "https://solscan.io/tx/",
+  monero: "https://xmrchain.net/tx/",
 };
 
 /* ------------------------------------------------------------------- random */
@@ -148,6 +130,9 @@ function fakeAddress(chain, seedText) {
       return `bitcoincash:q${pick(rand, BASE32, 34)}`;
     case "solana":
       return pick(rand, BASE58, 44);
+    case "monero":
+      // 95-char primary address (4/8 prefix), structure-only fake.
+      return `4${pick(rand, BASE58, 94)}`;
     default:
       return `0x${pick(rand, HEX, 40)}`;
   }
@@ -213,6 +198,7 @@ const store = {
     hideBalances: false,
     autoLockMinutes: 5,
     priceService: true,
+    visibleChains: [],
   },
   contacts: [],
 };
@@ -292,11 +278,18 @@ function accountsFor(secret) {
             : "H_chain(隔离)",
       hashAlgorithm: algorithm,
       hashDetail: detail,
-      addressFormat: chain.id === "solana" ? "base58" : chain.kind === "evm" ? "EIP-55" : "bech32",
+      addressFormat:
+        chain.id === "solana"
+          ? "base58"
+          : chain.id === "monero"
+            ? "Monero base58"
+            : chain.kind === "evm"
+              ? "EIP-55"
+              : "bech32",
       publicKey: `0x${pick(mulberry32(fnv1a(`${chain.id}:${seedText}:pub`)), HEX, 64)}`,
       accent: chain.accent,
       explorerUrl: "#",
-      sendSupported: !["dogecoin", "bitcoincash"].includes(chain.id),
+      sendSupported: !["dogecoin", "bitcoincash", "monero"].includes(chain.id),
       decimals: chain.decimals,
     };
   });
@@ -343,9 +336,28 @@ function portfolio() {
   const accounts = accountsFor(activeWallet().secret);
   const assets = accounts.map((account) => {
     const chain = CHAINS.find((item) => item.id === account.chain);
+    const price = PRICES[account.chain];
+    // Monero balances need view-key scanning; mirror the backend's honest
+    // error instead of showing a fake number.
+    if (account.chain === "monero") {
+      return {
+        chain: account.chain,
+        name: account.name,
+        symbol: account.symbol,
+        decimals: chain.decimals,
+        accent: account.accent,
+        address: account.address,
+        amount: "—",
+        priceUsd: price.usd,
+        priceCny: price.cny,
+        valueUsd: null,
+        valueCny: null,
+        explorerUrl: "#",
+        error: "隐私链：余额需视图密钥扫描，暂不支持在线查询（地址可正常收款）",
+      };
+    }
     const amount = unitsToText(BALANCES[account.chain], chain.decimals);
     const human = Number(BALANCES[account.chain]) / 10 ** chain.decimals;
-    const price = PRICES[account.chain];
     return {
       chain: account.chain,
       name: account.name,
@@ -374,7 +386,7 @@ function levelLabel(level) {
 function quoteFor(request) {
   const chain = CHAINS.find((item) => item.id === request.chain);
   if (!chain) throw { code: "UNSUPPORTED_CHAIN", message: "不支持的链" };
-  if (["dogecoin", "bitcoincash"].includes(chain.id)) {
+  if (["dogecoin", "bitcoincash", "monero"].includes(chain.id)) {
     throw { code: "SEND_UNSUPPORTED", message: "该链的转账功能即将支持，收款地址已可用" };
   }
   if (!request.to || request.to.length < 12) {

@@ -130,11 +130,8 @@ export function chainAccent(chain) {
     "ethereum-classic": "#3AB83A",
     bsc: "#F3BA2F",
     polygon: "#8247E5",
-    arbitrum: "#12AAFF",
-    optimism: "#FF0420",
-    base: "#0052FF",
-    avalanche: "#E84142",
     solana: "#14F195",
+    monero: "#FF6600",
   };
   return table[chain] ?? "var(--ink-3)";
 }

@@ -155,16 +155,21 @@ pub fn validate_address(chain: ChainId, address: &str) -> Result<()> {
         ChainId::Ethereum
         | ChainId::EthereumClassic
         | ChainId::Bsc
-        | ChainId::Polygon
-        | ChainId::Arbitrum
-        | ChainId::Optimism
-        | ChainId::Base
-        | ChainId::Avalanche => parse_evm_address(address).map(|_| ()),
+        | ChainId::Polygon => parse_evm_address(address).map(|_| ()),
         ChainId::Solana => parse_solana_address(address).map(|_| ()),
         ChainId::Bitcoin
         | ChainId::Litecoin
         | ChainId::Dogecoin
         | ChainId::BitcoinCash => validate_utxo_address(chain, address),
+        ChainId::Monero => {
+            if crate::cryptonote::monero_address_validate(address) {
+                Ok(())
+            } else {
+                Err(Error::InvalidAddress(
+                    "不是有效的 Monero 主网地址（长度 / 校验和不符）".into(),
+                ))
+            }
+        }
     }
 }
 

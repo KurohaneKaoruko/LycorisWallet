@@ -15,15 +15,12 @@ pub enum ChainId {
     EthereumClassic,
     Bsc,
     Polygon,
-    Arbitrum,
-    Optimism,
-    Base,
-    Avalanche,
     Solana,
+    Monero,
 }
 
 impl ChainId {
-    pub const ALL: [ChainId; 13] = [
+    pub const ALL: [ChainId; 10] = [
         ChainId::Bitcoin,
         ChainId::Litecoin,
         ChainId::Dogecoin,
@@ -32,11 +29,8 @@ impl ChainId {
         ChainId::EthereumClassic,
         ChainId::Bsc,
         ChainId::Polygon,
-        ChainId::Arbitrum,
-        ChainId::Optimism,
-        ChainId::Base,
-        ChainId::Avalanche,
         ChainId::Solana,
+        ChainId::Monero,
     ];
 
     pub fn info(self) -> ChainInfo {
@@ -160,74 +154,6 @@ impl ChainId {
                 price_id: "polygon-ecosystem-token",
                 send_note: "EIP-1559",
             },
-            ChainId::Arbitrum => ChainInfo {
-                id: self,
-                name: "Arbitrum One",
-                symbol: "ETH",
-                decimals: 18,
-                kind: ChainKind::Evm,
-                hash: HashAlgorithm::Keccak256,
-                bip44_coin: 60,
-                derivation_path: "m/44'/60'/0'/0/0",
-                accent: "#12AAFF",
-                explorer: "https://arbiscan.io",
-                explorer_tx: "https://arbiscan.io/tx/",
-                explorer_address: "https://arbiscan.io/address/",
-                rpc: "https://arbitrum-one-rpc.publicnode.com",
-                price_id: "ethereum",
-                send_note: "EIP-1559",
-            },
-            ChainId::Optimism => ChainInfo {
-                id: self,
-                name: "OP Mainnet",
-                symbol: "ETH",
-                decimals: 18,
-                kind: ChainKind::Evm,
-                hash: HashAlgorithm::Keccak256,
-                bip44_coin: 60,
-                derivation_path: "m/44'/60'/0'/0/0",
-                accent: "#FF0420",
-                explorer: "https://optimistic.etherscan.io",
-                explorer_tx: "https://optimistic.etherscan.io/tx/",
-                explorer_address: "https://optimistic.etherscan.io/address/",
-                rpc: "https://optimism-rpc.publicnode.com",
-                price_id: "ethereum",
-                send_note: "EIP-1559",
-            },
-            ChainId::Base => ChainInfo {
-                id: self,
-                name: "Base",
-                symbol: "ETH",
-                decimals: 18,
-                kind: ChainKind::Evm,
-                hash: HashAlgorithm::Keccak256,
-                bip44_coin: 60,
-                derivation_path: "m/44'/60'/0'/0/0",
-                accent: "#0052FF",
-                explorer: "https://basescan.org",
-                explorer_tx: "https://basescan.org/tx/",
-                explorer_address: "https://basescan.org/address/",
-                rpc: "https://base-rpc.publicnode.com",
-                price_id: "ethereum",
-                send_note: "EIP-1559",
-            },
-            ChainId::Avalanche => ChainInfo {
-                id: self,
-                name: "Avalanche C-Chain",
-                symbol: "AVAX",
-                decimals: 18,
-                kind: ChainKind::Evm,
-                hash: HashAlgorithm::Keccak256,
-                bip44_coin: 60,
-                derivation_path: "m/44'/60'/0'/0/0",
-                accent: "#E84142",
-                explorer: "https://snowtrace.io",
-                explorer_tx: "https://snowtrace.io/tx/",
-                explorer_address: "https://snowtrace.io/address/",
-                rpc: "https://avalanche-c-chain-rpc.publicnode.com",
-                price_id: "avalanche-2",
-                send_note: "EIP-1559",
-            },
             ChainId::EthereumClassic => ChainInfo {
                 id: self,
                 name: "Ethereum Classic",
@@ -262,6 +188,23 @@ impl ChainId {
                 price_id: "solana",
                 send_note: "Ed25519 · System transfer",
             },
+            ChainId::Monero => ChainInfo {
+                id: self,
+                name: "Monero",
+                symbol: "XMR",
+                decimals: 12,
+                kind: ChainKind::Cryptonote,
+                hash: HashAlgorithm::Keccak256,
+                bip44_coin: 128,
+                derivation_path: "m/44'/128'/0'/0/0",
+                accent: "#FF6600",
+                explorer: "https://xmrchain.net",
+                explorer_tx: "https://xmrchain.net/tx/",
+                explorer_address: "https://xmrchain.net/search?value=",
+                rpc: "https://xmrchain.net/api",
+                price_id: "monero",
+                send_note: "CryptoNote · 双密钥（RingCT 转账即将支持）",
+            },
         }
     }
 
@@ -282,11 +225,8 @@ impl ChainId {
             ChainId::EthereumClassic => "ethereum-classic",
             ChainId::Bsc => "bsc",
             ChainId::Polygon => "polygon",
-            ChainId::Arbitrum => "arbitrum",
-            ChainId::Optimism => "optimism",
-            ChainId::Base => "base",
-            ChainId::Avalanche => "avalanche",
             ChainId::Solana => "solana",
+            ChainId::Monero => "monero",
         }
     }
 
@@ -297,25 +237,13 @@ impl ChainId {
             ChainId::EthereumClassic => Some(61),
             ChainId::Bsc => Some(56),
             ChainId::Polygon => Some(137),
-            ChainId::Arbitrum => Some(42161),
-            ChainId::Optimism => Some(10),
-            ChainId::Base => Some(8453),
-            ChainId::Avalanche => Some(43114),
             _ => None,
         }
     }
 
     /// True when the chain supports EIP-1559 fee logic end to end.
     pub fn supports_eip1559(self) -> bool {
-        matches!(
-            self,
-            ChainId::Ethereum
-                | ChainId::Polygon
-                | ChainId::Arbitrum
-                | ChainId::Optimism
-                | ChainId::Base
-                | ChainId::Avalanche
-        )
+        matches!(self, ChainId::Ethereum | ChainId::Polygon)
     }
 
     pub fn utxo_params(self) -> Option<UtxoParams> {
@@ -361,6 +289,7 @@ pub enum ChainKind {
     Utxo,
     Evm,
     Ed25519,
+    Cryptonote,
 }
 
 impl ChainKind {
@@ -369,6 +298,7 @@ impl ChainKind {
             ChainKind::Utxo => "bech32 / base58check",
             ChainKind::Evm => "EIP-55 hex",
             ChainKind::Ed25519 => "base58",
+            ChainKind::Cryptonote => "Monero base58",
         }
     }
 }
@@ -420,9 +350,12 @@ pub struct ChainInfo {
 
 impl ChainInfo {
     pub fn send_supported(&self) -> bool {
-        // Legacy-P2PKH signing for Dogecoin / Bitcoin Cash lands in a follow-up
-        // change; receive and history already work.
-        !matches!(self.id, ChainId::Dogecoin | ChainId::BitcoinCash)
+        // Legacy-P2PKH signing for Dogecoin / Bitcoin Cash and RingCT signing
+        // for Monero land in follow-up changes; receive and history already work.
+        !matches!(
+            self.id,
+            ChainId::Dogecoin | ChainId::BitcoinCash | ChainId::Monero
+        )
     }
 }
 

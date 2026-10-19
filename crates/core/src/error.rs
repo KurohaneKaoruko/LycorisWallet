@@ -18,6 +18,10 @@ pub enum Error {
     WeakPassword,
     #[error("vault is corrupt or unsupported")]
     CorruptVault,
+    #[error("wallet not found in this vault")]
+    WalletNotFound,
+    #[error("the last wallet cannot be removed")]
+    LastWallet,
     #[error("invalid mnemonic: {0}")]
     InvalidMnemonic(String),
     #[error("invalid passphrase: {0}")]
@@ -60,6 +64,8 @@ impl Error {
             Error::TooManyAttempts(_) => "TOO_MANY_ATTEMPTS",
             Error::WeakPassword => "WEAK_PASSWORD",
             Error::CorruptVault | Error::Format(_) => "CORRUPT_VAULT",
+            Error::WalletNotFound => "WALLET_NOT_FOUND",
+            Error::LastWallet => "LAST_WALLET",
             Error::InvalidMnemonic(_) => "INVALID_MNEMONIC",
             Error::InvalidPassphrase(_) => "INVALID_PASSPHRASE",
             Error::InvalidAddress(_) => "INVALID_ADDRESS",

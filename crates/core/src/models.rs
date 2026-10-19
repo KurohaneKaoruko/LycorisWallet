@@ -93,9 +93,26 @@ pub struct ActivityItem {
     pub explorer_url: String,
 }
 
+/// One entry in the wallet list. Contains no secret material, so the UI can
+/// show every wallet without touching the others' key material.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WalletSummary {
+    pub id: String,
+    pub label: String,
+    pub mode: crate::derive::WalletMode,
+    pub derivation: Option<crate::derive::DerivationMode>,
+    pub fingerprint: String,
+    pub created_at: i64,
+    pub activity_count: usize,
+    pub active: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WalletView {
+    /// Id of the active wallet inside the vault.
+    pub id: String,
     pub mode: crate::derive::WalletMode,
     pub derivation: Option<crate::derive::DerivationMode>,
     pub label: String,
@@ -106,6 +123,8 @@ pub struct WalletView {
     pub settings: Settings,
     pub contacts: Vec<Contact>,
     pub activity: Vec<ActivityItem>,
+    /// Every wallet stored in the vault, active one flagged.
+    pub wallets: Vec<WalletSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

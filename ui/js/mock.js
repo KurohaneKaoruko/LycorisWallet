@@ -143,13 +143,24 @@ function parseUnits(text, decimals) {
 
 /* -------------------------------------------------------------------- store */
 
+function makeId() {
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : `w${Date.now()}${Math.floor(Math.random() * 1e6)}`;
+}
+
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+
 const store = {
+  version: 2,
   exists: false,
   locked: true,
   password: "lycoris-demo",
   hint: "演示口令：lycoris-demo",
-  label: "演示钱包",
-  secret: null,
+  wallets: [],
+  activeId: null,
   settings: {
     fiat: "usd",
     theme: "system",
@@ -158,12 +169,36 @@ const store = {
     priceService: true,
   },
   contacts: [],
-  activity: [],
 };
 
 try {
   const saved = JSON.parse(localStorage.getItem("lycoris.mock.v1") ?? "null");
-  if (saved) Object.assign(store, saved);
+  if (saved) {
+    Object.assign(store, saved);
+    if (!Array.isArray(store.wallets) || store.wallets.length === 0) {
+      // Migrate the single-wallet demo state written by earlier builds.
+      if (saved.secret) {
+        const id = makeId();
+        store.wallets = [
+          {
+            id,
+            label: saved.label ?? "演示钱包",
+            secret: saved.secret,
+            createdAt: saved.createdAt ?? nowSeconds(),
+            activity: saved.activity ?? [],
+          },
+        ];
+        store.activeId = id;
+      } else {
+        store.wallets = [];
+        store.activeId = null;
+      }
+    }
+    delete store.secret;
+    delete store.label;
+    delete store.activity;
+    delete store.createdAt;
+  }
   store.locked = true;
 } catch {
   /* ignore malformed demo state */
@@ -175,6 +210,20 @@ function persist() {
   } catch {
     /* storage may be unavailable */
   }
+}
+
+function activeWallet() {
+  return store.wallets.find((wallet) => wallet.id === store.activeId) ?? store.wallets[0] ?? null;
+}
+
+function uniqueLabel(base) {
+  const clean = String(base ?? "").trim() || "钱包";
+  if (!store.wallets.some((wallet) => wallet.label === clean)) return clean;
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${clean} ${index}`;
+    if (!store.wallets.some((wallet) => wallet.label === candidate)) return candidate;
+  }
+  return clean;
 }
 
 /* ----------------------------------------------------------------- accounts */
@@ -208,32 +257,44 @@ function accountsFor(secret) {
 }
 
 function walletView() {
-  if (store.locked || !store.secret) {
+  const wallet = activeWallet();
+  if (store.locked || !wallet) {
     throw { code: "LOCKED", message: "钱包已锁定" };
   }
-  const accounts = accountsFor(store.secret);
-  const isMnemonic = store.secret.mode === "mnemonic";
+  const accounts = accountsFor(wallet.secret);
+  const isMnemonic = wallet.secret.mode === "mnemonic";
   return {
-    mode: store.secret.mode,
-    derivation: isMnemonic ? null : store.secret.derivation,
-    label: store.label,
+    id: wallet.id,
+    mode: wallet.secret.mode,
+    derivation: isMnemonic ? null : wallet.secret.derivation ?? "isolated",
+    label: wallet.label,
     fingerprint: fingerprintOf(accounts),
-    createdAt: store.createdAt ?? Math.floor(Date.now() / 1000),
+    createdAt: wallet.createdAt ?? nowSeconds(),
     formula: isMnemonic
       ? "BIP-39 助记词 → 512 位种子 → BIP-32 / SLIP-0010 路径"
-      : store.secret.derivation === "strict"
+      : wallet.secret.derivation === "strict"
         ? 'H_chain(phrase) → 32 字节 → 私钥'
         : 'H_chain("lycoris/v1/<chain>\\0" + phrase) → 32 字节 → 私钥',
     accounts,
     settings: store.settings,
     contacts: store.contacts,
-    activity: store.activity,
+    activity: wallet.activity ?? [],
+    wallets: store.wallets.map((item) => ({
+      id: item.id,
+      label: item.label,
+      mode: item.secret.mode,
+      derivation: item.secret.mode === "mnemonic" ? null : item.secret.derivation ?? "isolated",
+      fingerprint: fingerprintOf(accountsFor(item.secret)),
+      createdAt: item.createdAt ?? nowSeconds(),
+      activityCount: (item.activity ?? []).length,
+      active: item.id === wallet.id,
+    })),
   };
 }
 
 function portfolio() {
   const now = Math.floor(Date.now() / 1000);
-  const accounts = accountsFor(store.secret);
+  const accounts = accountsFor(activeWallet().secret);
   const assets = accounts.map((account) => {
     const chain = CHAINS.find((item) => item.id === account.chain);
     const amount = unitsToText(BALANCES[account.chain], chain.decimals);
@@ -373,7 +434,7 @@ export async function mockCall(command, args = {}) {
         locked: store.locked,
         hasHint: Boolean(store.hint),
         hint: store.hint,
-        label: store.locked ? null : store.label,
+        label: store.locked ? null : activeWallet()?.label ?? null,
       };
 
     case "create_vault": {
@@ -383,15 +444,23 @@ export async function mockCall(command, args = {}) {
         throw { code: "WEAK_PASSWORD", message: "密码至少需要 8 个字符" };
       }
       const secret = request.secret ?? {};
-      store.secret = { ...secret };
+      const id = makeId();
+      store.wallets = [
+        {
+          id,
+          label:
+            request.label ?? (secret.mode === "mnemonic" ? "助记词钱包" : "口令钱包"),
+          secret: { ...secret },
+          createdAt: nowSeconds(),
+          activity: [],
+        },
+      ];
+      store.activeId = id;
       store.exists = true;
       store.locked = false;
       store.password = request.password;
       store.hint = request.hint ?? null;
-      store.label = request.label ?? (secret.mode === "mnemonic" ? "助记词钱包" : "口令钱包");
-      store.createdAt = Math.floor(Date.now() / 1000);
       store.contacts = [];
-      store.activity = [];
       persist();
       return walletView();
     }
@@ -411,6 +480,41 @@ export async function mockCall(command, args = {}) {
 
     case "wallet":
       return walletView();
+
+    case "add_wallet": {
+      const request = args.request ?? {};
+      const secret = request.secret ?? {};
+      if (secret.mode === "mnemonic") {
+        const words = String(secret.mnemonic ?? "").trim().split(/\s+/).filter(Boolean);
+        if (words.length !== 12 && words.length !== 24) {
+          throw { code: "INVALID_MNEMONIC", message: "助记词需要 12 或 24 个单词" };
+        }
+      } else if (!String(secret.phrase ?? "").trim()) {
+        throw { code: "INVALID_PASSPHRASE", message: "口令不能为空" };
+      }
+      const id = makeId();
+      const label = uniqueLabel(
+        request.name ?? (secret.mode === "mnemonic" ? "助记词钱包" : "口令钱包"),
+      );
+      store.wallets.push({
+        id,
+        label,
+        secret: { ...secret },
+        createdAt: nowSeconds(),
+        activity: [],
+      });
+      store.activeId = id;
+      persist();
+      return walletView();
+    }
+
+    case "switch_wallet": {
+      const wallet = store.wallets.find((item) => item.id === args.id);
+      if (!wallet) throw { code: "WALLET_NOT_FOUND", message: "找不到该钱包" };
+      store.activeId = wallet.id;
+      persist();
+      return walletView();
+    }
 
     case "generate_mnemonic": {
       const words =
@@ -456,10 +560,11 @@ export async function mockCall(command, args = {}) {
       if (args.password !== store.password) {
         throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
       }
-      if (store.secret?.mode !== "mnemonic") {
+      const wallet = activeWallet();
+      if (wallet?.secret?.mode !== "mnemonic") {
         throw { code: "ERROR", message: "当前钱包没有助记词" };
       }
-      return `${store.secret.mnemonic} (演示数据)`;
+      return `${wallet.secret.mnemonic} (演示数据)`;
     }
 
     case "export_private_key": {
@@ -493,9 +598,26 @@ export async function mockCall(command, args = {}) {
       return null;
 
     case "rename_wallet": {
+      const wallet = store.wallets.find((item) => item.id === args.id);
+      if (!wallet) throw { code: "WALLET_NOT_FOUND", message: "找不到该钱包" };
       const label = String(args.label ?? "").trim();
       if (!label) throw { code: "INVALID_LABEL", message: "钱包名称不能为空" };
-      store.label = label;
+      wallet.label = label;
+      persist();
+      return walletView();
+    }
+
+    case "delete_wallet": {
+      if (args.password !== store.password) {
+        throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
+      }
+      const index = store.wallets.findIndex((item) => item.id === args.id);
+      if (index < 0) throw { code: "WALLET_NOT_FOUND", message: "找不到该钱包" };
+      if (store.wallets.length <= 1) {
+        throw { code: "LAST_WALLET", message: "至少保留一个钱包" };
+      }
+      store.wallets.splice(index, 1);
+      if (store.activeId === args.id) store.activeId = store.wallets[0].id;
       persist();
       return walletView();
     }
@@ -527,7 +649,9 @@ export async function mockCall(command, args = {}) {
         to: request.to,
         timestamp: Math.floor(Date.now() / 1000),
       };
-      store.activity.unshift({
+      const wallet = activeWallet();
+      wallet.activity = wallet.activity ?? [];
+      wallet.activity.unshift({
         id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
         chain: chain.id,
         direction: "send",
@@ -593,10 +717,9 @@ export async function mockCall(command, args = {}) {
       Object.assign(store, {
         exists: false,
         locked: true,
-        secret: null,
+        wallets: [],
+        activeId: null,
         contacts: [],
-        activity: [],
-        createdAt: null,
       });
       persist();
       return null;

@@ -501,7 +501,7 @@ pub async fn quote(state: &AppState, request: &QuoteRequest) -> ApiResult<SendQu
     state.touch();
     let account = state.account_for(request.chain)?;
     // Fail fast (and loudly) if the vault locked itself mid-session.
-    let _data = state.data()?;
+    state.active_secret()?;
     let info = request.chain.info();
     let client = lycoris_core::network::http_client();
     let amount = parse_amount(&request.amount, info.decimals)?;
@@ -597,7 +597,7 @@ async fn send_utxo(
     level: &str,
 ) -> ApiResult<(String, u64, u128)> {
     let info = chain.info();
-    let data = state.data()?;
+    let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
     let adapter = UtxoClient::new(client.clone(), info.rpc);
     let fees = adapter.fees().await?;
@@ -615,7 +615,7 @@ async fn send_utxo(
         return Err(Error::InvalidAmount(format!("低于灰尘限额（{DUST_LIMIT} 聪）")).into());
     }
     let selection = select_utxos(inputs, target, fee_rate, true)?;
-    let material = lycoris_core::derive::derive_private_key(&data.secret, chain)?;
+    let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
     let key = material.secp()?;
     let pubkey = address::compressed_pubkey(key);
     let params = chain
@@ -649,7 +649,7 @@ async fn send_evm(
     level: &str,
 ) -> ApiResult<(String, u64, u128)> {
     let info = chain.info();
-    let data = state.data()?;
+    let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
     let adapter = EvmClient::new(client.clone(), info.rpc);
     let chain_id = chain
@@ -700,7 +700,7 @@ async fn send_evm(
     }
 
     let nonce = adapter.nonce(address).await?;
-    let material = lycoris_core::derive::derive_private_key(&data.secret, chain)?;
+    let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
     let key = material.secp()?;
     let signed = sign_transaction(
         key,
@@ -727,13 +727,13 @@ async fn send_solana(
     _level: &str,
 ) -> ApiResult<(String, u64, u128)> {
     let info = chain.info();
-    let data = state.data()?;
+    let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
     let adapter = SolanaClient::new(client.clone(), info.rpc);
     let balance = u128::from(adapter.balance(address).await?);
     let to_bytes = address::parse_solana_address(to)?;
     let blockhash = adapter.latest_blockhash().await?;
-    let material = lycoris_core::derive::derive_private_key(&data.secret, chain)?;
+    let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
     let seed = material.ed25519_seed()?;
 
     let target = amount.unwrap_or_else(|| balance.saturating_sub(u128::from(SOLANA_BASE_FEE)));

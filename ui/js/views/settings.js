@@ -1,8 +1,8 @@
 /** Settings: wallet identity, backups, appearance, security, danger zone. */
 
-import { api, walletFull } from "../api.js?v=15";
-import { copyText, escapeHtml, formatDateTime } from "../format.js?v=15";
-import { askPassword, bindCopy, confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=15";
+import { api, walletFull } from "../api.js?v=21";
+import { copyText, escapeHtml, formatDateTime } from "../format.js?v=21";
+import { askPassword, bindCopy, confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=21";
 
 const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 60];
 

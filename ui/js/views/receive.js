@@ -1,8 +1,8 @@
 /** Receive: chain picker, QR code, copyable address, wallet-path details. */
 
-import { api } from "../api.js?v=15";
-import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=15";
-import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=15";
+import { api } from "../api.js?v=21";
+import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=21";
+import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=21";
 
 /* 二维码配色：始终是「浅底深码」。
    深色主题下用反色（浅码深底）会让部分扫码器读不出来，
@@ -68,10 +68,6 @@ export function render(ctx, params = {}) {
           <div class="qr-address" id="qr-address" data-copy-value role="button" tabindex="0"
                title="点击复制">${escapeHtml(account.address)}</div>
         </div>
-
-        <div class="note note-warn">${icon("warn")}
-          <div>只接受 ${escapeHtml(account.name)} 网络上的资产。向其他网络的地址转入可能永久丢失。</div>
-        </div>
       </div>
 
       <div class="stack">
@@ -109,6 +105,10 @@ export function render(ctx, params = {}) {
           }</span></div>
         </div>
       </div>
+    </div>
+
+    <div class="note note-warn" style="margin-top:16px">${icon("warn")}
+      <div>只接受 ${escapeHtml(account.name)} 网络上的资产。向其他网络的地址转入可能永久丢失。</div>
     </div>`;
 
   return {

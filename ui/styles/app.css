@@ -404,7 +404,7 @@
   color: var(--ink);
   border: 1px solid var(--hair);
   border-radius: 24px;
-  padding: 20px 20px 18px;
+  padding: 16px 16px 16px;
   box-shadow: var(--shadow-md);
   display: grid;
   gap: 14px;
@@ -440,10 +440,12 @@
   padding: 2px 0;
 }
 
-/* 二维码始终是浅底深码：深色主题下这块浅色「纸片」保证能被扫出来 */
+/* 二维码始终是浅底深码：深色主题下这块浅色「纸片」保证能被扫出来。
+   尺寸要够大——手机是从屏幕里扫它，模块太小就扫不出来了；
+   95 字符的 Monero 地址尤其需要，所以让它铺满卡片宽度。 */
 .qr-card-body svg {
   width: 100%;
-  max-width: 236px;
+  max-width: 320px;
   height: auto;
   border-radius: 14px;
   display: block;

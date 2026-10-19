@@ -214,6 +214,25 @@ pub fn utxo_output_script(chain: ChainId, address: &str) -> Result<Vec<u8>> {
         .utxo_params()
         .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
     let address = address.trim();
+    if address.contains(':') {
+        // Cashaddr (Bitcoin Cash) and bech32 (SegWit).
+        if let Some((prefix, _)) = address.split_once(':') {
+            if prefix.eq_ignore_ascii_case(params.hrp) {
+                let (version, hash) = cashaddr_decode(address)?;
+                if version != 0 {
+                    return Err(Error::InvalidAddress(
+                        "only P2PKH cashaddr is supported".into(),
+                    ));
+                }
+                let mut script = Vec::with_capacity(25);
+                script.extend_from_slice(&[0x76, 0xa9, 0x14]);
+                script.extend_from_slice(&hash);
+                script.extend_from_slice(&[0x88, 0xac]);
+                return Ok(script);
+            }
+            return Err(Error::InvalidAddress("wrong network".into()));
+        }
+    }
     if let Ok((hrp, version, program)) = segwit::decode(address) {
         if hrp.as_str() != params.hrp {
             return Err(Error::InvalidAddress("wrong network".into()));
@@ -277,10 +296,12 @@ fn cashaddr_polymod(values: &[u8]) -> u64 {
         0x00ae_2eab_e2a8,
         0x001e_4f43_e470,
     ];
+    // The working value keeps 35 bits, the generators are folded in below.
+    const MASK: u64 = (1 << 35) - 1;
     let mut c: u64 = 1;
     for value in values {
         let c0 = c >> 35;
-        c = ((c & 0x07ff_ffff_ffff) << 5) ^ u64::from(*value);
+        c = ((c & MASK) << 5) ^ u64::from(*value);
         for (index, mask) in GENERATORS.iter().enumerate() {
             if (c0 >> index) & 1 == 1 {
                 c ^= mask;
@@ -344,6 +365,64 @@ pub fn cashaddr_encode(hash160: &[u8], prefix: &str) -> Result<String> {
     Ok(format!("{prefix_text}:{body}{checksum_chars}"))
 }
 
+/// Decode a BCH cashaddr string into its version byte and hash160 payload.
+///
+/// The address is `prefix:body`, where the body is base32 (cashaddr charset)
+/// over `version byte || hash160` plus an eight group checksum. Both the
+/// prefix and the checksum are verified, so a typo cannot silently produce a
+/// script for the wrong address.
+pub fn cashaddr_decode(address: &str) -> Result<(u8, Vec<u8>)> {
+    let (prefix, body) = address
+        .trim()
+        .split_once(':')
+        .ok_or_else(|| Error::InvalidAddress("cashaddr needs a prefix".into()))?;
+    let prefix_lower: Vec<u8> = prefix.bytes().map(|b| b.to_ascii_lowercase()).collect();
+
+    let mut values: Vec<u8> = Vec::with_capacity(body.len());
+    for character in body.chars() {
+        let lower = character.to_ascii_lowercase() as u8;
+        let index = CASHADDR_CHARSET
+            .iter()
+            .position(|c| *c == lower)
+            .ok_or_else(|| Error::InvalidAddress("invalid cashaddr character".into()))?;
+        values.push(index as u8);
+    }
+    if values.len() < 9 {
+        return Err(Error::InvalidAddress("cashaddr is too short".into()));
+    }
+
+    // The checksum covers the prefix, the payload and eight zero groups.
+    let mut check: Vec<u8> = prefix_lower.iter().map(|b| b & 0x1f).collect();
+    check.push(0);
+    check.extend_from_slice(&values);
+    if cashaddr_polymod(&check) != 0 {
+        return Err(Error::InvalidAddress(
+            "cashaddr checksum does not match".into(),
+        ));
+    }
+
+    // Drop the checksum and convert the remaining 5-bit groups back to bytes.
+    let payload_bits = &values[..values.len() - 8];
+    let mut bits: Vec<bool> = Vec::with_capacity(payload_bits.len() * 5);
+    for value in payload_bits {
+        for index in (0..5).rev() {
+            bits.push((value >> index) & 1 == 1);
+        }
+    }
+    let mut bytes: Vec<u8> = Vec::with_capacity(bits.len() / 8);
+    for chunk in bits.chunks(8) {
+        let byte = chunk
+            .iter()
+            .fold(0u8, |acc, bit| (acc << 1) | u8::from(*bit));
+        bytes.push(byte);
+    }
+    if bytes.len() < 21 {
+        return Err(Error::InvalidAddress("cashaddr payload is too short".into()));
+    }
+    let version = bytes[0];
+    Ok((version, bytes[1..21].to_vec()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,5 +461,35 @@ mod tests {
             encoded,
             "bitcoincash:qr6m7j9njldwwzlg9v7v53unlr4jkmx6eylep8ekg2"
         );
+
+        // The decoder has to agree with the encoder.
+        let (version, decoded) = cashaddr_decode(&encoded).unwrap();
+        assert_eq!(version, 0);
+        assert_eq!(decoded, hash);
+
+        // A broken checksum must not decode.
+        let mut broken = encoded.clone();
+        let last = broken.pop().unwrap();
+        broken.push(if last == 'q' { 'p' } else { 'q' });
+        assert!(cashaddr_decode(&broken).is_err());
+    }
+
+    #[test]
+    fn cashaddr_address_becomes_a_p2pkh_script() {
+        // The wallet's own Bitcoin Cash address (cashaddr) has to resolve to
+        // the legacy P2PKH script, so it can pay and receive.
+        let address = "bitcoincash:qpdtccrxx78kcuc65mceurfwg60gmmqu9cwpjdt25n";
+        let script = utxo_output_script(ChainId::BitcoinCash, address).unwrap();
+        assert_eq!(script.len(), 25);
+        assert_eq!(&script[..3], &[0x76, 0xa9, 0x14]);
+        assert_eq!(&script[23..], &[0x88, 0xac]);
+        // Without its prefix the same string is not a valid cashaddr.
+        assert!(utxo_output_script(
+            ChainId::BitcoinCash,
+            "qpdtccrxx78kcuc65mceurfwg60gmmqu9cwpjdt25n"
+        )
+        .is_err());
     }
 }
+
+

@@ -10,11 +10,18 @@ fn encode(text: &str) -> Result<QrCode> {
 }
 
 /// Geometry of the rendered symbol, in SVG user units.
-const QUIET: usize = 2;
+/// Four modules of quiet zone, as the QR specification asks for — scanners
+/// need that margin to find the symbol on a screen.
+const QUIET: usize = 4;
 const SCALE: usize = 8;
 /// Data modules are drawn slightly smaller than their cell so they read as
-/// separate tiles instead of a solid block.
+/// separate tiles instead of a solid block — that is also what gives the
+/// corner patterns their breathing room. Keep them as large as scanning
+/// allows: every bit of missing dark area makes the symbol harder to read.
 const DATA_FILL: f64 = 0.88;
+/// The finder patterns have to sit exactly on the module grid, otherwise
+/// decoders cannot lock on — no inset here.
+const FINDER_INSET: f64 = 0.0;
 
 struct Painter {
     width: usize,
@@ -50,25 +57,33 @@ impl Painter {
     }
 
     /// A filled rounded square covering `size` modules.
-    fn block(&mut self, x: usize, y: usize, size: usize, radius: f64) {
+    fn block(&mut self, x: usize, y: usize, size: usize, radius: f64, inset: f64) {
         let (px, py) = self.cell(x, y);
-        let extent = (size * SCALE) as f64;
+        let gap = inset * SCALE as f64;
+        let extent = (size * SCALE) as f64 - gap * 2.0;
         self.body.push_str(&format!(
-            "<rect x=\"{px}\" y=\"{py}\" width=\"{extent}\" height=\"{extent}\" rx=\"{radius}\"/>"
+            "<rect x=\"{}\" y=\"{}\" width=\"{extent}\" height=\"{extent}\" rx=\"{radius}\"/>",
+            px + gap,
+            py + gap
         ));
     }
 
     /// A hollow rounded square: one module thick, drawn as a stroked rect so
     /// the corners round the way the finder patterns look.
-    fn ring(&mut self, x: usize, y: usize, size: usize, radius: f64, stroke: &str) {
+    ///
+    /// `inset` pulls the ring a little away from the module grid, which gives
+    /// the corners the breathing room a styled symbol needs. The 1:1:3:1:1
+    /// proportions stay intact, so decoders still lock on.
+    fn ring(&mut self, x: usize, y: usize, size: usize, radius: f64, stroke: &str, inset: f64) {
         let (px, py) = self.cell(x, y);
         let half = SCALE as f64 / 2.0;
-        let extent = (size * SCALE) as f64 - SCALE as f64;
+        let gap = inset * SCALE as f64;
+        let extent = (size * SCALE) as f64 - SCALE as f64 - gap * 2.0;
         self.body.push_str(&format!(
             "<rect x=\"{}\" y=\"{}\" width=\"{extent}\" height=\"{extent}\" rx=\"{}\" \
              fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{SCALE}\"/>",
-            px + half,
-            py + half,
+            px + half + gap,
+            py + half + gap,
             radius.max(0.0) - half
         ));
     }
@@ -131,8 +146,8 @@ pub fn svg(text: &str, dark: &str, light: &str) -> Result<String> {
     ];
     for (ox, oy) in finders {
         painter.mark(ox, oy, 7);
-        painter.ring(ox, oy, 7, 2.6 * SCALE as f64, dark);
-        painter.block(ox + 2, oy + 2, 3, 0.9 * SCALE as f64);
+        painter.ring(ox, oy, 7, 2.6 * SCALE as f64, dark, FINDER_INSET);
+        painter.block(ox + 2, oy + 2, 3, 0.9 * SCALE as f64, FINDER_INSET);
     }
 
     // Alignment patterns: 5×5 rings anywhere the pattern shows up.
@@ -152,15 +167,15 @@ pub fn svg(text: &str, dark: &str, light: &str) -> Result<String> {
                 continue;
             }
             painter.mark(ox, oy, 5);
-            painter.ring(ox, oy, 5, 2.0 * SCALE as f64, dark);
-            painter.block(ox + 2, oy + 2, 1, 0.3 * SCALE as f64);
+            painter.ring(ox, oy, 5, 2.0 * SCALE as f64, dark, FINDER_INSET);
+            painter.block(ox + 2, oy + 2, 1, 0.3 * SCALE as f64, 0.0);
         }
     }
 
     // Data area: one rounded tile per dark module.
     let tile = (SCALE as f64 * DATA_FILL).round();
     let offset = ((SCALE as f64 - tile) / 2.0).round();
-    let radius = (tile * 0.3).round();
+    let radius = (tile * 0.25).round();
     for y in 0..width {
         for x in 0..width {
             if !grid[y * width + x] || painter.at(x, y) {

@@ -3,6 +3,7 @@
 //! All network access is isolated here so the wallet can be audited, mocked or
 //! replaced with private endpoints without touching the crypto code.
 
+pub mod blockchair;
 pub mod evm;
 pub mod prices;
 pub mod solana;

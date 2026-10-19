@@ -7,7 +7,9 @@
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::SecretKey;
 use lycoris_core::tx::evm::{sign_transaction, EvmCall, EvmFee};
-use lycoris_core::tx::utxo::{build_signed_p2wpkh, p2wpkh_script, UtxoInput};
+use lycoris_core::tx::utxo::{
+    build_signed_p2pkh, build_signed_p2wpkh, p2pkh_script, p2wpkh_script, LegacySighash, UtxoInput,
+};
 
 fn pubkey_bytes(key: &SecretKey) -> [u8; 33] {
     let point = key.public_key().to_encoded_point(true);
@@ -101,6 +103,41 @@ fn main() {
     let (raw, fee) = build_signed_p2wpkh(&btc_key, &single, &script, 90_000, None, 2).unwrap();
     println!("btc_single_raw={raw}");
     println!("btc_single_fee={fee}");
+
+    // Dogecoin (classic sighash) and Bitcoin Cash (SIGHASH_FORKID) use the
+    // same P2PKH script as Bitcoin's legacy addresses.
+    let legacy_script = p2pkh_script(&pubkey);
+    for (label, mode) in [
+        ("doge", LegacySighash::Classic),
+        ("bch", LegacySighash::ForkId),
+    ] {
+        let (raw, fee) = build_signed_p2pkh(
+            &btc_key,
+            &single,
+            &legacy_script,
+            90_000,
+            None,
+            2,
+            mode,
+        )
+        .unwrap();
+        println!("{label}_single_raw={raw}");
+        println!("{label}_single_fee={fee}");
+
+        let (raw, fee) = build_signed_p2pkh(
+            &btc_key,
+            &inputs,
+            &legacy_script,
+            120_000,
+            Some((&legacy_script, 25_000)),
+            2,
+            mode,
+        )
+        .unwrap();
+        println!("{label}_two_inputs_raw={raw}");
+        println!("{label}_two_inputs_fee={fee}");
+    }
+    println!("doge_pubkey={}", hex::encode(pubkey));
 
     // Solana: seed 7, recipient 9, blockhash 3 (base58 of 32 x 0x03).
     let blockhash = bs58::encode([3u8; 32]).into_string();

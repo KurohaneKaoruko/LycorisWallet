@@ -5,7 +5,7 @@
  * (or adding `?mock=1`) switches to an in-memory mock so the interface can be
  * developed and reviewed without building the desktop app. */
 
-import { mockCall } from "./mock.js?v=15";
+import { mockCall } from "./mock.js?v=21";
 
 const tauri = globalThis.__TAURI__;
 const forceMock = new URLSearchParams(location.search).has("mock");

@@ -792,7 +792,9 @@ mod tests {
             find(ChainId::Dogecoin).address,
             find(ChainId::Litecoin).address
         );
-        assert!(!find(ChainId::Dogecoin).send_supported);
-        assert!(!find(ChainId::BitcoinCash).send_supported);
+        assert!(find(ChainId::Dogecoin).send_supported);
+        assert!(find(ChainId::BitcoinCash).send_supported);
+        // Monero still waits for RingCT signing.
+        assert!(!find(ChainId::Monero).send_supported);
     }
 }

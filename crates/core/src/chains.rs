@@ -230,6 +230,49 @@ impl ChainId {
         }
     }
 
+    /// True when the chain spends with legacy (pre-SegWit) P2PKH inputs.
+    ///
+    /// Dogecoin and Bitcoin Cash sign a different digest than the SegWit
+    /// chains: Dogecoin uses the classic pre-BIP143 sighash, Bitcoin Cash the
+    /// BIP143 digest with `SIGHASH_FORKID`.
+    pub fn legacy_utxo(self) -> bool {
+        matches!(self, ChainId::Dogecoin | ChainId::BitcoinCash)
+    }
+
+    /// Which digest a legacy input is signed with.
+    pub fn legacy_sighash(self) -> crate::tx::utxo::LegacySighash {
+        match self {
+            ChainId::BitcoinCash => crate::tx::utxo::LegacySighash::ForkId,
+            _ => crate::tx::utxo::LegacySighash::Classic,
+        }
+    }
+
+    /// The name of the chain's smallest unit, as its community calls it.
+    ///
+    /// Bitcoin and Bitcoin Cash count in satoshis, Litecoin in litoshis and
+    /// Dogecoin in shibas.
+    pub fn base_unit(self) -> &'static str {
+        match self {
+            ChainId::Bitcoin | ChainId::BitcoinCash => "聪",
+            ChainId::Litecoin => "里特",
+            ChainId::Dogecoin => "柴",
+            _ => "聪",
+        }
+    }
+
+    /// Fallback fee rate in satoshis per virtual byte, used when the chain's
+    /// API does not publish one.
+    ///
+    /// Dogecoin's minimum relay fee is one DOGE per kilobyte, Bitcoin Cash
+    /// accepts a single satoshi per byte.
+    pub fn default_fee_rate(self) -> u64 {
+        match self {
+            ChainId::Dogecoin => 100_000,
+            ChainId::BitcoinCash => 2,
+            _ => 1,
+        }
+    }
+
     /// EIP-155 chain id used for signing and replay protection.
     pub fn evm_chain_id(self) -> Option<u64> {
         match self {
@@ -350,12 +393,9 @@ pub struct ChainInfo {
 
 impl ChainInfo {
     pub fn send_supported(&self) -> bool {
-        // Legacy-P2PKH signing for Dogecoin / Bitcoin Cash and RingCT signing
-        // for Monero land in follow-up changes; receive and history already work.
-        !matches!(
-            self.id,
-            ChainId::Dogecoin | ChainId::BitcoinCash | ChainId::Monero
-        )
+        // RingCT signing for Monero is a follow-up change; receive and history
+        // already work.
+        !matches!(self.id, ChainId::Monero)
     }
 }
 

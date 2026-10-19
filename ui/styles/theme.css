@@ -83,6 +83,12 @@
   box-sizing: border-box;
 }
 
+/* The `hidden` attribute must win over component display rules such as
+   `.rail { display: flex }`, otherwise hidden panels keep taking space. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;

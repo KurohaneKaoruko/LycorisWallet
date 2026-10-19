@@ -1,0 +1,37 @@
+[package]
+name = "lycoris-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core cryptography, wallet derivation, vault and chain adapters for Lycoris Wallet"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+sha2.workspace = true
+sha3.workspace = true
+ripemd.workspace = true
+hmac.workspace = true
+scrypt.workspace = true
+k256.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+bip39.workspace = true
+bech32.workspace = true
+bs58.workspace = true
+base64.workspace = true
+argon2.workspace = true
+chacha20poly1305.workspace = true
+unicode-normalization.workspace = true
+qrcode.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+hex.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+subtle.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

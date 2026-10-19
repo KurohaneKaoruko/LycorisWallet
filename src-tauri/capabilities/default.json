@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the main wallet window. All wallet logic runs in Rust, so the frontend only needs the core IPC surface plus window dragging.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized",
+    "core:event:default"
+  ]
+}

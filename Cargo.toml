@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/cli", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Lycoris Wallet"]
+repository = "https://example.invalid/lycoris-wallet"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+zeroize = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+sha3 = "0.10"
+ripemd = "0.1"
+hmac = "0.12"
+scrypt = "0.11"
+k256 = { version = "0.13", features = ["ecdsa", "arithmetic", "std"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+bip39 = { version = "2.2", features = ["rand", "zeroize", "all-languages"] }
+bech32 = "0.11"
+bs58 = { version = "0.5", features = ["check"] }
+base64 = "0.22"
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+unicode-normalization = "0.1"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"] }
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+subtle = "2"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0

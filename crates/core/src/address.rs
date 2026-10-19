@@ -1,0 +1,283 @@
+use crate::chains::ChainId;
+use crate::error::{Error, Result};
+use bech32::{segwit, Hrp};
+use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::SecretKey;
+use ripemd::Ripemd160;
+use sha2::{Digest, Sha256};
+use sha3::Keccak256;
+
+pub fn sha256(data: &[u8]) -> [u8; 32] {
+    let digest = Sha256::digest(data);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+pub fn double_sha256(data: &[u8]) -> [u8; 32] {
+    sha256(&sha256(data))
+}
+
+pub fn hash160(data: &[u8]) -> [u8; 20] {
+    let sha = Sha256::digest(data);
+    let ripemd = Ripemd160::digest(sha);
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&ripemd);
+    out
+}
+
+pub fn keccak256(data: &[u8]) -> [u8; 32] {
+    let digest = Keccak256::digest(data);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+pub fn compressed_pubkey(secret: &SecretKey) -> [u8; 33] {
+    let point = secret.public_key().to_encoded_point(true);
+    let mut out = [0u8; 33];
+    out.copy_from_slice(point.as_bytes());
+    out
+}
+
+pub fn uncompressed_pubkey(secret: &SecretKey) -> [u8; 65] {
+    let point = secret.public_key().to_encoded_point(false);
+    let mut out = [0u8; 65];
+    out.copy_from_slice(point.as_bytes());
+    out
+}
+
+/// Encode a version byte plus payload using Base58Check.
+pub fn base58check(version: u8, payload: &[u8]) -> String {
+    let mut data = Vec::with_capacity(payload.len() + 1);
+    data.push(version);
+    data.extend_from_slice(payload);
+    bs58::encode(data).with_check().into_string()
+}
+
+pub fn decode_base58check(address: &str) -> Result<Vec<u8>> {
+    bs58::decode(address)
+        .with_check(None)
+        .into_vec()
+        .map_err(|e| Error::InvalidAddress(e.to_string()))
+}
+
+pub fn p2pkh_address(pubkey: &[u8], version: u8) -> String {
+    base58check(version, &hash160(pubkey))
+}
+
+pub fn p2wpkh_address(pubkey: &[u8], hrp: &str) -> Result<String> {
+    let program = hash160(pubkey);
+    let hrp = Hrp::parse(hrp).map_err(|e| Error::Crypto(format!("invalid bech32 hrp: {e}")))?;
+    segwit::encode(hrp, segwit::VERSION_0, &program)
+        .map_err(|e| Error::Crypto(format!("bech32 encode failed: {e}")))
+}
+
+pub fn evm_address(pubkey: &[u8]) -> Result<String> {
+    if pubkey.len() != 65 || pubkey[0] != 0x04 {
+        return Err(Error::Crypto("expected uncompressed secp256k1 key".into()));
+    }
+    let hash = keccak256(&pubkey[1..]);
+    let mut address = [0u8; 20];
+    address.copy_from_slice(&hash[12..]);
+    Ok(to_checksum_address(&hex::encode(address)))
+}
+
+/// EIP-55 checksum encoding.
+pub fn to_checksum_address(lower_hex: &str) -> String {
+    let lower = lower_hex.trim_start_matches("0x").to_ascii_lowercase();
+    let hash = keccak256(lower.as_bytes());
+    let mut out = String::with_capacity(42);
+    out.push_str("0x");
+    for (i, ch) in lower.chars().enumerate() {
+        if ch.is_ascii_digit() {
+            out.push(ch);
+        } else {
+            let nibble = (hash[i / 2] >> (4 * (1 - (i % 2)))) & 0x0f;
+            if nibble >= 8 {
+                out.push(ch.to_ascii_uppercase());
+            } else {
+                out.push(ch);
+            }
+        }
+    }
+    out
+}
+
+pub fn solana_address(pubkey: &[u8; 32]) -> String {
+    bs58::encode(pubkey).into_string()
+}
+
+pub fn parse_solana_address(address: &str) -> Result<[u8; 32]> {
+    let bytes = bs58::decode(address.trim())
+        .into_vec()
+        .map_err(|_| Error::InvalidAddress("not a base58 Solana address".into()))?;
+    if bytes.len() != 32 {
+        return Err(Error::InvalidAddress(
+            "Solana addresses must decode to 32 bytes".into(),
+        ));
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+pub fn parse_evm_address(address: &str) -> Result<[u8; 20]> {
+    let trimmed = address.trim();
+    if !trimmed.starts_with("0x") || trimmed.len() != 42 {
+        return Err(Error::InvalidAddress(
+            "EVM addresses must be 0x followed by 40 hex characters".into(),
+        ));
+    }
+    let body = &trimmed[2..];
+    if !body.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(Error::InvalidAddress(
+            "address contains non-hex characters".into(),
+        ));
+    }
+    let has_lower = body.chars().any(|c| c.is_ascii_lowercase());
+    let has_upper = body.chars().any(|c| c.is_ascii_uppercase());
+    if has_lower && has_upper {
+        let checksum = to_checksum_address(body);
+        if checksum[2..] != *body {
+            return Err(Error::InvalidAddress(
+                "mixed-case address has an invalid EIP-55 checksum".into(),
+            ));
+        }
+    }
+    let bytes = hex::decode(body)?;
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+pub fn validate_address(chain: ChainId, address: &str) -> Result<()> {
+    match chain {
+        ChainId::Ethereum | ChainId::Bsc | ChainId::Polygon => {
+            parse_evm_address(address).map(|_| ())
+        }
+        ChainId::Solana => parse_solana_address(address).map(|_| ()),
+        ChainId::Bitcoin | ChainId::Litecoin => validate_utxo_address(chain, address),
+    }
+}
+
+pub fn validate_utxo_address(chain: ChainId, address: &str) -> Result<()> {
+    let params = chain
+        .utxo_params()
+        .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+    let address = address.trim();
+    if let Ok((hrp, version, program)) = segwit::decode(address) {
+        if hrp.as_str() != params.hrp {
+            return Err(Error::InvalidAddress(format!(
+                "address belongs to {}, expected {}",
+                hrp.as_str(),
+                params.hrp
+            )));
+        }
+        if version.to_u8() > 1 {
+            return Err(Error::InvalidAddress("unsupported witness version".into()));
+        }
+        if program.len() < 2 || program.len() > 40 {
+            return Err(Error::InvalidAddress("invalid witness program".into()));
+        }
+        return Ok(());
+    }
+    let payload = decode_base58check(address)?;
+    if payload.len() != 21 {
+        return Err(Error::InvalidAddress(
+            "invalid base58 address length".into(),
+        ));
+    }
+    let version = payload[0];
+    if version != params.p2pkh_version && version != params.p2sh_version {
+        return Err(Error::InvalidAddress(format!(
+            "unexpected address version 0x{version:02x}"
+        )));
+    }
+    Ok(())
+}
+
+/// Parse a UTXO address into its output script.
+pub fn utxo_output_script(chain: ChainId, address: &str) -> Result<Vec<u8>> {
+    let params = chain
+        .utxo_params()
+        .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+    let address = address.trim();
+    if let Ok((hrp, version, program)) = segwit::decode(address) {
+        if hrp.as_str() != params.hrp {
+            return Err(Error::InvalidAddress("wrong network".into()));
+        }
+        let mut script = Vec::with_capacity(program.len() + 2);
+        let v = version.to_u8();
+        if v == 0 {
+            script.push(0x00);
+        } else {
+            script.push(0x50 + v);
+        }
+        script.push(program.len() as u8);
+        script.extend_from_slice(&program);
+        return Ok(script);
+    }
+    let payload = decode_base58check(address)?;
+    if payload.len() != 21 {
+        return Err(Error::InvalidAddress("invalid base58 address".into()));
+    }
+    let version = payload[0];
+    let hash = &payload[1..];
+    if version == params.p2pkh_version {
+        let mut script = Vec::with_capacity(25);
+        script.extend_from_slice(&[0x76, 0xa9, 0x14]);
+        script.extend_from_slice(hash);
+        script.extend_from_slice(&[0x88, 0xac]);
+        Ok(script)
+    } else if version == params.p2sh_version {
+        let mut script = Vec::with_capacity(23);
+        script.extend_from_slice(&[0xa9, 0x14]);
+        script.extend_from_slice(hash);
+        script.push(0x87);
+        Ok(script)
+    } else {
+        Err(Error::InvalidAddress("unsupported address version".into()))
+    }
+}
+
+/// WIF for UTXO chains. The corresponding public key is always compressed.
+pub fn wif(secret: &SecretKey, chain: ChainId) -> Result<String> {
+    let params = chain
+        .utxo_params()
+        .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+    let mut data = Vec::with_capacity(34);
+    data.push(params.wif_version);
+    data.extend_from_slice(&secret.to_bytes());
+    data.push(0x01);
+    Ok(bs58::encode(data).with_check().into_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eip55_known_vector() {
+        assert_eq!(
+            to_checksum_address("52908400098527886e0f7030069857d2e4169ee7"),
+            "0x52908400098527886E0F7030069857D2E4169EE7"
+        );
+        assert_eq!(
+            to_checksum_address("5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"),
+            "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+        );
+        assert_eq!(
+            to_checksum_address("fb6916095ca1df60bb79ce92ce3ea74c37c5d359"),
+            "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359"
+        );
+    }
+
+    #[test]
+    fn base58check_roundtrip() {
+        let encoded = base58check(0x00, &[0x11; 20]);
+        let decoded = decode_base58check(&encoded).unwrap();
+        assert_eq!(decoded[0], 0x00);
+        assert_eq!(&decoded[1..], &[0x11; 20]);
+    }
+}

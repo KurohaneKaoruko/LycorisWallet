@@ -12,11 +12,14 @@ use lycoris_core::models::{
     ActivityItem, ActivityStatus, AssetBalance, Direction, FeeOption, FiatCurrency, Portfolio,
     SendQuote, SendResult,
 };
-use lycoris_core::network::{evm::EvmClient, prices, solana::SolanaClient, utxo::UtxoClient};
+use lycoris_core::network::{
+    blockchair::BlockchairClient, evm::EvmClient, prices, solana::SolanaClient, utxo::UtxoClient,
+};
 use lycoris_core::tx::evm::{sign_transaction, EvmCall, EvmFee};
 use lycoris_core::tx::solana::build_transfer;
 use lycoris_core::tx::utxo::{
-    build_signed_p2wpkh, change_script, fee_rate_for_level, max_sendable, recipient_script,
+    build_signed_p2pkh, build_signed_p2wpkh, change_script, fee_rate_for_level,
+    legacy_change_script, max_legacy_sendable, max_sendable, recipient_script, select_legacy_utxos,
     select_utxos, UtxoInput, DUST_LIMIT,
 };
 use lycoris_core::units::{format_units, parse_units, truncate_decimal};
@@ -243,6 +246,72 @@ fn parse_amount(input: &str, decimals: u8) -> Result<Option<u128>, ApiError> {
     }
 }
 
+/// Fee levels for the legacy (pre-SegWit) chains. They do not publish a
+/// recommended fee rate through the API, so the chain's own minimum relay fee
+/// is the baseline and the levels scale from there.
+fn legacy_fee_levels(chain: ChainId) -> [(&'static str, u64, &'static str); 3] {
+    let base = chain.default_fee_rate();
+    [
+        ("fast", base * 3 / 2, "约 30 分钟"),
+        ("normal", base, "约 1 小时"),
+        ("economy", base * 3 / 4, "约 2 小时"),
+    ]
+}
+
+/// Quote for Dogecoin / Bitcoin Cash: legacy P2PKH spends priced in
+/// satoshis per byte.
+async fn legacy_utxo_quote(
+    client: &reqwest::Client,
+    chain: ChainId,
+    address: &str,
+    amount: Option<u128>,
+) -> ApiResult<QuoteFees> {
+    let info = chain.info();
+    let adapter = BlockchairClient::new(client.clone(), info.rpc);
+    let utxos = adapter.utxos(address).await?;
+    let inputs: Vec<UtxoInput> = utxos
+        .iter()
+        .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))
+        .collect::<Result<_, _>>()?;
+    let balance: u64 = inputs.iter().map(|input| input.value).sum();
+    let target = amount.map(|value| u64::try_from(value).unwrap_or(u64::MAX));
+
+    let mut options = Vec::new();
+    let mut normal_fee = 0u128;
+    for (level, rate, eta) in legacy_fee_levels(chain) {
+        let fee = match target {
+            Some(value) => select_legacy_utxos(inputs.clone(), value, rate)
+                .map(|selection| selection.fee)
+                .unwrap_or(0),
+            None => max_legacy_sendable(&inputs, rate)
+                .map(|(_, fee)| fee)
+                .unwrap_or(0),
+        };
+        if level == "normal" {
+            normal_fee = u128::from(fee);
+        }
+        options.push(FeeOption {
+            level: level.to_string(),
+            label: level_label(level).to_string(),
+            fee: format_amount(u128::from(fee), info.decimals),
+            fee_fiat: None,
+            eta: eta.to_string(),
+            note: format!("{rate} {}/字节", chain.base_unit()),
+            selected: level == "normal",
+        });
+    }
+
+    let max_amount = max_legacy_sendable(&inputs, chain.default_fee_rate())
+        .ok()
+        .map(|(value, _)| u128::from(value));
+    Ok(QuoteFees {
+        options,
+        normal_fee,
+        max_amount,
+        balance: u128::from(balance),
+    })
+}
+
 async fn utxo_quote(
     client: &reqwest::Client,
     chain: ChainId,
@@ -252,6 +321,9 @@ async fn utxo_quote(
 ) -> ApiResult<QuoteFees> {
     let info = chain.info();
     recipient_script(chain, to)?;
+    if chain.legacy_utxo() {
+        return legacy_utxo_quote(client, chain, address, amount).await;
+    }
     let adapter = UtxoClient::new(client.clone(), info.rpc);
     let fees = adapter.fees().await?;
     let utxos = adapter.utxos(address).await?;
@@ -284,7 +356,7 @@ async fn utxo_quote(
             fee: format_amount(u128::from(fee), info.decimals),
             fee_fiat: None,
             eta: eta.to_string(),
-            note: format!("{rate} 聪/vB"),
+            note: format!("{rate} {}/vB", chain.base_unit()),
             selected: level == "normal",
         });
     }
@@ -563,7 +635,10 @@ pub async fn quote(state: &AppState, request: &QuoteRequest) -> ApiResult<SendQu
 
     if info.kind == ChainKind::Utxo && requested > 0 && requested < u128::from(DUST_LIMIT) {
         can_send = false;
-        warning = Some(format!("低于灰尘限额（{DUST_LIMIT} 聪）"));
+        warning = Some(format!(
+            "低于灰尘限额（{DUST_LIMIT} {}）",
+            request.chain.base_unit()
+        ));
     }
     if !can_send && warning.is_none() {
         warning = Some(format!(
@@ -629,6 +704,9 @@ async fn send_utxo(
     let info = chain.info();
     let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
+    if chain.legacy_utxo() {
+        return send_legacy_utxo(state, chain, address, to, amount, level).await;
+    }
     let adapter = UtxoClient::new(client.clone(), info.rpc);
     let fees = adapter.fees().await?;
     let fee_rate = fee_rate_for_level(&fees, level);
@@ -642,7 +720,7 @@ async fn send_utxo(
         None => max_sendable(&inputs, fee_rate)?.0,
     };
     if target < DUST_LIMIT {
-        return Err(Error::InvalidAmount(format!("低于灰尘限额（{DUST_LIMIT} 聪）")).into());
+        return Err(Error::InvalidAmount(format!("低于灰尘限额（{DUST_LIMIT} {}）", chain.base_unit())).into());
     }
     let selection = select_utxos(inputs, target, fee_rate, true)?;
     let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
@@ -665,6 +743,64 @@ async fn send_utxo(
         target,
         change_output,
         fee_rate,
+    )?;
+    let txid = adapter.broadcast(&raw).await?;
+    Ok((txid, fee, u128::from(target)))
+}
+
+/// Send with a legacy (pre-SegWit) P2PKH input: Dogecoin and Bitcoin Cash.
+async fn send_legacy_utxo(
+    state: &AppState,
+    chain: ChainId,
+    address: &str,
+    to: &str,
+    amount: Option<u128>,
+    level: &str,
+) -> ApiResult<(String, u64, u128)> {
+    let info = chain.info();
+    let secret = state.active_secret()?;
+    let client = lycoris_core::network::http_client();
+    let adapter = BlockchairClient::new(client.clone(), info.rpc);
+    let fee_rate = legacy_fee_levels(chain)
+        .iter()
+        .find(|(name, _, _)| *name == level)
+        .map(|(_, rate, _)| *rate)
+        .unwrap_or_else(|| chain.default_fee_rate());
+
+    let utxos = adapter.utxos(address).await?;
+    let inputs: Vec<UtxoInput> = utxos
+        .iter()
+        .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))
+        .collect::<Result<_, _>>()?;
+    let target = match amount {
+        Some(value) => u64::try_from(value).map_err(|_| Error::InvalidAmount("金额过大".into()))?,
+        None => max_legacy_sendable(&inputs, fee_rate)?.0,
+    };
+    if target < DUST_LIMIT {
+        return Err(Error::InvalidAmount(format!("低于灰尘限额（{DUST_LIMIT} {}）", chain.base_unit())).into());
+    }
+    let selection = select_legacy_utxos(inputs, target, fee_rate)?;
+    let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
+    let key = material.secp()?;
+    let pubkey = address::compressed_pubkey(key);
+    let params = chain
+        .utxo_params()
+        .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+    let (_, change) = legacy_change_script(&params, &pubkey);
+    let recipient = recipient_script(chain, to)?;
+    let change_output = if selection.change >= DUST_LIMIT {
+        Some((change.as_slice(), selection.change))
+    } else {
+        None
+    };
+    let (raw, fee) = build_signed_p2pkh(
+        key,
+        &selection.inputs,
+        &recipient,
+        target,
+        change_output,
+        fee_rate,
+        chain.legacy_sighash(),
     )?;
     let txid = adapter.broadcast(&raw).await?;
     Ok((txid, fee, u128::from(target)))

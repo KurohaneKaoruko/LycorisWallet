@@ -32,6 +32,10 @@ RECT = re.compile(
     r'(?: rx="([\d.]+)")?(?: fill="none"(?: stroke="([^"]+)")? stroke-width="([\d.]+)")?'
 )
 BACKGROUND = re.compile(r'<rect width="[\d.]+" height="[\d.]+" fill="([^"]+)"')
+# The sizes a phone camera realistically has to read the symbol from a screen:
+# the app shows it up to ~320 CSS pixels wide; on a 360 px phone the card
+# still leaves ~300 px, so 288 px is the floor worth testing.
+SCREEN_SIZES = (320, 288)
 
 
 def parse_color(value: str):
@@ -41,7 +45,7 @@ def parse_color(value: str):
     return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
 
 
-def rasterise(svg: str, scale: int = 3) -> Image.Image:
+def rasterise(svg: str, scale: int = 3, pixels: float = None) -> Image.Image:
     """Draw the SVG with PIL: filled rounded rects, hollow rings and the base."""
     background = parse_color(BACKGROUND.search(svg).group(1))
     group = re.search(r'<g fill="([^"]+)">(.*)</g>', svg, re.S)
@@ -51,6 +55,8 @@ def rasterise(svg: str, scale: int = 3) -> Image.Image:
     # The viewBox defines the canvas; every shape is scaled up for the decoder.
     view = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', svg)
     extent = float(view.group(1))
+    if pixels is not None:
+        scale = pixels / extent
 
     image = Image.new("RGB", (int(extent * scale), int(extent * scale)), background)
     draw = ImageDraw.Draw(image)
@@ -132,18 +138,24 @@ def main() -> int:
 
     failures = []
     for name, payload, svg in fixtures:
-        image = rasterise(svg)
-        decoded = decode(image)
-        value = decoded[0].data.decode("utf-8") if decoded else None
-        ok = value == payload
-        print(f"  {'ok  ' if ok else 'FAIL'} {name:22} decoded={value == payload}")
+        # Decode at the size the symbol is actually shown on screen, and at a
+        # couple of smaller sizes: a wallet QR has to scan off a phone screen.
+        results = []
+        for pixels in SCREEN_SIZES:
+            image = rasterise(svg, pixels=pixels)
+            decoded = decode(image)
+            value = decoded[0].data.decode("utf-8") if decoded else None
+            results.append((pixels, value == payload))
+        ok = all(success for _, success in results)
+        summary = "  ".join(f"{px}px:{'ok' if good else 'FAIL'}" for px, good in results)
+        print(f"  {'ok  ' if ok else 'FAIL'} {name:22} {summary}")
         if not ok:
-            failures.append(f"{name}: decoder returned {value!r}")
+            failures.append(f"{name}: failed at {[px for px, good in results if not good]}")
 
     if failures:
         print(f"\n{len(failures)} problems: {'; '.join(failures)}")
         return 1
-    print("\nall rendered QR symbols decode")
+    print("\nall rendered QR symbols decode at screen size")
     return 0
 
 

@@ -14,6 +14,19 @@ use k256::SecretKey;
 pub const DUST_LIMIT: u64 = 546;
 const SIGHASH_ALL: u32 = 1;
 const SEQUENCE: u32 = 0xffff_fffd;
+const LOCKTIME: u32 = 0;
+
+/// How a legacy (pre-SegWit) input is signed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacySighash {
+    /// The classic pre-BIP-143 digest: Bitcoin and Dogecoin style.
+    Classic,
+    /// The BIP-143 digest with the `SIGHASH_FORKID` flag: Bitcoin Cash style.
+    ForkId,
+}
+
+/// `SIGHASH_FORKID | SIGHASH_ALL` — Bitcoin Cash signs with fork id zero.
+pub const SIGHASH_FORKID_ALL: u32 = 0x41;
 
 #[derive(Debug, Clone)]
 pub struct UtxoInput {
@@ -88,6 +101,21 @@ pub fn p2wpkh_script(pubkey: &[u8; 33]) -> Vec<u8> {
     script.push(0x14);
     script.extend_from_slice(&hash160(pubkey));
     script
+}
+
+/// The classic pay-to-public-key-hash script (25 bytes).
+pub fn p2pkh_script(pubkey: &[u8; 33]) -> Vec<u8> {
+    let mut script = Vec::with_capacity(25);
+    script.extend_from_slice(&[0x76, 0xa9, 0x14]);
+    script.extend_from_slice(&hash160(pubkey));
+    script.extend_from_slice(&[0x88, 0xac]);
+    script
+}
+
+/// Transaction size estimate for legacy P2PKH spends: one input is about 148
+/// bytes, one output about 34 bytes, plus ten bytes of overhead.
+pub fn estimate_legacy_vsize(input_count: usize, output_count: usize) -> u64 {
+    10 + (input_count as u64) * 148 + (output_count as u64) * 34
 }
 
 fn script_code(pubkey: &[u8; 33]) -> Vec<u8> {
@@ -282,10 +310,232 @@ pub fn build_signed_p2wpkh(
     Ok((hex::encode(raw), fee))
 }
 
+/// Coin selection for legacy P2PKH spends: the size of an input and an output
+/// differs from the SegWit case, so the fee is computed with its own estimate.
+pub fn select_legacy_utxos(
+    mut utxos: Vec<UtxoInput>,
+    target: u64,
+    fee_rate: u64,
+) -> Result<Selection> {
+    if target == 0 {
+        return Err(Error::InvalidAmount(
+            "amount must be greater than zero".into(),
+        ));
+    }
+    utxos.sort_by(|a, b| b.value.cmp(&a.value));
+    let mut selected: Vec<UtxoInput> = Vec::new();
+    let mut total = 0u64;
+    for utxo in &utxos {
+        selected.push(utxo.clone());
+        total = total.saturating_add(utxo.value);
+        let fee = estimate_legacy_vsize(selected.len(), 2).saturating_mul(fee_rate.max(1));
+        if total >= target.saturating_add(fee) {
+            let mut change = total - target - fee;
+            let mut fee = fee;
+            if change < DUST_LIMIT {
+                let base_fee = estimate_legacy_vsize(selected.len(), 1).saturating_mul(fee_rate.max(1));
+                if total >= target.saturating_add(base_fee) {
+                    fee = total - target;
+                    change = 0;
+                } else {
+                    return Err(Error::InsufficientBalance);
+                }
+            }
+            return Ok(Selection {
+                inputs: selected,
+                change,
+                fee,
+            });
+        }
+    }
+    Err(Error::InsufficientBalance)
+}
+
+/// The largest amount that can be sent with the given inputs, and its fee.
+pub fn max_legacy_sendable(utxos: &[UtxoInput], fee_rate: u64) -> Result<(u64, u64)> {
+    if utxos.is_empty() {
+        return Err(Error::InsufficientBalance);
+    }
+    let total: u64 = utxos.iter().map(|u| u.value).sum();
+    let fee = estimate_legacy_vsize(utxos.len(), 2).saturating_mul(fee_rate.max(1));
+    if total <= fee {
+        return Err(Error::InsufficientBalance);
+    }
+    let amount = total - fee;
+    let change = total - amount - fee;
+    if change < DUST_LIMIT {
+        let fee_one = estimate_legacy_vsize(utxos.len(), 1).saturating_mul(fee_rate.max(1));
+        let amount_one = total.saturating_sub(fee_one);
+        Ok((amount_one, total - amount_one))
+    } else {
+        Ok((amount, fee))
+    }
+}
+
 /// Build a P2WPKH output script for the wallet's own change address.
 pub fn change_script(params: &UtxoParams, pubkey: &[u8; 33]) -> (String, Vec<u8>) {
     let address = crate::address::p2wpkh_address(pubkey, params.hrp).unwrap_or_default();
     (address, p2wpkh_script(pubkey))
+}
+
+/// Build a legacy P2PKH output script for the wallet's own change address.
+pub fn legacy_change_script(params: &UtxoParams, pubkey: &[u8; 33]) -> (String, Vec<u8>) {
+    let address = crate::address::p2pkh_address(pubkey, params.p2pkh_version);
+    (address, p2pkh_script(pubkey))
+}
+
+/// The classic pre-BIP-143 digest: every input but the one being signed
+/// contributes an empty script.
+fn legacy_sighash(
+    inputs: &[UtxoInput],
+    outputs: &[(Vec<u8>, u64)],
+    script_code: &[u8],
+    index: usize,
+    sighash_type: u32,
+) -> [u8; 32] {
+    let mut preimage = Vec::with_capacity(256);
+    preimage.extend_from_slice(&1i32.to_le_bytes());
+    preimage.extend_from_slice(&varint(inputs.len()));
+    for (position, input) in inputs.iter().enumerate() {
+        preimage.extend_from_slice(&outpoint(input));
+        if position == index {
+            preimage.extend_from_slice(&varint(script_code.len()));
+            preimage.extend_from_slice(script_code);
+        } else {
+            preimage.extend_from_slice(&varint(0));
+        }
+        preimage.extend_from_slice(&SEQUENCE.to_le_bytes());
+    }
+    preimage.extend_from_slice(&serialize_outputs(outputs));
+    preimage.extend_from_slice(&LOCKTIME.to_le_bytes());
+    preimage.extend_from_slice(&sighash_type.to_le_bytes());
+    double_sha256(&preimage)
+}
+
+/// The BIP-143 digest with the fork id flag, as Bitcoin Cash uses it.
+fn forkid_sighash(
+    inputs: &[UtxoInput],
+    outputs: &[(Vec<u8>, u64)],
+    script_code: &[u8],
+    index: usize,
+    sighash_type: u32,
+) -> [u8; 32] {
+    let mut prevouts = Vec::with_capacity(inputs.len() * 36);
+    let mut sequences = Vec::with_capacity(inputs.len() * 4);
+    for input in inputs {
+        prevouts.extend_from_slice(&outpoint(input));
+        sequences.extend_from_slice(&SEQUENCE.to_le_bytes());
+    }
+    let hash_prevouts = double_sha256(&prevouts);
+    let hash_sequence = double_sha256(&sequences);
+    let hash_outputs = double_sha256(&serialize_outputs(outputs));
+
+    let mut preimage = Vec::with_capacity(160);
+    preimage.extend_from_slice(&1i32.to_le_bytes());
+    preimage.extend_from_slice(&hash_prevouts);
+    preimage.extend_from_slice(&hash_sequence);
+    preimage.extend_from_slice(&hash_outputs);
+    preimage.extend_from_slice(&outpoint(&inputs[index]));
+    preimage.extend_from_slice(&varint(script_code.len()));
+    preimage.extend_from_slice(script_code);
+    preimage.extend_from_slice(&inputs[index].value.to_le_bytes());
+    preimage.extend_from_slice(&SEQUENCE.to_le_bytes());
+    preimage.extend_from_slice(&hash_outputs);
+    preimage.extend_from_slice(&LOCKTIME.to_le_bytes());
+    preimage.extend_from_slice(&sighash_type.to_le_bytes());
+    double_sha256(&preimage)
+}
+
+/// Build and sign a legacy (pre-SegWit) P2PKH transaction.
+///
+/// The same key and P2PKH script is assumed for every input (the wallet only
+/// spends its own account). `mode` selects the digest: `Classic` for Dogecoin,
+/// `ForkId` for Bitcoin Cash.
+pub fn build_signed_p2pkh(
+    key: &SecretKey,
+    inputs: &[UtxoInput],
+    recipient_script: &[u8],
+    recipient_value: u64,
+    change: Option<(&[u8], u64)>,
+    fee_rate: u64,
+    mode: LegacySighash,
+) -> Result<(String, u64)> {
+    if inputs.is_empty() {
+        return Err(Error::InsufficientBalance);
+    }
+    let pubkey_point = key.public_key().to_encoded_point(true);
+    let mut pubkey = [0u8; 33];
+    pubkey.copy_from_slice(pubkey_point.as_bytes());
+    let signing = SigningKey::from_slice(&key.to_bytes())
+        .map_err(|e| Error::Crypto(format!("invalid signing key: {e}")))?;
+    let script_code = p2pkh_script(&pubkey);
+
+    let mut outputs: Vec<(Vec<u8>, u64)> = Vec::new();
+    outputs.push((recipient_script.to_vec(), recipient_value));
+    if let Some((script, value)) = change {
+        if value >= DUST_LIMIT {
+            outputs.push((script.to_vec(), value));
+        }
+    }
+
+    let total_in: u64 = inputs.iter().map(|i| i.value).sum();
+    let total_out: u64 = outputs.iter().map(|(_, v)| v).sum();
+    if total_in < total_out {
+        return Err(Error::InsufficientBalance);
+    }
+    let fee = total_in - total_out;
+    let min_fee = estimate_legacy_vsize(inputs.len(), outputs.len()).saturating_mul(fee_rate.max(1));
+    if fee < min_fee {
+        return Err(Error::Transaction(format!(
+            "fee {fee} is below the required {min_fee}"
+        )));
+    }
+
+    let sighash_type = match mode {
+        LegacySighash::Classic => SIGHASH_ALL,
+        LegacySighash::ForkId => SIGHASH_FORKID_ALL,
+    };
+
+    let mut script_sigs: Vec<Vec<u8>> = Vec::with_capacity(inputs.len());
+    for index in 0..inputs.len() {
+        let digest = match mode {
+            LegacySighash::Classic => {
+                legacy_sighash(inputs, &outputs, &script_code, index, sighash_type)
+            }
+            LegacySighash::ForkId => {
+                forkid_sighash(inputs, &outputs, &script_code, index, sighash_type)
+            }
+        };
+
+        use k256::ecdsa::signature::hazmat::PrehashSigner;
+        let signature: k256::ecdsa::Signature = signing
+            .sign_prehash(&digest)
+            .map_err(|e| Error::Crypto(format!("legacy signing failed: {e}")))?;
+        let der = signature.to_der();
+        let mut signature_with_type = der.as_bytes().to_vec();
+        signature_with_type.push(sighash_type as u8);
+
+        // scriptSig: <signature> <pubkey>, both pushed onto the stack.
+        let mut script_sig = Vec::with_capacity(signature_with_type.len() + pubkey.len() + 2);
+        script_sig.push(signature_with_type.len() as u8);
+        script_sig.extend_from_slice(&signature_with_type);
+        script_sig.push(pubkey.len() as u8);
+        script_sig.extend_from_slice(&pubkey);
+        script_sigs.push(script_sig);
+    }
+
+    let mut raw = Vec::new();
+    raw.extend_from_slice(&1i32.to_le_bytes());
+    raw.extend_from_slice(&varint(inputs.len()));
+    for (index, input) in inputs.iter().enumerate() {
+        raw.extend_from_slice(&outpoint(input));
+        raw.extend_from_slice(&varint(script_sigs[index].len()));
+        raw.extend_from_slice(&script_sigs[index]);
+        raw.extend_from_slice(&SEQUENCE.to_le_bytes());
+    }
+    raw.extend_from_slice(&serialize_outputs(&outputs));
+    raw.extend_from_slice(&LOCKTIME.to_le_bytes());
+    Ok((hex::encode(raw), fee))
 }
 
 pub fn recipient_script(chain: ChainId, address: &str) -> Result<Vec<u8>> {
@@ -389,6 +639,112 @@ mod tests {
              5aa675c0b0ee3dcc3a1d9ba8c8fff2bc3a140220738cd9ff0d0b0c409b1afc830a5c76c11dbf2902\
              0e54992f6efeaa4c046a4cbc0121034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0\
              f0b704075871aa00000000"
+        );
+    }
+
+    /// Legacy P2PKH spends, recomputed with libsecp256k1 (coincurve 21) in
+    /// `tools/verify_tx_legacy.py`: Dogecoin signs with the classic
+    /// pre-BIP143 digest, Bitcoin Cash with BIP143 plus SIGHASH_FORKID.
+    #[test]
+    fn legacy_p2pkh_transactions_match_reference_implementation() {
+        use k256::SecretKey;
+        let key = SecretKey::from_slice(&[0x11; 32]).unwrap();
+        let pubkey_point = key.public_key().to_encoded_point(true);
+        let mut pubkey = [0u8; 33];
+        pubkey.copy_from_slice(pubkey_point.as_bytes());
+        let script = p2pkh_script(&pubkey);
+        let single = vec![UtxoInput::from_parts(&"ab".repeat(32), 0, 100_000, true).unwrap()];
+        let pair = vec![
+            UtxoInput::from_parts(&"ab".repeat(32), 0, 100_000, true).unwrap(),
+            UtxoInput::from_parts(&"cd".repeat(32), 1, 60_000, true).unwrap(),
+        ];
+
+        let (raw, fee) = build_signed_p2pkh(
+            &key,
+            &single,
+            &script,
+            90_000,
+            None,
+            2,
+            LegacySighash::Classic,
+        )
+        .unwrap();
+        assert_eq!(fee, 10000);
+        assert_eq!(
+            raw,
+            "0100000001abababababababababababababababababababababababababababababababab000000006a47\
+            304402201e5ac4d899e88dc911b9877149ae84ec5b179cde28023cee555d19a261023c9a02201da1c2e510\
+            b0cdcb134b53881fb25d7d6f99a83a73a46fe2303b4b61513600a90121034f355bdcb7cc0af728ef3cceb9\
+            615d90684bb5b2ca5f859ab0f0b704075871aafdffffff01905f0100000000001976a914fc7250a211dedd\
+            c70ee5a2738de5f07817351cef88ac00000000"
+        );
+
+        let (raw, fee) = build_signed_p2pkh(
+            &key,
+            &pair,
+            &script,
+            120_000,
+            Some((&script, 25_000)),
+            2,
+            LegacySighash::Classic,
+        )
+        .unwrap();
+        assert_eq!(fee, 15000);
+        assert_eq!(
+            raw,
+            "0100000002abababababababababababababababababababababababababababababababab000000006b48\
+            3045022100fb8df853499a605b1286b2f17379cd933c37c0f67bbe656ef2637f72c84fb4ba02202e69ce09\
+            d49e5a588b409affdd5f003c4ba43323d6a3e13afb8d0aff8784309d0121034f355bdcb7cc0af728ef3cce\
+            b9615d90684bb5b2ca5f859ab0f0b704075871aafdffffffcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\
+            cdcdcdcdcdcdcdcdcdcdcdcdcd010000006a473044022032d06432e080ca632d35906b492c843489d29e89\
+            4ec6489ef5cee1e5d7263ee1022042f8eb975b76e156459edf759de42e6d48c82477473f4badbc309b8c8b\
+            fc9ffd0121034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aafdffffff02\
+            c0d40100000000001976a914fc7250a211deddc70ee5a2738de5f07817351cef88aca86100000000000019\
+            76a914fc7250a211deddc70ee5a2738de5f07817351cef88ac00000000"
+        );
+
+        let (raw, fee) = build_signed_p2pkh(
+            &key,
+            &single,
+            &script,
+            90_000,
+            None,
+            2,
+            LegacySighash::ForkId,
+        )
+        .unwrap();
+        assert_eq!(fee, 10000);
+        assert_eq!(
+            raw,
+            "0100000001abababababababababababababababababababababababababababababababab000000006a47\
+            304402203b475c2a3d3c827b16e6a9dbca01411796cb0ceca0c6f32356a0361cc14f49990220365630fb11\
+            be46cf73b3fa0a18ae99878aa8ea8ac6c7943323f595b97452521d4121034f355bdcb7cc0af728ef3cceb9\
+            615d90684bb5b2ca5f859ab0f0b704075871aafdffffff01905f0100000000001976a914fc7250a211dedd\
+            c70ee5a2738de5f07817351cef88ac00000000"
+        );
+
+        let (raw, fee) = build_signed_p2pkh(
+            &key,
+            &pair,
+            &script,
+            120_000,
+            Some((&script, 25_000)),
+            2,
+            LegacySighash::ForkId,
+        )
+        .unwrap();
+        assert_eq!(fee, 15000);
+        assert_eq!(
+            raw,
+            "0100000002abababababababababababababababababababababababababababababababab000000006a47\
+            304402206f52fa9177e781e86a40fe9e3dbfd60423c44f241c1d4a9bdbd03f22a681ea4602201ee97e102f\
+            aee3c1d1c480309c219f2e58df933a0c86d8cae51af116bb2dc8654121034f355bdcb7cc0af728ef3cceb9\
+            615d90684bb5b2ca5f859ab0f0b704075871aafdffffffcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\
+            cdcdcdcdcdcdcdcdcdcdcdcd010000006b483045022100deac753f8943c8f75c90efd43f34875ec059e080\
+            e0b505f9d9ac8f744265d8c102202db31468fc30861e8fca9a2a43f05edcbf239cb326a175c694cd21c53f\
+            fb8a4c4121034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aafdffffff02\
+            c0d40100000000001976a914fc7250a211deddc70ee5a2738de5f07817351cef88aca86100000000000019\
+            76a914fc7250a211deddc70ee5a2738de5f07817351cef88ac00000000"
         );
     }
 }

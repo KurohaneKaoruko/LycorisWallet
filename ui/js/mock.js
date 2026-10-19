@@ -328,7 +328,7 @@ function accountsFor(secret) {
       publicKey: `0x${pick(keyStream(chain.id, seedText, secret.mode === "mnemonic" ? "mnemonic" : secret.derivation), HEX, 64)}`,
       accent: chain.accent,
       explorerUrl: "#",
-      sendSupported: !["dogecoin", "bitcoincash", "monero"].includes(chain.id),
+      sendSupported: !["monero"].includes(chain.id),
       decimals: chain.decimals,
     };
   });
@@ -422,10 +422,17 @@ function levelLabel(level) {
   return level === "fast" ? "快速" : level === "economy" ? "经济" : "标准";
 }
 
+/** The smallest unit of a chain, as its community calls it. */
+function baseUnit(chainId) {
+  if (chainId === "litecoin") return "里特";
+  if (chainId === "dogecoin") return "柴";
+  return "聪";
+}
+
 function quoteFor(request) {
   const chain = CHAINS.find((item) => item.id === request.chain);
   if (!chain) throw { code: "UNSUPPORTED_CHAIN", message: "不支持的链" };
-  if (["dogecoin", "bitcoincash", "monero"].includes(chain.id)) {
+  if (["monero"].includes(chain.id)) {
     throw { code: "SEND_UNSUPPORTED", message: "该链的转账功能即将支持，收款地址已可用" };
   }
   if (!request.to || request.to.length < 12) {
@@ -434,17 +441,34 @@ function quoteFor(request) {
   const balance = BALANCES[chain.id];
   const decimals = chain.decimals;
   const price = PRICES[chain.id].usd;
-
-  const feeBase =
-    chain.kind === "utxo"
+  // Legacy (pre-SegWit) chains price per byte, SegWit chains per vbyte.
+  const legacy = ["dogecoin", "bitcoincash"].includes(chain.id);
+  const feeBase = legacy
+    ? chain.id === "dogecoin"
+      ? 100_000n
+      : 2n
+    : chain.kind === "utxo"
       ? 2_400n
       : chain.id === "solana"
         ? 5_000n
         : 210_000_000_000_000n;
 
   const levels = ["fast", "normal", "economy"].map((level, index) => {
-    const scale = index === 0 ? 14n : index === 1 ? 10n : 7n;
-    const fee = (feeBase * scale) / 10n;
+    // 费率与 Rust 端一致：legacy 链是基准的 1.5 / 1 / 0.75 倍（聪/字节），
+    // SegWit 链是 1.4 / 1 / 0.7 倍（聪/vB）。
+    let rate = legacy
+      ? index === 0
+        ? (feeBase * 3n) / 2n
+        : index === 1
+          ? feeBase
+          : (feeBase * 3n) / 4n
+      : index === 0
+        ? (feeBase * 14n) / 10n
+        : index === 1
+          ? feeBase
+          : (feeBase * 7n) / 10n;
+    // legacy 交易按字节计费，这里用一笔典型交易（约 226 字节）估算费用。
+    const fee = legacy ? rate * 226n : rate;
     const feeText = unitsToText(fee, decimals);
     const human = Number(fee) / 10 ** decimals;
     return {
@@ -453,12 +477,16 @@ function quoteFor(request) {
       fee: feeText,
       feeFiat: `≈ $${(human * price).toFixed(2)}`,
       eta: chain.kind === "utxo" ? (index === 0 ? "约 10 分钟" : index === 1 ? "约 30 分钟" : "约 1 小时") : "约 15 秒",
-      note: chain.kind === "utxo" ? `${[14, 10, 7][index]} 聪/vB` : `${[6.2, 4.4, 2.8][index].toFixed(1)} gwei`,
+      note: chain.kind === "utxo"
+        ? legacy
+          ? `${rate} ${baseUnit(chain.id)}/字节`
+          : `${rate} ${baseUnit(chain.id)}/vB`
+        : `${[6.2, 4.4, 2.8][index].toFixed(1)} gwei`,
       selected: level === "normal",
     };
   });
 
-  const normalFee = (feeBase * 10n) / 10n;
+  const normalFee = parseUnits(levels[1].fee, decimals);
   const max = balance > normalFee ? balance - normalFee : 0n;
   let amount = max;
   if (request.amount && request.amount.trim() && request.amount.trim() !== "max") {
@@ -480,9 +508,9 @@ function quoteFor(request) {
     note:
       chain.kind === "utxo"
         ? chain.id === "dogecoin"
-          ? "Legacy P2PKH（转账即将支持）"
+          ? "Legacy P2PKH（传统 sighash）"
           : chain.id === "bitcoincash"
-            ? "cashaddr（转账即将支持）"
+            ? "Legacy P2PKH · SIGHASH-FORKID"
             : "原生 SegWit（Bech32）"
         : chain.kind === "evm"
           ? "EIP-1559 · 21,000 gas"
@@ -513,8 +541,10 @@ function pseudoQr(text, dark = "#141416", light = "#ffffff") {
   drawFinder(size - 7, 0);
   drawFinder(0, size - 7);
 
-  const quiet = 2;
+  // 定位图案：圆角方框（描边）+ 中心实心圆角方块，整体内缩半格留出呼吸感
+  const quiet = 4;
   const scale = 8;
+  const inset = 0.5;
   const total = (size + quiet * 2) * scale;
   const cell = (x, y) => [(x + quiet) * scale, (y + quiet) * scale];
   const shapes = [];
@@ -523,20 +553,20 @@ function pseudoQr(text, dark = "#141416", light = "#ffffff") {
   const ring = (ox, oy, sizeModules, radius) => {
     const [px, py] = cell(ox, oy);
     const half = scale / 2;
-    const extent = sizeModules * scale - scale;
+    const gap = inset * scale;
+    const extent = sizeModules * scale - scale - gap * 2;
     shapes.push(
-      `<rect x="${px + half}" y="${py + half}" width="${extent}" height="${extent}" rx="${Math.max(
+      `<rect x="${px + half + gap}" y="${py + half + gap}" width="${extent}" height="${extent}" rx="${Math.max(
         0,
         radius - half,
       )}" fill="none" stroke="${dark}" stroke-width="${scale}"/>`,
     );
   };
-  const block = (ox, oy, sizeModules, radius) => {
+  const block = (ox, oy, sizeModules, radius, gap = 0) => {
     const [px, py] = cell(ox, oy);
+    const extent = sizeModules * scale - gap * 2;
     shapes.push(
-      `<rect x="${px}" y="${py}" width="${sizeModules * scale}" height="${
-        sizeModules * scale
-      }" rx="${radius}"/>`,
+      `<rect x="${px + gap}" y="${py + gap}" width="${extent}" height="${extent}" rx="${radius}"/>`,
     );
   };
 
@@ -547,7 +577,7 @@ function pseudoQr(text, dark = "#141416", light = "#ffffff") {
   ];
   for (const [ox, oy] of finders) {
     ring(ox, oy, 7, 2.6 * scale);
-    block(ox + 2, oy + 2, 3, 0.9 * scale);
+    block(ox + 2, oy + 2, 3, 0.9 * scale, inset * scale);
   }
 
   // 数据区：每个深色模块一个独立的圆角小块
@@ -555,7 +585,7 @@ function pseudoQr(text, dark = "#141416", light = "#ffffff") {
     (x < 7 && y < 7) || (x >= size - 7 && y < 7) || (x < 7 && y >= size - 7);
   const tile = Math.round(scale * 0.88);
   const offset = Math.round((scale - tile) / 2);
-  const radius = Math.round(tile * 0.3);
+  const radius = Math.round(tile * 0.25);
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
       if (!modules[y][x] || inFinder(x, y)) continue;

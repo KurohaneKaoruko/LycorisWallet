@@ -2,9 +2,9 @@
  *  dialog. Records are written by the Rust side when a transfer is broadcast;
  *  status is not re-fetched from the network yet. */
 
-import { api } from "../api.js?v=15";
-import { escapeHtml, formatDateTime, groupDigits, shortAddress } from "../format.js?v=15";
-import { bindCopy, copyField, debounce, icon, openModal, toast } from "../ui.js?v=15";
+import { api } from "../api.js?v=21";
+import { escapeHtml, formatDateTime, groupDigits, shortAddress } from "../format.js?v=21";
+import { bindCopy, copyField, debounce, icon, openModal, toast } from "../ui.js?v=21";
 
 const STATUS = {
   pending: { label: "待确认", cls: "badge badge-warn" },

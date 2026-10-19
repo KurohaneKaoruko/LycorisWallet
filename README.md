@@ -42,7 +42,7 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
 - **隔离模式（默认）**：`message = "lycoris/v1/<chain>" + 0x00 + phrase`，再用该链的哈希算法处理；
   同一条口令在每条链得到不同私钥，域分隔字符串避免跨链重放。
 - **严格模式**：`private_key = H_chain(phrase)`，与链上习惯的「passphrase → key」完全一致；
-  注意 Ethereum / BNB Chain / Polygon 使用同一算法，会得到同一把私钥。
+  注意 Ethereum / Ethereum Classic / BNB Chain / Polygon 同为 Keccak-256，会得到同一把私钥。
 
 参考向量（隔离模式，口令 `a quiet garden at dusk`）：
 

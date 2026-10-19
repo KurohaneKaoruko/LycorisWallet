@@ -1,8 +1,8 @@
 /** Receive: chain picker, QR code, copyable address, wallet-path details. */
 
-import { api } from "../api.js?v=8";
-import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=8";
-import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=8";
+import { api } from "../api.js?v=10";
+import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=10";
+import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=10";
 
 export function render(ctx, params = {}) {
   const wallet = ctx.state.wallet;

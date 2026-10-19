@@ -70,8 +70,22 @@ const PATHS = {
   monero: "m/44'/128'/0'/0/0",
 };
 
-const TX_EXPLORERS = {
-  bitcoin: "https://mempool.space/tx/",
+/* BIP-44 coin types: chains with the same coin type share one key in
+   mnemonic mode (Ethereum / BNB Chain / Polygon all use 60). */
+const COIN_TYPES = {
+  bitcoin: 0,
+  litecoin: 2,
+  dogecoin: 3,
+  bitcoincash: 145,
+  ethereum: 60,
+  "ethereum-classic": 61,
+  bsc: 60,
+  polygon: 60,
+  solana: 501,
+  monero: 128,
+};
+
+const TX_EXPLORERS = {  bitcoin: "https://mempool.space/tx/",
   litecoin: "https://litecoinspace.org/tx/",
   dogecoin: "https://blockchair.com/dogecoin/transaction/",
   bitcoincash: "https://blockchair.com/bitcoin-cash/transaction/",
@@ -117,8 +131,30 @@ const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const BASE32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const HEX = "0123456789abcdef";
 
-function fakeAddress(chain, seedText) {
-  const rand = mulberry32(fnv1a(`${chain}:${seedText}`));
+/**
+ * Stream that stands for the chain's private key.
+ *
+ * - Mnemonic: the chain's BIP-44 coin type decides the key, so Ethereum /
+ *   BNB Chain / Polygon share one address while Ethereum Classic (61) does not.
+ * - Isolated: the chain name is mixed into the hashed message, so every chain
+ *   gets its own key.
+ * - Strict: the phrase is hashed alone, so chains sharing a native hash (all
+ *   the Keccak-256 EVM chains) share one key — and therefore one address,
+ *   exactly like the Rust implementation does.
+ */
+function keyStream(chain, seedText, mode) {
+  if (mode === "mnemonic") {
+    return mulberry32(fnv1a(`M:${COIN_TYPES[chain] ?? chain}:${seedText}`));
+  }
+  if (mode === "strict") {
+    const algo = ALGOS[chain]?.[0] ?? chain;
+    return mulberry32(fnv1a(`H:${algo}:${seedText}`));
+  }
+  return mulberry32(fnv1a(`C:${chain}:${seedText}`));
+}
+
+function fakeAddress(chain, seedText, mode) {
+  const rand = keyStream(chain, seedText, mode);
   switch (chain) {
     case "bitcoin":
       return `bc1q${pick(rand, BASE32, 38)}`;
@@ -271,7 +307,7 @@ function accountsFor(secret) {
       chain: chain.id,
       name: chain.name,
       symbol: chain.symbol,
-      address: fakeAddress(chain.id, seedText),
+      address: fakeAddress(chain.id, seedText, secret.mode === "mnemonic" ? "mnemonic" : secret.derivation),
       path: secret.mode === "mnemonic" ? PATHS[chain.id] : "—",
       derivation:
         secret.mode === "mnemonic"
@@ -289,7 +325,7 @@ function accountsFor(secret) {
             : chain.kind === "evm"
               ? "EIP-55"
               : "bech32",
-      publicKey: `0x${pick(mulberry32(fnv1a(`${chain.id}:${seedText}:pub`)), HEX, 64)}`,
+      publicKey: `0x${pick(keyStream(chain.id, seedText, secret.mode === "mnemonic" ? "mnemonic" : secret.derivation), HEX, 64)}`,
       accent: chain.accent,
       explorerUrl: "#",
       sendSupported: !["dogecoin", "bitcoincash", "monero"].includes(chain.id),

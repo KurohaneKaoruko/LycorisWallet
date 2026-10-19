@@ -703,6 +703,17 @@ mod tests {
             .unwrap();
         let bsc = accounts.iter().find(|a| a.chain == ChainId::Bsc).unwrap();
         assert_eq!(eth.address, bsc.address);
+        // Strict mode hashes the phrase alone, so every chain that uses the
+        // same native hash ends up with the very same key — Ethereum Classic
+        // and Polygon included. Only the chain's own parameters (chain id for
+        // replay protection, explorer, symbol) differ.
+        for chain in [ChainId::EthereumClassic, ChainId::Polygon] {
+            let account = accounts.iter().find(|a| a.chain == chain).unwrap();
+            assert_eq!(account.address, eth.address, "{chain:?} must share the ETH address");
+        }
+        // Keccak chains are unaffected by the chain list; a SHA-256 chain is not.
+        let btc = accounts.iter().find(|a| a.chain == ChainId::Bitcoin).unwrap();
+        assert_ne!(btc.address, eth.address);
     }
 
     #[test]

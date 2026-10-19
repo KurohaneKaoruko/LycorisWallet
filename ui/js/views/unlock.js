@@ -1,9 +1,9 @@
 /** Lock screen. Shows the vault hint, handles the cool-down after repeated
  *  wrong passwords, and explains that the file cannot be recovered. */
 
-import { api } from "../api.js?v=8";
-import { escapeHtml } from "../format.js?v=8";
-import { confirmDialog, icon, setBusy, toast } from "../ui.js?v=8";
+import { api } from "../api.js?v=10";
+import { escapeHtml } from "../format.js?v=10";
+import { confirmDialog, icon, setBusy, toast } from "../ui.js?v=10";
 
 export function render(ctx) {
   const status = ctx.state.status ?? {};

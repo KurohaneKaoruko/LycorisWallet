@@ -1,8 +1,8 @@
 /** Address book: saved recipients, encrypted with the wallet file. */
 
-import { api } from "../api.js?v=8";
-import { copyText, escapeHtml } from "../format.js?v=8";
-import { confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=8";
+import { api } from "../api.js?v=10";
+import { copyText, escapeHtml } from "../format.js?v=10";
+import { confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=10";
 
 export function render(ctx) {
   const local = { chain: "all", query: "" };

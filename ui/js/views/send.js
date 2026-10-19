@@ -1,9 +1,9 @@
 /** Send: chain + recipient + amount, live fee quotes from Rust, then a
  *  confirmation dialog before broadcasting. */
 
-import { api } from "../api.js?v=8";
-import { copyText, escapeHtml, groupDigits, normalizeAmountInput, shortAddress } from "../format.js?v=8";
-import { confirmDialog, debounce, enhanceTabScroll, icon, openModal, setBusy, toast } from "../ui.js?v=8";
+import { api } from "../api.js?v=10";
+import { copyText, escapeHtml, groupDigits, normalizeAmountInput, shortAddress } from "../format.js?v=10";
+import { confirmDialog, debounce, enhanceTabScroll, icon, openModal, setBusy, toast } from "../ui.js?v=10";
 
 export function render(ctx, params = {}) {
   const wallet = ctx.state.wallet;

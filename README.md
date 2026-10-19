@@ -86,10 +86,40 @@ cargo build --release -p lycoris-wallet
 
 ```bash
 cargo install tauri-cli --version "^2"
-cargo tauri build        # 目标：nsis / deb / appimage
+cargo tauri icon src-tauri/icons/icon.png   # 补齐 macOS 用的 .icns
+cargo tauri build                            # 目标：nsis / msi / app / dmg / deb / rpm / appimage
 ```
 
-macOS 打包暂未配置（图标集缺少 `.icns`）。
+macOS 需要 `.icns`，仓库里没有提交，用上面第一条命令从 1024×1024 的源图生成。
+
+### 自动构建与发布
+
+仓库带两条 GitHub Actions 流水线：
+
+- **CI**（`.github/workflows/ci.yml`）：推送到 `main` 或提 PR 时跑 `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace` 和前端模块语法检查。
+- **Release**（`.github/workflows/release.yml`）：推 `v*` tag 时，在 Windows x64、macOS x64、macOS arm64、Linux x64 上并行打包，产出的安装包统一重命名成带版本号的文件，然后创建 GitHub Release。
+
+发布步骤：
+
+1. 同步版本号——`Cargo.toml` 的 `[workspace.package] version` 与 `src-tauri/tauri.conf.json` 的 `version` 必须一致（流水线会校验，不一致直接失败并提示）；
+2. 打 tag 并推送：
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+3. 等待流水线跑完，Release 页面会拿到这些文件：
+
+| 平台 | 文件名 |
+| --- | --- |
+| Windows x64 | `LycorisWallet_0.1.0_x64-setup.exe` / `LycorisWallet_0.1.0_x64.msi` |
+| macOS Apple Silicon | `LycorisWallet_0.1.0_arm64.dmg` |
+| macOS Intel | `LycorisWallet_0.1.0_x64.dmg` |
+| Linux x64 | `LycorisWallet_0.1.0_amd64.AppImage` / `.deb` / `.rpm` |
+
+也可以在 Actions 页面手动触发 Release 流水线并填写版本号（此时会自行补打 tag）。
+未做代码签名的 macOS 包首次打开需要在「系统设置 → 隐私与安全性」里放行。
 
 ### 移动端
 

@@ -1,6 +1,7 @@
 use crate::chains::ChainId;
 use crate::error::{Error, Result};
-use bech32::{segwit, Hrp};use k256::elliptic_curve::sec1::ToEncodedPoint;
+use bech32::{segwit, Hrp};
+use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::SecretKey;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
@@ -152,15 +153,13 @@ pub fn parse_evm_address(address: &str) -> Result<[u8; 20]> {
 
 pub fn validate_address(chain: ChainId, address: &str) -> Result<()> {
     match chain {
-        ChainId::Ethereum
-        | ChainId::EthereumClassic
-        | ChainId::Bsc
-        | ChainId::Polygon => parse_evm_address(address).map(|_| ()),
+        ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => {
+            parse_evm_address(address).map(|_| ())
+        }
         ChainId::Solana => parse_solana_address(address).map(|_| ()),
-        ChainId::Bitcoin
-        | ChainId::Litecoin
-        | ChainId::Dogecoin
-        | ChainId::BitcoinCash => validate_utxo_address(chain, address),
+        ChainId::Bitcoin | ChainId::Litecoin | ChainId::Dogecoin | ChainId::BitcoinCash => {
+            validate_utxo_address(chain, address)
+        }
         ChainId::Monero => {
             if crate::cryptonote::monero_address_validate(address) {
                 Ok(())
@@ -272,11 +271,11 @@ const CASHADDR_CHARSET: &[u8] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 /// Polymod over the BCH cashaddr generator matrix (see the cashaddr spec).
 fn cashaddr_polymod(values: &[u8]) -> u64 {
     const GENERATORS: [u64; 5] = [
-        0x98f2_bc8e_61,
-        0x79b7_6d99_e2,
-        0xf33e_5fb3_c4,
-        0xae2e_abe2_a8,
-        0x1e4f_43e4_70,
+        0x0098_f2bc_8e61,
+        0x0079_b76d_99e2,
+        0x00f3_3e5f_b3c4,
+        0x00ae_2eab_e2a8,
+        0x001e_4f43_e470,
     ];
     let mut c: u64 = 1;
     for value in values {
@@ -303,7 +302,7 @@ fn cashaddr_data(payload: &[u8], version: u8) -> Vec<u8> {
             bits.push((*byte >> index) & 1 == 1);
         }
     }
-    while bits.len() % 5 != 0 {
+    while !bits.len().is_multiple_of(5) {
         bits.push(false);
     }
     bits.chunks(5)

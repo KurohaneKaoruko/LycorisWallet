@@ -7,8 +7,8 @@ import {
   groupDigits,
   relativeTime,
   shortAddress,
-} from "../format.js?v=10";
-import { icon, toast } from "../ui.js?v=10";
+} from "../format.js?v=15";
+import { icon, toast } from "../ui.js?v=15";
 
 export function render(ctx) {
   const wallet = ctx.state.wallet;

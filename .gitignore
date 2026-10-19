@@ -15,6 +15,8 @@ Thumbs.db
 
 # Hidden directories (editor/tool caches, etc.) — never commit dot-dirs
 .*/
+# 例外：.github 必须入库（CI 与发布流水线）——取反规则要放在忽略规则之后
+!/.github/
 
 # Local secrets and runtime data
 *.vault

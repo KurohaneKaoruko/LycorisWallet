@@ -1,6 +1,6 @@
 use crate::address::{
-    cashaddr_encode, compressed_pubkey, evm_address, p2pkh_address, p2wpkh_address,
-    solana_address, uncompressed_pubkey,
+    cashaddr_encode, compressed_pubkey, evm_address, p2pkh_address, p2wpkh_address, solana_address,
+    uncompressed_pubkey,
 };
 use crate::bip32;
 use crate::chains::{ChainId, ChainKind};
@@ -303,12 +303,14 @@ fn account_from_secp(
         }
         ChainId::BitcoinCash => {
             let params = chain.utxo_params().expect("utxo params");
-            cashaddr_encode(&crate::address::hash160(&compressed_pubkey(key)), params.hrp)?
+            cashaddr_encode(
+                &crate::address::hash160(&compressed_pubkey(key)),
+                params.hrp,
+            )?
         }
-        ChainId::Ethereum
-        | ChainId::EthereumClassic
-        | ChainId::Bsc
-        | ChainId::Polygon => evm_address(&uncompressed_pubkey(key))?,
+        ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => {
+            evm_address(&uncompressed_pubkey(key))?
+        }
         ChainId::Solana | ChainId::Monero => {
             return Err(Error::UnsupportedChain(chain.to_string()))
         }
@@ -552,9 +554,9 @@ pub fn derive_private_key(secret: &WalletSecret, chain: ChainId) -> Result<Priva
                 }),
                 ChainKind::Cryptonote => Ok(PrivateKeyMaterial {
                     chain,
-                    inner: PrivateKeyInner::Monero(
-                        crate::cryptonote::MoneroKeys::from_spend_seed(&digest),
-                    ),
+                    inner: PrivateKeyInner::Monero(crate::cryptonote::MoneroKeys::from_spend_seed(
+                        &digest,
+                    )),
                 }),
             }
         }
@@ -709,10 +711,16 @@ mod tests {
         // replay protection, explorer, symbol) differ.
         for chain in [ChainId::EthereumClassic, ChainId::Polygon] {
             let account = accounts.iter().find(|a| a.chain == chain).unwrap();
-            assert_eq!(account.address, eth.address, "{chain:?} must share the ETH address");
+            assert_eq!(
+                account.address, eth.address,
+                "{chain:?} must share the ETH address"
+            );
         }
         // Keccak chains are unaffected by the chain list; a SHA-256 chain is not.
-        let btc = accounts.iter().find(|a| a.chain == ChainId::Bitcoin).unwrap();
+        let btc = accounts
+            .iter()
+            .find(|a| a.chain == ChainId::Bitcoin)
+            .unwrap();
         assert_ne!(btc.address, eth.address);
     }
 
@@ -720,7 +728,8 @@ mod tests {
     fn bip39_extended_chain_vectors() {
         // Independent vectors generated with bip_utils (BIP-44 account 0,
         // external index 0) for the mnemonic used across the test suite.
-        let mnemonic = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+        let mnemonic =
+            "legal winner thank year wave sausage worth useful legal winner thank yellow";
         let secret = WalletSecret::new_mnemonic(mnemonic).unwrap();
         let accounts = derive_accounts(&secret).unwrap();
         let address = |chain: ChainId| {
@@ -770,11 +779,7 @@ mod tests {
         // Keccak chains in isolated mode mix the chain name into the message,
         // so every EVM chain gets its own key.
         let eth = find(ChainId::Ethereum).address.clone();
-        for chain in [
-            ChainId::Bsc,
-            ChainId::Polygon,
-            ChainId::EthereumClassic,
-        ] {
+        for chain in [ChainId::Bsc, ChainId::Polygon, ChainId::EthereumClassic] {
             assert_ne!(
                 find(chain).address,
                 eth,

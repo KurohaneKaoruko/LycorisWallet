@@ -72,7 +72,10 @@ pub fn create_vault(
     request: CreateVaultRequest,
 ) -> ApiResult<WalletView> {
     let secret = request.secret.into_secret()?;
-    let label = request.label.clone().unwrap_or_else(|| default_label(&secret));
+    let label = request
+        .label
+        .clone()
+        .unwrap_or_else(|| default_label(&secret));
     Ok(state.create(secret, &request.password, request.hint.clone(), Some(label))?)
 }
 
@@ -142,8 +145,9 @@ pub fn export_private_key(
         chain,
         format,
         value,
-        warning: "任何持有该私钥的人都能控制此链上的全部资产。请勿截图、勿粘贴到网页，用完请清理剪贴板。"
-            .to_string(),
+        warning:
+            "任何持有该私钥的人都能控制此链上的全部资产。请勿截图、勿粘贴到网页，用完请清理剪贴板。"
+                .to_string(),
     })
 }
 
@@ -341,10 +345,7 @@ pub fn open_external(app: tauri::AppHandle, url: String) -> ApiResult<()> {
 /// stray click cannot destroy funds. `reset_vault` is the password-less
 /// variant used when the password itself is lost.
 #[tauri::command]
-pub fn delete_vault(
-    state: State<'_, crate::state::AppState>,
-    password: String,
-) -> ApiResult<()> {
+pub fn delete_vault(state: State<'_, crate::state::AppState>, password: String) -> ApiResult<()> {
     if state.status().exists && !state.verify_password(&password)? {
         return Err(ApiError::from(lycoris_core::Error::IncorrectPassword));
     }

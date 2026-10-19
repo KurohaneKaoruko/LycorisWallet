@@ -1,8 +1,23 @@
 /** Receive: chain picker, QR code, copyable address, wallet-path details. */
 
-import { api } from "../api.js?v=10";
-import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=10";
-import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=10";
+import { api } from "../api.js?v=15";
+import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=15";
+import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=15";
+
+/* 二维码配色：始终是「浅底深码」。
+   深色主题下用反色（浅码深底）会让部分扫码器读不出来，
+   所以深色主题里仍然给二维码一块浅色纸片，只是纸片颜色更贴近暖白。 */
+const QR_PALETTE = {
+  light: { dark: "#201e1b", light: "#fdfaf4" },
+  dark: { dark: "#201e1b", light: "#f6f3ea" },
+};
+
+/** The QR follows the app theme: light modules on the paper colour in dark
+ *  mode, ink on paper in light mode. */
+function qrPalette() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  return dark ? QR_PALETTE.dark : QR_PALETTE.light;
+}
 
 export function render(ctx, params = {}) {
   const wallet = ctx.state.wallet;
@@ -32,38 +47,45 @@ export function render(ctx, params = {}) {
     </div>
 
     <div class="receive-layout">
-      <div class="qr-frame">
-        <div class="qr-skeleton skeleton" id="qr-holder" style="display:${qr ? "none" : "grid"}"></div>
-        <div id="qr-target" style="display:${qr ? "grid" : "none"}">${qr}</div>
-      </div>
-
       <div class="stack">
-        <div class="card card-pad stack-sm">
-          <div class="row-between">
-            <div class="row" style="gap:9px">
-              <span class="asset-mark" style="--accent:${account.accent}">${escapeHtml(
-                account.symbol.slice(0, 2),
-              )}</span>
-              <div>
-                <div class="asset-name">${escapeHtml(account.name)}</div>
-                <div class="asset-sub">${escapeHtml(account.addressFormat)} · ${escapeHtml(
-                  account.hashAlgorithm,
-                )}</div>
-              </div>
+        <div class="qr-card">
+          <div class="qr-card-head">
+            <span class="asset-mark" style="--accent:${account.accent}">${escapeHtml(
+              account.symbol.slice(0, 2),
+            )}</span>
+            <div class="qr-card-title">
+              <div class="name">${escapeHtml(account.name)}</div>
+              <div class="sub">${escapeHtml(account.addressFormat)} · ${escapeHtml(
+                account.hashAlgorithm,
+              )}</div>
             </div>
             <span class="chip">${escapeHtml(account.symbol)}</span>
           </div>
-          <div class="copy-field" id="address-field">
-            <span class="value" data-copy-value>${escapeHtml(account.address)}</span>
-            <button class="btn btn-ghost btn-sm" data-copy type="button">${icon("copy")}复制</button>
+          <div class="qr-card-body">
+            <div class="qr-skeleton skeleton" id="qr-holder" style="display:${qr ? "none" : "grid"}"></div>
+            <div id="qr-target" style="display:${qr ? "grid" : "none"}">${qr}</div>
           </div>
-          <div class="row" style="gap:8px">
-            <button class="btn btn-ghost btn-sm" data-action="open-explorer" type="button">
-              ${icon("external")}在浏览器中查看
-            </button>
-            <button class="btn btn-ghost btn-sm" data-action="copy-amount" type="button">复制地址 + 金额</button>
-          </div>
+          <div class="qr-address" id="qr-address" data-copy-value role="button" tabindex="0"
+               title="点击复制">${escapeHtml(account.address)}</div>
         </div>
+
+        <div class="note note-warn">${icon("warn")}
+          <div>只接受 ${escapeHtml(account.name)} 网络上的资产。向其他网络的地址转入可能永久丢失。</div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="action-tiles">
+          <button class="action-tile" data-action="copy-address" type="button">
+            ${icon("copy")}<span>复制地址</span>
+          </button>
+          <button class="action-tile" data-action="open-explorer" type="button">
+            ${icon("external")}<span>在浏览器中查看</span>
+          </button>
+        </div>
+        <button class="btn btn-ghost btn-block" data-action="copy-amount" type="button">
+          ${icon("qr")}复制地址 + 金额
+        </button>
 
         <div class="card card-pad">
           <div class="section-title"><h2>地址信息</h2></div>
@@ -86,10 +108,6 @@ export function render(ctx, params = {}) {
             })()
           }</span></div>
         </div>
-
-        <div class="note">${icon("info")}
-          <div>只接受 ${escapeHtml(account.name)} 网络上的资产。向其他网络的地址转入可能永久丢失。</div>
-        </div>
       </div>
     </div>`;
 
@@ -107,7 +125,8 @@ export function render(ctx, params = {}) {
         disposeScroll = enhanceTabScroll(view.querySelector(".tabs"));
         const token = ++qrToken;
         try {
-          const svg = await api.qrSvg(account.address, "#1b1a19", "#f7f1e8");
+          const palette = qrPalette();
+          const svg = await api.qrSvg(account.address, palette.dark, palette.light);
           if (token !== qrToken) return;
           qr = svg;
           const target = view.querySelector("#qr-target");
@@ -129,6 +148,25 @@ export function render(ctx, params = {}) {
           });
         });
         bindCopy(node, (ok) => toast(ok ? "地址已复制" : "复制失败", ok ? "success" : "error"));
+
+        // 地址本身可点（也支持键盘），点一下就复制
+        const addressBox = node.querySelector("#qr-address");
+        const copyAddress = async () => {
+          const account = accountFor(chainId);
+          const ok = await copyText(account.address);
+          toast(ok ? "地址已复制" : "复制失败", ok ? "success" : "error");
+        };
+        addressBox?.addEventListener("click", () => void copyAddress());
+        addressBox?.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void copyAddress();
+          }
+        });
+        node.querySelector('[data-action="copy-address"]')?.addEventListener("click", () => {
+          void copyAddress();
+        });
+
         node.querySelector('[data-action="open-explorer"]').addEventListener("click", async () => {
           const account = accountFor(chainId);
           const url = explorerUrlFor(chainId, account.address, account.explorerUrl);
@@ -151,7 +189,14 @@ export function render(ctx, params = {}) {
 
       void draw();
 
-      return () => disposeScroll();
+      // 主题切换后重画二维码（颜色烤在 SVG 里）
+      const onTheme = () => void draw();
+      document.addEventListener("lycoris:theme", onTheme);
+
+      return () => {
+        document.removeEventListener("lycoris:theme", onTheme);
+        disposeScroll();
+      };
     },
   };
 }

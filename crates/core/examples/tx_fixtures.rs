@@ -84,9 +84,15 @@ fn main() {
         UtxoInput::from_parts(&"ab".repeat(32), 0, 100_000, true).unwrap(),
         UtxoInput::from_parts(&"cd".repeat(32), 1, 60_000, true).unwrap(),
     ];
-    let (raw, fee) =
-        build_signed_p2wpkh(&btc_key, &inputs, &script, 120_000, Some((&script, 25_000)), 2)
-            .unwrap();
+    let (raw, fee) = build_signed_p2wpkh(
+        &btc_key,
+        &inputs,
+        &script,
+        120_000,
+        Some((&script, 25_000)),
+        2,
+    )
+    .unwrap();
     println!("btc_two_inputs_raw={raw}");
     println!("btc_two_inputs_fee={fee}");
     println!("btc_pubkey={}", hex::encode(pubkey));

@@ -490,17 +490,16 @@ function quoteFor(request) {
   };
 }
 
-function pseudoQr(text) {
+function pseudoQr(text, dark = "#141416", light = "#ffffff") {
   const size = 29;
   const rand = mulberry32(fnv1a(text));
   const modules = Array.from({ length: size }, () => new Array(size).fill(0));
-  const inFinder = (x, y) =>
-    (x < 8 && y < 8) || (x >= size - 8 && y < 8) || (x < 8 && y >= size - 8);
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
       modules[y][x] = rand() > 0.52 ? 1 : 0;
     }
   }
+  // 三个定位图案：外圈 + 中心方块
   const drawFinder = (ox, oy) => {
     for (let y = 0; y < 7; y += 1) {
       for (let x = 0; x < 7; x += 1) {
@@ -513,20 +512,61 @@ function pseudoQr(text) {
   drawFinder(0, 0);
   drawFinder(size - 7, 0);
   drawFinder(0, size - 7);
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      if (inFinder(x, y)) continue;
-    }
-  }
-  const paths = [];
+
+  const quiet = 2;
   const scale = 8;
+  const total = (size + quiet * 2) * scale;
+  const cell = (x, y) => [(x + quiet) * scale, (y + quiet) * scale];
+  const shapes = [];
+
+  // 定位图案：圆角方框（描边）+ 中心实心圆角方块
+  const ring = (ox, oy, sizeModules, radius) => {
+    const [px, py] = cell(ox, oy);
+    const half = scale / 2;
+    const extent = sizeModules * scale - scale;
+    shapes.push(
+      `<rect x="${px + half}" y="${py + half}" width="${extent}" height="${extent}" rx="${Math.max(
+        0,
+        radius - half,
+      )}" fill="none" stroke="${dark}" stroke-width="${scale}"/>`,
+    );
+  };
+  const block = (ox, oy, sizeModules, radius) => {
+    const [px, py] = cell(ox, oy);
+    shapes.push(
+      `<rect x="${px}" y="${py}" width="${sizeModules * scale}" height="${
+        sizeModules * scale
+      }" rx="${radius}"/>`,
+    );
+  };
+
+  const finders = [
+    [0, 0],
+    [size - 7, 0],
+    [0, size - 7],
+  ];
+  for (const [ox, oy] of finders) {
+    ring(ox, oy, 7, 2.6 * scale);
+    block(ox + 2, oy + 2, 3, 0.9 * scale);
+  }
+
+  // 数据区：每个深色模块一个独立的圆角小块
+  const inFinder = (x, y) =>
+    (x < 7 && y < 7) || (x >= size - 7 && y < 7) || (x < 7 && y >= size - 7);
+  const tile = Math.round(scale * 0.88);
+  const offset = Math.round((scale - tile) / 2);
+  const radius = Math.round(tile * 0.3);
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
-      if (modules[y][x]) paths.push(`M${x * scale} ${y * scale}h${scale}v${scale}h-${scale}z`);
+      if (!modules[y][x] || inFinder(x, y)) continue;
+      const [px, py] = cell(x, y);
+      shapes.push(
+        `<rect x="${px + offset}" y="${py + offset}" width="${tile}" height="${tile}" rx="${radius}"/>`,
+      );
     }
   }
-  const extent = size * scale;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${extent} ${extent}" shape-rendering="crispEdges"><rect width="${extent}" height="${extent}" fill="#f7f1e8"/><path d="${paths.join("")}" fill="#1b1a19"/></svg>`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" shape-rendering="geometricPrecision"><rect width="${total}" height="${total}" fill="${light}"/><g fill="${dark}">${shapes.join("")}</g></svg>`;
 }
 
 /* ------------------------------------------------------------------ dispatch */
@@ -815,7 +855,7 @@ export async function mockCall(command, args = {}) {
       return store.settings;
 
     case "qr_svg":
-      return pseudoQr(args.text ?? "");
+      return pseudoQr(args.text ?? "", args.dark, args.light);
 
     case "open_external":
       globalThis.open?.(args.url, "_blank", "noopener");

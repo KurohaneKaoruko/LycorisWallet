@@ -121,11 +121,17 @@ impl<'de> Deserialize<'de> for VaultData {
     {
         use serde::de::Error as _;
         let wire = VaultDataWire::deserialize(deserializer)?;
-        let created_at = if wire.created_at > 0 { wire.created_at } else { now() };
+        let created_at = if wire.created_at > 0 {
+            wire.created_at
+        } else {
+            now()
+        };
 
         let mut wallets = wire.wallets;
         if wallets.is_empty() {
-            let secret = wire.secret.ok_or_else(|| D::Error::missing_field("wallets"))?;
+            let secret = wire
+                .secret
+                .ok_or_else(|| D::Error::missing_field("wallets"))?;
             wallets.push(WalletEntry {
                 id: random_id(),
                 label: if wire.label.trim().is_empty() {
@@ -234,7 +240,9 @@ impl VaultData {
     }
 
     pub fn active_label(&self) -> String {
-        self.active().map(|wallet| wallet.label.clone()).unwrap_or_default()
+        self.active()
+            .map(|wallet| wallet.label.clone())
+            .unwrap_or_default()
     }
 
     /// Every secret must still parse, otherwise the vault is corrupt (or was
@@ -315,7 +323,11 @@ fn encrypt_with_key(data: &VaultData, key: &[u8; 32]) -> Result<(String, String)
     result
 }
 
-fn decrypt_bytes(nonce_hex: &str, ciphertext_hex: &str, key: &[u8; 32]) -> Result<Zeroizing<Vec<u8>>> {
+fn decrypt_bytes(
+    nonce_hex: &str,
+    ciphertext_hex: &str,
+    key: &[u8; 32],
+) -> Result<Zeroizing<Vec<u8>>> {
     let nonce = hex::decode(nonce_hex)?;
     if nonce.len() != NONCE_LEN {
         return Err(Error::CorruptVault);
@@ -494,7 +506,11 @@ mod tests {
         let mut data = VaultData::new("钱包", secret());
         data.add_wallet("钱包", other_secret());
         data.add_wallet("   ", other_secret());
-        let labels: Vec<_> = data.wallets.iter().map(|wallet| wallet.label.as_str()).collect();
+        let labels: Vec<_> = data
+            .wallets
+            .iter()
+            .map(|wallet| wallet.label.as_str())
+            .collect();
         assert_eq!(labels, ["钱包", "钱包 2", "钱包 3"]);
     }
 
@@ -605,7 +621,9 @@ mod tests {
 
         let (mut unlocked, key) = file.unlock("correct horse battery").unwrap();
         assert_eq!(unlocked.active_label(), "旧钱包");
-        unlocked.rename_wallet(&unlocked.active_wallet.clone(), "新名字").unwrap();
+        unlocked
+            .rename_wallet(&unlocked.active_wallet.clone(), "新名字")
+            .unwrap();
         file.rewrap(&unlocked, &key).unwrap();
         assert!(!file.needs_upgrade());
 

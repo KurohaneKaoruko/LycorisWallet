@@ -1,17 +1,17 @@
 /** Application shell: boot sequence, router, rail, titlebar and auto-lock. */
 
-import { api, hasTauri, isMock, listen } from "./api.js?v=10";
-import { escapeHtml } from "./format.js?v=10";
-import { icon, openModal, toast } from "./ui.js?v=10";
-import { render as renderActivity } from "./views/activity.js?v=10";
-import { render as renderContacts } from "./views/contacts.js?v=10";
-import { render as renderDashboard } from "./views/dashboard.js?v=10";
-import { render as renderOnboarding } from "./views/onboarding.js?v=10";
-import { render as renderReceive } from "./views/receive.js?v=10";
-import { render as renderSend } from "./views/send.js?v=10";
-import { render as renderSettings } from "./views/settings.js?v=10";
-import { render as renderUnlock } from "./views/unlock.js?v=10";
-import { render as renderWallets } from "./views/wallets.js?v=10";
+import { api, hasTauri, isMock, listen } from "./api.js?v=15";
+import { escapeHtml } from "./format.js?v=15";
+import { icon, openModal, toast } from "./ui.js?v=15";
+import { render as renderActivity } from "./views/activity.js?v=15";
+import { render as renderContacts } from "./views/contacts.js?v=15";
+import { render as renderDashboard } from "./views/dashboard.js?v=15";
+import { render as renderOnboarding } from "./views/onboarding.js?v=15";
+import { render as renderReceive } from "./views/receive.js?v=15";
+import { render as renderSend } from "./views/send.js?v=15";
+import { render as renderSettings } from "./views/settings.js?v=15";
+import { render as renderUnlock } from "./views/unlock.js?v=15";
+import { render as renderWallets } from "./views/wallets.js?v=15";
 
 const VERSION = "0.1.0";
 const PORTFOLIO_TTL = 60; // seconds
@@ -215,7 +215,11 @@ function applyTheme(theme) {
   const dark =
     choice === "dark" ||
     (choice === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  const next = dark ? "dark" : "light";
+  const changed = document.documentElement.dataset.theme !== next;
+  document.documentElement.dataset.theme = next;
+  // 二维码颜色是烤进 SVG 的，主题变了要重画
+  if (changed) document.dispatchEvent(new CustomEvent("lycoris:theme"));
 }
 
 function setWallet(wallet) {

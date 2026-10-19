@@ -386,7 +386,7 @@
 
 .receive-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 340px) minmax(280px, 1fr);
+  grid-template-columns: minmax(280px, 360px) minmax(280px, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -397,21 +397,121 @@
   }
 }
 
-.qr-frame {
-  padding: 16px;
-  border-radius: var(--radius);
+/* 二维码做成一张“纸片”：卡片、地址块都跟随主题，
+   二维码本身用主题色（深色模式下是浅色码 + 深底），整体不突兀。 */
+.qr-card {
   background: var(--paper-raised);
+  color: var(--ink);
   border: 1px solid var(--hair);
+  border-radius: 24px;
+  padding: 20px 20px 18px;
   box-shadow: var(--shadow-md);
   display: grid;
-  place-items: center;
+  gap: 14px;
 }
 
-.qr-frame svg {
+.qr-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.qr-card-head .qr-card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.qr-card-title .name {
+  font-weight: 650;
+  font-size: 14px;
+}
+
+.qr-card-title .sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qr-card-body {
+  display: grid;
+  place-items: center;
+  padding: 2px 0;
+}
+
+/* 二维码始终是浅底深码：深色主题下这块浅色「纸片」保证能被扫出来 */
+.qr-card-body svg {
   width: 100%;
-  max-width: 260px;
+  max-width: 236px;
   height: auto;
-  border-radius: 10px;
+  border-radius: 14px;
+  display: block;
+  box-shadow: 0 10px 24px -18px rgba(32, 30, 27, 0.55);
+}
+
+/* 地址：卡片底部的一块浅底区域，点一下即可复制 */
+.qr-address {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--ink);
+  background: var(--paper-inset);
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+  padding: 9px 12px;
+  word-break: break-all;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+
+.qr-address:hover {
+  background: var(--paper-strong);
+}
+
+.qr-address .hint {
+  color: var(--ink-3);
+}
+
+/* 大号动作块：图标在上、文字在下 */
+.action-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.action-tile {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 16px 10px 13px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+
+.action-tile svg {
+  width: 21px;
+  height: 21px;
+  color: var(--ink-2);
+}
+
+.action-tile:hover {
+  background: var(--paper-inset);
+  border-color: var(--hair-strong);
+}
+
+.action-tile:active {
+  transform: translateY(1px);
 }
 
 .qr-skeleton {

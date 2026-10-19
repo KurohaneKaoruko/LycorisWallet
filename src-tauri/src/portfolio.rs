@@ -149,9 +149,10 @@ async fn fetch_balance(
             .await
             .map(u128::from)
             .map_err(|error| error.to_string()),
-        ChainKind::Cryptonote => Err(format!(
+        ChainKind::Cryptonote => Err(
             "Monero 为隐私链，地址余额需视图密钥扫描本地节点，暂不支持在线查询（地址可正常收款）"
-        )),
+                .to_string(),
+        ),
     }
 }
 
@@ -206,8 +207,14 @@ pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
         warnings.push("价格服务暂时不可用，仅显示链上余额".to_string());
     }
 
-    let total_usd = assets.iter().filter_map(|asset| asset.value_usd).reduce(|a, b| a + b);
-    let total_cny = assets.iter().filter_map(|asset| asset.value_cny).reduce(|a, b| a + b);
+    let total_usd = assets
+        .iter()
+        .filter_map(|asset| asset.value_usd)
+        .reduce(|a, b| a + b);
+    let total_cny = assets
+        .iter()
+        .filter_map(|asset| asset.value_cny)
+        .reduce(|a, b| a + b);
 
     Ok(Portfolio {
         assets,
@@ -357,7 +364,10 @@ fn evm_fee_levels(
                     gas_price: price * 12 / 10,
                 },
                 "约 5 秒",
-                format!("{:.2} gwei · Legacy", (price * 12 / 10) as f64 / GWEI as f64),
+                format!(
+                    "{:.2} gwei · Legacy",
+                    (price * 12 / 10) as f64 / GWEI as f64
+                ),
             ),
             (
                 "normal",
@@ -541,8 +551,7 @@ pub async fn quote(state: &AppState, request: &QuoteRequest) -> ApiResult<SendQu
     for option in options.iter_mut() {
         if let Some(price) = price_of(&table, &info, "usd") {
             if let Ok(units) = parse_units(&option.fee, info.decimals) {
-                let value =
-                    units as f64 / 10f64.powi(i32::from(info.decimals)) * price;
+                let value = units as f64 / 10f64.powi(i32::from(info.decimals)) * price;
                 option.fee_fiat = Some(format!("≈ ${value:.2}"));
             }
         }
@@ -761,8 +770,7 @@ async fn send_solana(
     if target == 0 {
         return Err(Error::InvalidAmount("金额必须大于零".into()).into());
     }
-    let lamports =
-        u64::try_from(target).map_err(|_| Error::InvalidAmount("金额过大".into()))?;
+    let lamports = u64::try_from(target).map_err(|_| Error::InvalidAmount("金额过大".into()))?;
     let built = build_transfer(&seed, &to_bytes, lamports, &blockhash)?;
     let fee = adapter
         .fee_for_message(&built.message_base64)

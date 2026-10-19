@@ -192,9 +192,8 @@ impl U256 {
 
 /// edwards25519 group order `l` (little-endian form of 2^252 + 27742...493).
 const ED25519_ORDER_LE: [u8; 32] = [
-    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde,
-    0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x10,
+    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
 
 fn le_mod_order(bytes: &[u8; 32]) -> [u8; 32] {
@@ -250,10 +249,7 @@ fn kholaw_public_key(key: &[u8; 64]) -> [u8; 32] {
 }
 
 /// Derive a child key (hardened or normal) per kholaw.
-pub fn kholaw_derive_child(
-    parent: &ExtendedKholaw,
-    index: u32,
-) -> Result<ExtendedKholaw> {
+pub fn kholaw_derive_child(parent: &ExtendedKholaw, index: u32) -> Result<ExtendedKholaw> {
     let hardened = index >= 0x8000_0000;
     let index_le = index.to_le_bytes();
     let public = kholaw_public_key(&parent.key);
@@ -377,7 +373,8 @@ mod tests {
     fn kholaw_bip44_monero_matches_bip_utils() {
         // Independent vector: bip_utils Bip32KholawEd25519 on the BIP-39 seed of
         // the standard test mnemonic, path m/44'/128'/0'/0/0.
-        let mnemonic = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+        let mnemonic =
+            "legal winner thank year wave sausage worth useful legal winner thank yellow";
         let seed = bip39::Mnemonic::parse_normalized(mnemonic)
             .unwrap()
             .to_seed("");

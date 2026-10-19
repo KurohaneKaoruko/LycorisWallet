@@ -106,7 +106,9 @@ impl AppState {
     }
 
     fn session(&self) -> MutexGuard<'_, Session> {
-        self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Never exposes secrets; safe to call while locked.
@@ -345,10 +347,7 @@ impl AppState {
     /* ------------------------------------------------------------ mutation */
 
     /// Mutate the decrypted vault and persist it atomically.
-    pub fn mutate(
-        &self,
-        edit: impl FnOnce(&mut VaultData) -> CoreResult<()>,
-    ) -> CoreResult<()> {
+    pub fn mutate(&self, edit: impl FnOnce(&mut VaultData) -> CoreResult<()>) -> CoreResult<()> {
         let mut session = self.session();
         let key = session.key.clone().ok_or(Error::Locked)?;
         let mut file = VaultFile::read(&self.vault_path())?;
@@ -451,9 +450,7 @@ impl AppState {
 fn view_locked(session: &Session) -> CoreResult<WalletView> {
     let data = session.data.as_ref().ok_or(Error::Locked)?;
     let active = session.active.as_ref().ok_or(Error::Locked)?;
-    let wallet = data
-        .find(&active.id)
-        .ok_or(Error::WalletNotFound)?;
+    let wallet = data.find(&active.id).ok_or(Error::WalletNotFound)?;
     Ok(WalletView {
         id: wallet.id.clone(),
         mode: wallet.secret.mode(),
@@ -525,10 +522,16 @@ mod tests {
         assert!(state.status().locked);
         assert!(state.wallet().is_err());
 
-        let secret = WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated)
-            .unwrap();
+        let secret =
+            WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated)
+                .unwrap();
         let view = state
-            .create(secret.clone(), "correct horse battery", Some("花园".into()), None)
+            .create(
+                secret.clone(),
+                "correct horse battery",
+                Some("花园".into()),
+                None,
+            )
             .unwrap();
         assert_eq!(view.accounts.len(), ChainId::ALL.len());
         assert_eq!(view.wallets.len(), 1);
@@ -538,7 +541,9 @@ mod tests {
         assert_eq!(state.status().hint.as_deref(), Some("花园"));
 
         // A second create must not clobber the existing vault.
-        assert!(state.create(secret.clone(), "correct horse battery", None, None).is_err());
+        assert!(state
+            .create(secret.clone(), "correct horse battery", None, None)
+            .is_err());
 
         state.lock_now();
         assert!(state.status().locked);
@@ -575,7 +580,12 @@ mod tests {
         let dir = temp_dir("reset");
         let state = AppState::new(&dir);
         state
-            .create(passphrase("a quiet garden at dusk"), "correct horse battery", None, None)
+            .create(
+                passphrase("a quiet garden at dusk"),
+                "correct horse battery",
+                None,
+                None,
+            )
             .unwrap();
         assert!(state.status().exists);
         assert!(state.vault_path().exists());
@@ -588,7 +598,12 @@ mod tests {
 
         // A fresh vault can be created afterwards.
         state
-            .create(passphrase("a quiet garden at dusk"), "correct horse battery", None, None)
+            .create(
+                passphrase("a quiet garden at dusk"),
+                "correct horse battery",
+                None,
+                None,
+            )
             .unwrap();
         assert!(state.status().exists);
         assert!(!state.status().locked);
@@ -600,8 +615,8 @@ mod tests {
     fn failed_attempts_trigger_lockout() {
         let dir = temp_dir("lockout");
         let state = AppState::new(&dir);
-        let secret = WalletSecret::new_passphrase("another quiet garden", DerivationMode::Isolated)
-            .unwrap();
+        let secret =
+            WalletSecret::new_passphrase("another quiet garden", DerivationMode::Isolated).unwrap();
         state
             .create(secret, "correct horse battery", None, None)
             .unwrap();
@@ -622,7 +637,12 @@ mod tests {
         let state = AppState::new(&dir);
 
         let view = state
-            .create(passphrase("a quiet garden at dusk"), "correct horse battery", None, Some("主钱包".into()))
+            .create(
+                passphrase("a quiet garden at dusk"),
+                "correct horse battery",
+                None,
+                Some("主钱包".into()),
+            )
             .unwrap();
         let first_id = view.id.clone();
 
@@ -649,10 +669,14 @@ mod tests {
         // Deleting requires the password.
         assert!(state.delete_wallet(&second_id, "wrong password").is_err());
         assert_eq!(state.wallet().unwrap().wallets.len(), 2);
-        let view = state.delete_wallet(&second_id, "correct horse battery").unwrap();
+        let view = state
+            .delete_wallet(&second_id, "correct horse battery")
+            .unwrap();
         assert_eq!(view.wallets.len(), 1);
         // The last wallet is protected.
-        assert!(state.delete_wallet(&first_id, "correct horse battery").is_err());
+        assert!(state
+            .delete_wallet(&first_id, "correct horse battery")
+            .is_err());
         assert!(matches!(
             state.delete_wallet("missing", "correct horse battery"),
             Err(Error::WalletNotFound)
@@ -673,7 +697,12 @@ mod tests {
         let dir = temp_dir("wallet-activity");
         let state = AppState::new(&dir);
         let view = state
-            .create(passphrase("a quiet garden at dusk"), "correct horse battery", None, Some("A".into()))
+            .create(
+                passphrase("a quiet garden at dusk"),
+                "correct horse battery",
+                None,
+                Some("A".into()),
+            )
             .unwrap();
         let first_id = view.id.clone();
         let view = state

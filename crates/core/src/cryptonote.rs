@@ -176,12 +176,12 @@ fn monero_base58_decode(text: &str) -> Option<Vec<u8>> {
         // Alphabet (no 0, O, I, l), verified by enumeration:
         // 123456789 ABCDEFGH JKLMN PQRSTUVWXYZ abcdefghijk mnopqrstuvwxyz
         match c {
-            b'1'..=b'9' => Some(u64::from(c - b'1')),       // 0..=8
-            b'A'..=b'H' => Some(u64::from(c - b'A') + 9),   // 9..=16
-            b'J'..=b'N' => Some(u64::from(c - b'J') + 17),  // 17..=21
-            b'P'..=b'Z' => Some(u64::from(c - b'P') + 22),  // 22..=32
-            b'a'..=b'k' => Some(u64::from(c - b'a') + 33),  // 33..=43
-            b'm'..=b'z' => Some(u64::from(c - b'm') + 44),  // 44..=57
+            b'1'..=b'9' => Some(u64::from(c - b'1')),      // 0..=8
+            b'A'..=b'H' => Some(u64::from(c - b'A') + 9),  // 9..=16
+            b'J'..=b'N' => Some(u64::from(c - b'J') + 17), // 17..=21
+            b'P'..=b'Z' => Some(u64::from(c - b'P') + 22), // 22..=32
+            b'a'..=b'k' => Some(u64::from(c - b'a') + 33), // 33..=43
+            b'm'..=b'z' => Some(u64::from(c - b'm') + 44), // 44..=57
             _ => None,
         }
     };
@@ -189,11 +189,7 @@ fn monero_base58_decode(text: &str) -> Option<Vec<u8>> {
         let mut num: u64 = 0;
         for &c in block {
             // '1' is index 0 in the alphabet (also used as zero padding).
-            let value = if c == b'1' {
-                0
-            } else {
-                char_value(c)?
-            };
+            let value = if c == b'1' { 0 } else { char_value(c)? };
             num = num.checked_mul(58)?.checked_add(value)?;
         }
         let bytes = num.to_be_bytes();
@@ -304,7 +300,9 @@ mod tests {
         let keys = MoneroKeys::from_spend_seed(&seed);
         let address = keys.primary_address();
         assert!(monero_address_validate(&address));
-        assert!(!monero_address_validate("46NotARealMoneroAddress0000000000000000000000000000000000000"));
+        assert!(!monero_address_validate(
+            "46NotARealMoneroAddress0000000000000000000000000000000000000"
+        ));
         // wrong checksum (flip a char in the tail)
         let mut broken = address.clone();
         let last = broken.pop().unwrap();
@@ -312,7 +310,6 @@ mod tests {
         assert!(!monero_address_validate(&broken));
     }
 }
-
 
 #[cfg(test)]
 mod debug_decode {}

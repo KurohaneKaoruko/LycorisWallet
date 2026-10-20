@@ -151,7 +151,7 @@ pub fn select_utxos(
             "amount must be greater than zero".into(),
         ));
     }
-    utxos.sort_by(|a, b| b.value.cmp(&a.value));
+    utxos.sort_by_key(|a| std::cmp::Reverse(a.value));
     let output_count = if include_change { 2 } else { 1 };
     let mut selected: Vec<UtxoInput> = Vec::new();
     let mut total = 0u64;
@@ -326,7 +326,7 @@ pub fn select_legacy_utxos(
             "amount must be greater than zero".into(),
         ));
     }
-    utxos.sort_by(|a, b| b.value.cmp(&a.value));
+    utxos.sort_by_key(|a| std::cmp::Reverse(a.value));
     let mut selected: Vec<UtxoInput> = Vec::new();
     let mut total = 0u64;
     for utxo in &utxos {

@@ -3,9 +3,9 @@
 #
 # 用法: stage-assets.sh <version> <target-triple>
 # 产物示例:
-#   LycorisWallet_0.1.0_x64-setup.exe
-#   LycorisWallet_0.1.0_amd64.AppImage
-#   LycorisWallet_0.1.0_arm64.dmg
+#   LycorisWallet_0.1.1_x64-setup.exe
+#   LycorisWallet_0.1.1_amd64.AppImage
+#   LycorisWallet_0.1.1_arm64.dmg
 set -euo pipefail
 
 VERSION="${1:?需要版本号}"

@@ -238,6 +238,7 @@ const store = {
     autoLockMinutes: 5,
     priceService: true,
     visibleChains: [],
+    blockchairApiKey: "",
   },
   contacts: [],
 };

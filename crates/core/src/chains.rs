@@ -263,13 +263,23 @@ impl ChainId {
     /// Fallback fee rate in satoshis per virtual byte, used when the chain's
     /// API does not publish one.
     ///
-    /// Dogecoin's minimum relay fee is one DOGE per kilobyte, Bitcoin Cash
-    /// accepts a single satoshi per byte.
+    /// Dogecoin relays at 0.01 DOGE per kilobyte, Bitcoin Cash accepts a
+    /// single satoshi per byte.
     pub fn default_fee_rate(self) -> u64 {
         match self {
-            ChainId::Dogecoin => 100_000,
+            ChainId::Dogecoin => 1_000,
             ChainId::BitcoinCash => 2,
             _ => 1,
+        }
+    }
+
+    /// The smallest output the network will relay, in the chain's smallest
+    /// unit. Anything below it can never be spent again.
+    pub fn dust_limit(self) -> u64 {
+        match self {
+            // Dogecoin dust is one whole DOGE.
+            ChainId::Dogecoin => 100_000_000,
+            _ => 546,
         }
     }
 

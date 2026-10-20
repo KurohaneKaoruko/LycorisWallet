@@ -20,7 +20,7 @@ use lycoris_core::tx::solana::build_transfer;
 use lycoris_core::tx::utxo::{
     build_signed_p2pkh, build_signed_p2wpkh, change_script, fee_rate_for_level,
     legacy_change_script, max_legacy_sendable, max_sendable, recipient_script, select_legacy_utxos,
-    select_utxos, UtxoInput, DUST_LIMIT,
+    select_utxos, UtxoInput,
 };
 use lycoris_core::units::{format_units, parse_units, truncate_decimal};
 use lycoris_core::vault::now;
@@ -265,9 +265,10 @@ async fn legacy_utxo_quote(
     chain: ChainId,
     address: &str,
     amount: Option<u128>,
+    blockchair_key: Option<&str>,
 ) -> ApiResult<QuoteFees> {
     let info = chain.info();
-    let adapter = BlockchairClient::new(client.clone(), info.rpc);
+    let adapter = BlockchairClient::with_settings(client.clone(), info.rpc, blockchair_key);
     let utxos = adapter.utxos(address).await?;
     let inputs: Vec<UtxoInput> = utxos
         .iter()
@@ -280,10 +281,10 @@ async fn legacy_utxo_quote(
     let mut normal_fee = 0u128;
     for (level, rate, eta) in legacy_fee_levels(chain) {
         let fee = match target {
-            Some(value) => select_legacy_utxos(inputs.clone(), value, rate)
+            Some(value) => select_legacy_utxos(inputs.clone(), value, rate, chain.dust_limit())
                 .map(|selection| selection.fee)
                 .unwrap_or(0),
-            None => max_legacy_sendable(&inputs, rate)
+            None => max_legacy_sendable(&inputs, rate, chain.dust_limit())
                 .map(|(_, fee)| fee)
                 .unwrap_or(0),
         };
@@ -301,7 +302,7 @@ async fn legacy_utxo_quote(
         });
     }
 
-    let max_amount = max_legacy_sendable(&inputs, chain.default_fee_rate())
+    let max_amount = max_legacy_sendable(&inputs, chain.default_fee_rate(), chain.dust_limit())
         .ok()
         .map(|(value, _)| u128::from(value));
     Ok(QuoteFees {
@@ -318,11 +319,12 @@ async fn utxo_quote(
     address: &str,
     to: &str,
     amount: Option<u128>,
+    blockchair_key: Option<&str>,
 ) -> ApiResult<QuoteFees> {
     let info = chain.info();
     recipient_script(chain, to)?;
     if chain.legacy_utxo() {
-        return legacy_utxo_quote(client, chain, address, amount).await;
+        return legacy_utxo_quote(client, chain, address, amount, blockchair_key).await;
     }
     let adapter = UtxoClient::new(client.clone(), info.rpc);
     let fees = adapter.fees().await?;
@@ -342,10 +344,12 @@ async fn utxo_quote(
         ("economy", fee_rate_for_level(&fees, "slow"), "约 1 小时"),
     ] {
         let fee = match target {
-            Some(value) => select_utxos(inputs.clone(), value, rate, true)
+            Some(value) => select_utxos(inputs.clone(), value, rate, true, chain.dust_limit())
                 .map(|selection| selection.fee)
                 .unwrap_or(0),
-            None => max_sendable(&inputs, rate).map(|(_, fee)| fee).unwrap_or(0),
+            None => max_sendable(&inputs, rate, chain.dust_limit())
+                .map(|(_, fee)| fee)
+                .unwrap_or(0),
         };
         if level == "normal" {
             normal_fee = u128::from(fee);
@@ -361,9 +365,13 @@ async fn utxo_quote(
         });
     }
 
-    let max_amount = max_sendable(&inputs, fee_rate_for_level(&fees, "normal"))
-        .ok()
-        .map(|(value, _)| u128::from(value));
+    let max_amount = max_sendable(
+        &inputs,
+        fee_rate_for_level(&fees, "normal"),
+        chain.dust_limit(),
+    )
+    .ok()
+    .map(|(value, _)| u128::from(value));
     Ok(QuoteFees {
         options,
         normal_fee,
@@ -565,9 +573,10 @@ async fn quote_fees(
     address: &str,
     to: &str,
     amount: Option<u128>,
+    blockchair_key: Option<&str>,
 ) -> ApiResult<QuoteFees> {
     match chain.info().kind {
-        ChainKind::Utxo => utxo_quote(client, chain, address, to, amount).await,
+        ChainKind::Utxo => utxo_quote(client, chain, address, to, amount, blockchair_key).await,
         ChainKind::Evm => evm_quote(client, chain, address, to, amount).await,
         ChainKind::Ed25519 => solana_quote(client, chain, address, to, amount).await,
         // Monero send is guarded by send_supported(); reaching this arm
@@ -615,6 +624,7 @@ pub async fn quote(state: &AppState, request: &QuoteRequest) -> ApiResult<SendQu
         &account.address,
         &request.to,
         amount,
+        Some(state.settings()?.blockchair_api_key.as_str()),
     )
     .await?;
 
@@ -633,10 +643,14 @@ pub async fn quote(state: &AppState, request: &QuoteRequest) -> ApiResult<SendQu
     let mut can_send = quote.balance >= requested + quote.normal_fee && requested > 0;
     let mut warning = None;
 
-    if info.kind == ChainKind::Utxo && requested > 0 && requested < u128::from(DUST_LIMIT) {
+    if info.kind == ChainKind::Utxo
+        && requested > 0
+        && requested < u128::from(request.chain.dust_limit())
+    {
         can_send = false;
         warning = Some(format!(
-            "低于灰尘限额（{DUST_LIMIT} {}）",
+            "低于灰尘限额（{} {}）",
+            request.chain.dust_limit(),
             request.chain.base_unit()
         ));
     }
@@ -717,12 +731,17 @@ async fn send_utxo(
         .collect::<Result<_, _>>()?;
     let target = match amount {
         Some(value) => u64::try_from(value).map_err(|_| Error::InvalidAmount("金额过大".into()))?,
-        None => max_sendable(&inputs, fee_rate)?.0,
+        None => max_sendable(&inputs, fee_rate, chain.dust_limit())?.0,
     };
-    if target < DUST_LIMIT {
-        return Err(Error::InvalidAmount(format!("低于灰尘限额（{DUST_LIMIT} {}）", chain.base_unit())).into());
+    if target < chain.dust_limit() {
+        return Err(Error::InvalidAmount(format!(
+            "低于灰尘限额（{} {}）",
+            chain.dust_limit(),
+            chain.base_unit()
+        ))
+        .into());
     }
-    let selection = select_utxos(inputs, target, fee_rate, true)?;
+    let selection = select_utxos(inputs, target, fee_rate, true, chain.dust_limit())?;
     let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
     let key = material.secp()?;
     let pubkey = address::compressed_pubkey(key);
@@ -731,7 +750,7 @@ async fn send_utxo(
         .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
     let (_, change) = change_script(&params, &pubkey);
     let recipient = recipient_script(chain, to)?;
-    let change_output = if selection.change >= DUST_LIMIT {
+    let change_output = if selection.change >= chain.dust_limit() {
         Some((change.as_slice(), selection.change))
     } else {
         None
@@ -743,6 +762,7 @@ async fn send_utxo(
         target,
         change_output,
         fee_rate,
+        chain,
     )?;
     let txid = adapter.broadcast(&raw).await?;
     Ok((txid, fee, u128::from(target)))
@@ -760,7 +780,11 @@ async fn send_legacy_utxo(
     let info = chain.info();
     let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
-    let adapter = BlockchairClient::new(client.clone(), info.rpc);
+    let adapter = BlockchairClient::with_settings(
+        client.clone(),
+        info.rpc,
+        Some(state.settings()?.blockchair_api_key.as_str()),
+    );
     let fee_rate = legacy_fee_levels(chain)
         .iter()
         .find(|(name, _, _)| *name == level)
@@ -774,12 +798,17 @@ async fn send_legacy_utxo(
         .collect::<Result<_, _>>()?;
     let target = match amount {
         Some(value) => u64::try_from(value).map_err(|_| Error::InvalidAmount("金额过大".into()))?,
-        None => max_legacy_sendable(&inputs, fee_rate)?.0,
+        None => max_legacy_sendable(&inputs, fee_rate, chain.dust_limit())?.0,
     };
-    if target < DUST_LIMIT {
-        return Err(Error::InvalidAmount(format!("低于灰尘限额（{DUST_LIMIT} {}）", chain.base_unit())).into());
+    if target < chain.dust_limit() {
+        return Err(Error::InvalidAmount(format!(
+            "低于灰尘限额（{} {}）",
+            chain.dust_limit(),
+            chain.base_unit()
+        ))
+        .into());
     }
-    let selection = select_legacy_utxos(inputs, target, fee_rate)?;
+    let selection = select_legacy_utxos(inputs, target, fee_rate, chain.dust_limit())?;
     let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
     let key = material.secp()?;
     let pubkey = address::compressed_pubkey(key);
@@ -788,7 +817,7 @@ async fn send_legacy_utxo(
         .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
     let (_, change) = legacy_change_script(&params, &pubkey);
     let recipient = recipient_script(chain, to)?;
-    let change_output = if selection.change >= DUST_LIMIT {
+    let change_output = if selection.change >= chain.dust_limit() {
         Some((change.as_slice(), selection.change))
     } else {
         None
@@ -800,7 +829,7 @@ async fn send_legacy_utxo(
         target,
         change_output,
         fee_rate,
-        chain.legacy_sighash(),
+        chain,
     )?;
     let txid = adapter.broadcast(&raw).await?;
     Ok((txid, fee, u128::from(target)))

@@ -1,8 +1,8 @@
 /** Settings: wallet identity, backups, appearance, security, danger zone. */
 
-import { api, walletFull } from "../api.js?v=21";
-import { copyText, escapeHtml, formatDateTime } from "../format.js?v=21";
-import { askPassword, bindCopy, confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=21";
+import { api, walletFull } from "../api.js?v=22";
+import { copyText, escapeHtml, formatDateTime } from "../format.js?v=22";
+import { askPassword, bindCopy, confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=22";
 
 const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 60];
 
@@ -42,7 +42,34 @@ export function render(ctx) {
 
 function markup(ctx, allAccounts = ctx.state.wallet?.accounts ?? []) {
   const wallet = ctx.state.wallet;
-  return `${walletCard(wallet)}${chainsCard(wallet, allAccounts)}${appearanceCard(wallet.settings)}${securityCard(wallet)}${dangerCard()}`;
+  return `${walletCard(wallet)}${chainsCard(wallet, allAccounts)}${appearanceCard(wallet.settings)}${networkCard(wallet.settings)}${securityCard(wallet)}${dangerCard()}`;
+}
+
+/** Network access. Blockchair now asks for an API key; without one the
+ *  Dogecoin and Bitcoin Cash endpoints refuse to answer, so their balances
+ *  and quotes stay empty. The key lives in the encrypted wallet file. */
+function networkCard(settings) {
+  const key = settings.blockchairApiKey ?? "";
+  const masked = key ? `${key.slice(0, 4)}••••${key.slice(-4)}` : "未设置";
+  return `<div class="card card-pad">
+    <div class="section-title"><h2>网络</h2></div>
+    <div class="setting-row">
+      <div class="text">
+        <div class="name">Blockchair API Key</div>
+        <div class="desc">Dogecoin 与 Bitcoin Cash 的余额、手续费和广播走 Blockchair，现在需要密钥；留空则这两条链查不到数据。</div>
+      </div>
+      <span class="chip">${escapeHtml(masked)}</span>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="input" id="blockchair-key" type="password" placeholder="粘贴 API Key" value="${escapeHtml(key)}" autocomplete="off" style="flex:1;min-width:200px" />
+      <button class="btn btn-ghost btn-sm" type="button" data-action="save-blockchair">${icon("check")}保存</button>
+      ${
+        key
+          ? `<button class="btn btn-ghost btn-sm" type="button" data-action="clear-blockchair">${icon("trash")}清除</button>`
+          : ""
+      }
+    </div>
+  </div>`;
 }
 
 function walletCard(wallet) {
@@ -229,6 +256,16 @@ function bind(ctx, container, paint) {
   });
   container.querySelector('[data-select="autoLockMinutes"]')?.addEventListener("change", (event) => {
     void patch({ autoLockMinutes: Number(event.target.value) });
+  });
+
+  // Blockchair API key: saved into the encrypted wallet file.
+  container.querySelector('[data-action="save-blockchair"]')?.addEventListener("click", () => {
+    const input = container.querySelector("#blockchair-key");
+    const value = (input?.value ?? "").trim();
+    void patch({ blockchairApiKey: value });
+  });
+  container.querySelector('[data-action="clear-blockchair"]')?.addEventListener("click", () => {
+    void patch({ blockchairApiKey: "" });
   });
 
   // 链开关：切换单链显示 / 一键全开。

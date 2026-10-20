@@ -1,8 +1,8 @@
 /** Receive: chain picker, QR code, copyable address, wallet-path details. */
 
-import { api } from "../api.js?v=21";
-import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=21";
-import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=21";
+import { api } from "../api.js?v=22";
+import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=22";
+import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=22";
 
 /* 二维码配色：始终是「浅底深码」。
    深色主题下用反色（浅码深底）会让部分扫码器读不出来，

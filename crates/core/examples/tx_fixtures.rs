@@ -6,9 +6,10 @@
 
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::SecretKey;
+use lycoris_core::chains::ChainId;
 use lycoris_core::tx::evm::{sign_transaction, EvmCall, EvmFee};
 use lycoris_core::tx::utxo::{
-    build_signed_p2pkh, build_signed_p2wpkh, p2pkh_script, p2wpkh_script, LegacySighash, UtxoInput,
+    build_signed_p2pkh, build_signed_p2wpkh, p2pkh_script, p2wpkh_script, UtxoInput,
 };
 
 fn pubkey_bytes(key: &SecretKey) -> [u8; 33] {
@@ -93,6 +94,7 @@ fn main() {
         120_000,
         Some((&script, 25_000)),
         2,
+        ChainId::Bitcoin,
     )
     .unwrap();
     println!("btc_two_inputs_raw={raw}");
@@ -100,27 +102,25 @@ fn main() {
     println!("btc_pubkey={}", hex::encode(pubkey));
 
     let single = vec![UtxoInput::from_parts(&"ab".repeat(32), 0, 100_000, true).unwrap()];
-    let (raw, fee) = build_signed_p2wpkh(&btc_key, &single, &script, 90_000, None, 2).unwrap();
+    let (raw, fee) = build_signed_p2wpkh(
+        &btc_key,
+        &single,
+        &script,
+        90_000,
+        None,
+        2,
+        ChainId::Bitcoin,
+    )
+    .unwrap();
     println!("btc_single_raw={raw}");
     println!("btc_single_fee={fee}");
 
     // Dogecoin (classic sighash) and Bitcoin Cash (SIGHASH_FORKID) use the
     // same P2PKH script as Bitcoin's legacy addresses.
     let legacy_script = p2pkh_script(&pubkey);
-    for (label, mode) in [
-        ("doge", LegacySighash::Classic),
-        ("bch", LegacySighash::ForkId),
-    ] {
-        let (raw, fee) = build_signed_p2pkh(
-            &btc_key,
-            &single,
-            &legacy_script,
-            90_000,
-            None,
-            2,
-            mode,
-        )
-        .unwrap();
+    for (label, chain) in [("doge", ChainId::Dogecoin), ("bch", ChainId::BitcoinCash)] {
+        let (raw, fee) =
+            build_signed_p2pkh(&btc_key, &single, &legacy_script, 90_000, None, 2, chain).unwrap();
         println!("{label}_single_raw={raw}");
         println!("{label}_single_fee={fee}");
 
@@ -131,7 +131,7 @@ fn main() {
             120_000,
             Some((&legacy_script, 25_000)),
             2,
-            mode,
+            chain,
         )
         .unwrap();
         println!("{label}_two_inputs_raw={raw}");

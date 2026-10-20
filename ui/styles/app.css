@@ -391,6 +391,10 @@
   align-items: start;
 }
 
+.receive-layout > .stack {
+  min-width: 0;
+}
+
 @media (max-width: 880px) {
   .receive-layout {
     grid-template-columns: 1fr;
@@ -407,6 +411,9 @@
   padding: 16px 16px 16px;
   box-shadow: var(--shadow-md);
   display: grid;
+  /* 头部有 nowrap 的说明文字：固定单列，避免隐式列按 max-content 把卡片撑破。 */
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 14px;
 }
 
@@ -414,6 +421,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .qr-card-head .qr-card-title {
@@ -438,6 +446,14 @@
   display: grid;
   place-items: center;
   padding: 2px 0;
+}
+
+/* 让二维码容器占满卡片宽度，SVG 再按 320px 上限居中；
+   否则 grid 的 shrink-to-fit 会把 SVG 压到默认 300px。 */
+.qr-card-body > #qr-target,
+.qr-card-body > #qr-holder {
+  width: 100%;
+  place-items: center;
 }
 
 /* 二维码始终是浅底深码：深色主题下这块浅色「纸片」保证能被扫出来。

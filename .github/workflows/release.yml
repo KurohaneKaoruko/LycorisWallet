@@ -16,7 +16,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  # 带上 sha：同一个 tag 被修正重推时，新任务不会被旧任务挡住
+  group: release-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 env:
@@ -67,7 +68,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             asset: windows-x64
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             asset: macos-x64
           - os: macos-latest

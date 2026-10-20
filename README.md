@@ -15,7 +15,7 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
   支持新建、导入、重命名、切换与删除（删除需密码确认），交易记录按钱包隔离，地址簿与设置全局共享。
   旧版单钱包文件在解锁时自动迁移到新格式。
 - **十条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Solana、Monero。
-- **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 / UTXO P2WPKH / Solana 系统转账）、交易记录、地址簿。
+- **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 / UTXO P2WPKH 与 legacy P2PKH / Solana 系统转账）、交易记录、地址簿。
 - **本地加密**：Argon2id + XChaCha20-Poly1305 加密的钱包文件，自动锁定、密码尝试冷却。
 - **演示模式**：`ui/index.html?mock=1` 在浏览器里用内存假数据预览完整界面，不需要 Rust 后端。
 
@@ -34,7 +34,9 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
 | Solana | SOL | SHA-256 → ed25519 | `m/44'/501'/0'/0'` | base58 |
 | Monero | XMR | Keccak-256 → CryptoNote | `m/44'/128'/0'/0/0`（SLIP-10 kholaw） | Monero base58 |
 
-> Dogecoin / Bitcoin Cash 的收款与余额查询已可用，转账签名（legacy P2PKH / SIGHASH-FORKID）在下一轮加入。
+> Dogecoin 与 Bitcoin Cash 的收款、余额与转账均已可用：前者用 legacy P2PKH 传统 sighash，后者用
+> BIP-143 + SIGHASH-FORKID，交易字节与 libsecp256k1 独立实现逐字节一致。
+> 两条链的链上数据走 Blockchair，现在需要 API Key，可在「设置 → 网络」里填写（保存在加密钱包文件里）。
 > Monero 的收款地址派生已可用；隐私链余额需视图密钥扫描本地节点，转账（RingCT 环签名）在后续版本加入。
 
 ### 口令派生规则

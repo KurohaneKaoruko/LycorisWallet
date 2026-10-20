@@ -94,13 +94,22 @@ def forkid_sighash(inputs, outputs, code, index, sighash_type):
     return double_sha256(preimage)
 
 
-def build_legacy(inputs, recipient_script, recipient_value, change, forkid: bool):
+def build_legacy(inputs, recipient_script, recipient_value, change, forkid: bool, dust_limit: int):
     key = coincurve.PrivateKey(bytes([0x11] * 32))
     pubkey = key.public_key.format(compressed=True)
     code = p2pkh_code(pubkey)
     outputs = [(recipient_script, recipient_value)]
     if change is not None:
         outputs.append(change)
+
+    # A change output below the chain's dust limit can never be spent again,
+    # so it is absorbed into the fee instead.
+    if change is not None:
+        leftover = change[1] - 0
+        total_in = sum(value for _, _, value in inputs)
+        fee = total_in - recipient_value - leftover
+        if leftover < dust_limit:
+            outputs = [(recipient_script, recipient_value)]
 
     sighash_type = SIGHASH_FORKID_ALL if forkid else SIGHASH_ALL
     script_sigs = []
@@ -127,11 +136,16 @@ def build_legacy(inputs, recipient_script, recipient_value, change, forkid: bool
     return raw.hex(), pubkey.hex()
 
 
+# Dogecoin relays nothing below one DOGE, Bitcoin Cash below 546 satoshis.
+DOGE_DUST = 100_000_000
+BCH_DUST = 546
+
+
 def doge_single():
     key_pub = coincurve.PrivateKey(bytes([0x11] * 32)).public_key.format(compressed=True)
     script = p2pkh_code(key_pub)
     inputs = [(bytes.fromhex("ab" * 32), 0, 100_000)]
-    return build_legacy(inputs, script, 90_000, None, forkid=False)
+    return build_legacy(inputs, script, 90_000, None, forkid=False, dust_limit=DOGE_DUST)
 
 
 def doge_two_inputs():
@@ -141,14 +155,16 @@ def doge_two_inputs():
         (bytes.fromhex("ab" * 32), 0, 100_000),
         (bytes.fromhex("cd" * 32), 1, 60_000),
     ]
-    return build_legacy(inputs, script, 120_000, (script, 25_000), forkid=False)
+    return build_legacy(
+        inputs, script, 120_000, (script, 25_000), forkid=False, dust_limit=DOGE_DUST
+    )
 
 
 def bch_single():
     key_pub = coincurve.PrivateKey(bytes([0x11] * 32)).public_key.format(compressed=True)
     script = p2pkh_code(key_pub)
     inputs = [(bytes.fromhex("ab" * 32), 0, 100_000)]
-    return build_legacy(inputs, script, 90_000, None, forkid=True)
+    return build_legacy(inputs, script, 90_000, None, forkid=True, dust_limit=BCH_DUST)
 
 
 def bch_two_inputs():
@@ -158,7 +174,9 @@ def bch_two_inputs():
         (bytes.fromhex("ab" * 32), 0, 100_000),
         (bytes.fromhex("cd" * 32), 1, 60_000),
     ]
-    return build_legacy(inputs, script, 120_000, (script, 25_000), forkid=True)
+    return build_legacy(
+        inputs, script, 120_000, (script, 25_000), forkid=True, dust_limit=BCH_DUST
+    )
 
 
 def parse_fixtures(text):
@@ -200,7 +218,7 @@ def main():
     fixtures = parse_fixtures(text)
     failures = []
 
-    print("Dogecoin (classic pre-BIP143 sighash)")
+    print("Dogecoin (classic pre-BIP143 sighash, 1 DOGE dust limit)")
     raw, pubkey = doge_single()
     check("doge_pubkey", pubkey, fixtures.get("doge_pubkey", ""), failures)
     check("doge_single_raw", raw, fixtures.get("doge_single_raw", ""), failures)
@@ -208,7 +226,9 @@ def main():
 
     raw, _ = doge_two_inputs()
     check("doge_two_inputs_raw", raw, fixtures.get("doge_two_inputs_raw", ""), failures)
-    check("doge_two_inputs_fee", "15000", fixtures.get("doge_two_inputs_fee", ""), failures)
+    # The 25_000 satoshi change is below the Dogecoin dust limit, so it is
+    # absorbed into the fee instead of becoming an output.
+    check("doge_two_inputs_fee", "40000", fixtures.get("doge_two_inputs_fee", ""), failures)
 
     print("Bitcoin Cash (BIP143 + SIGHASH_FORKID)")
     raw, _ = bch_single()

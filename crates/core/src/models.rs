@@ -38,6 +38,10 @@ pub struct Settings {
     /// UI 展示的链（链开关）。空 = 全部显示；派生始终覆盖全部链。
     #[serde(default)]
     pub visible_chains: Vec<ChainId>,
+    /// Optional Blockchair API key. Blockchair asks for one nowadays; without
+    /// it the Dogecoin and Bitcoin Cash endpoints refuse to answer.
+    #[serde(default)]
+    pub blockchair_api_key: String,
 }
 
 impl Default for Settings {
@@ -49,6 +53,7 @@ impl Default for Settings {
             auto_lock_minutes: 5,
             price_service: true,
             visible_chains: Vec::new(),
+            blockchair_api_key: String::new(),
         }
     }
 }

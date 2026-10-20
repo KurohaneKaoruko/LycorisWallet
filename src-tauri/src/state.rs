@@ -273,6 +273,11 @@ impl AppState {
         session.data.clone().ok_or(Error::Locked)
     }
 
+    /// The user's settings, including the optional Blockchair API key.
+    pub fn settings(&self) -> CoreResult<Settings> {
+        Ok(self.data()?.settings)
+    }
+
     /// Secret of the wallet that is currently selected.
     pub fn active_secret(&self) -> CoreResult<WalletSecret> {
         let session = self.session();

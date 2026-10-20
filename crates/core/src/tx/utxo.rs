@@ -144,6 +144,7 @@ pub fn select_utxos(
     target: u64,
     fee_rate: u64,
     include_change: bool,
+    dust_limit: u64,
 ) -> Result<Selection> {
     if target == 0 {
         return Err(Error::InvalidAmount(
@@ -162,7 +163,7 @@ pub fn select_utxos(
         if total >= target.saturating_add(fee) {
             let mut change = total - target - fee;
             let mut fee = fee;
-            if change < DUST_LIMIT {
+            if change < dust_limit {
                 // Recompute with a single recipient output.
                 let vsize = estimate_vsize(selected.len(), 1);
                 let base_fee = vsize.saturating_mul(fee_rate.max(1));
@@ -183,7 +184,7 @@ pub fn select_utxos(
     Err(Error::InsufficientBalance)
 }
 
-pub fn max_sendable(utxos: &[UtxoInput], fee_rate: u64) -> Result<(u64, u64)> {
+pub fn max_sendable(utxos: &[UtxoInput], fee_rate: u64, dust_limit: u64) -> Result<(u64, u64)> {
     // Returns (max_amount, fee) by selecting all inputs and subtracting the
     // fee for a single output plus a change output when useful.
     if utxos.is_empty() {
@@ -202,7 +203,7 @@ pub fn max_sendable(utxos: &[UtxoInput], fee_rate: u64) -> Result<(u64, u64)> {
     let fee_one = vsize_one.saturating_mul(fee_rate.max(1));
     let amount_one = total.saturating_sub(fee_one);
     let change = total - amount - fee;
-    if change < DUST_LIMIT {
+    if change < dust_limit {
         amount = amount_one;
         Ok((amount, total - amount))
     } else {
@@ -219,7 +220,9 @@ pub fn build_signed_p2wpkh(
     recipient_value: u64,
     change: Option<(&[u8], u64)>,
     fee_rate: u64,
+    chain: ChainId,
 ) -> Result<(String, u64)> {
+    let dust_limit = chain.dust_limit();
     if inputs.is_empty() {
         return Err(Error::InsufficientBalance);
     }
@@ -232,7 +235,7 @@ pub fn build_signed_p2wpkh(
     let mut outputs: Vec<(Vec<u8>, u64)> = Vec::new();
     outputs.push((recipient_script.to_vec(), recipient_value));
     if let Some((script, value)) = change {
-        if value >= DUST_LIMIT {
+        if value >= dust_limit {
             outputs.push((script.to_vec(), value));
         }
     }
@@ -316,6 +319,7 @@ pub fn select_legacy_utxos(
     mut utxos: Vec<UtxoInput>,
     target: u64,
     fee_rate: u64,
+    dust_limit: u64,
 ) -> Result<Selection> {
     if target == 0 {
         return Err(Error::InvalidAmount(
@@ -332,8 +336,9 @@ pub fn select_legacy_utxos(
         if total >= target.saturating_add(fee) {
             let mut change = total - target - fee;
             let mut fee = fee;
-            if change < DUST_LIMIT {
-                let base_fee = estimate_legacy_vsize(selected.len(), 1).saturating_mul(fee_rate.max(1));
+            if change < dust_limit {
+                let base_fee =
+                    estimate_legacy_vsize(selected.len(), 1).saturating_mul(fee_rate.max(1));
                 if total >= target.saturating_add(base_fee) {
                     fee = total - target;
                     change = 0;
@@ -352,7 +357,11 @@ pub fn select_legacy_utxos(
 }
 
 /// The largest amount that can be sent with the given inputs, and its fee.
-pub fn max_legacy_sendable(utxos: &[UtxoInput], fee_rate: u64) -> Result<(u64, u64)> {
+pub fn max_legacy_sendable(
+    utxos: &[UtxoInput],
+    fee_rate: u64,
+    dust_limit: u64,
+) -> Result<(u64, u64)> {
     if utxos.is_empty() {
         return Err(Error::InsufficientBalance);
     }
@@ -363,7 +372,7 @@ pub fn max_legacy_sendable(utxos: &[UtxoInput], fee_rate: u64) -> Result<(u64, u
     }
     let amount = total - fee;
     let change = total - amount - fee;
-    if change < DUST_LIMIT {
+    if change < dust_limit {
         let fee_one = estimate_legacy_vsize(utxos.len(), 1).saturating_mul(fee_rate.max(1));
         let amount_one = total.saturating_sub(fee_one);
         Ok((amount_one, total - amount_one))
@@ -449,8 +458,8 @@ fn forkid_sighash(
 /// Build and sign a legacy (pre-SegWit) P2PKH transaction.
 ///
 /// The same key and P2PKH script is assumed for every input (the wallet only
-/// spends its own account). `mode` selects the digest: `Classic` for Dogecoin,
-/// `ForkId` for Bitcoin Cash.
+/// spends its own account). The chain decides the digest: `Classic` for
+/// Dogecoin, `ForkId` for Bitcoin Cash.
 pub fn build_signed_p2pkh(
     key: &SecretKey,
     inputs: &[UtxoInput],
@@ -458,8 +467,10 @@ pub fn build_signed_p2pkh(
     recipient_value: u64,
     change: Option<(&[u8], u64)>,
     fee_rate: u64,
-    mode: LegacySighash,
+    chain: ChainId,
 ) -> Result<(String, u64)> {
+    let mode = chain.legacy_sighash();
+    let dust_limit = chain.dust_limit();
     if inputs.is_empty() {
         return Err(Error::InsufficientBalance);
     }
@@ -473,7 +484,7 @@ pub fn build_signed_p2pkh(
     let mut outputs: Vec<(Vec<u8>, u64)> = Vec::new();
     outputs.push((recipient_script.to_vec(), recipient_value));
     if let Some((script, value)) = change {
-        if value >= DUST_LIMIT {
+        if value >= dust_limit {
             outputs.push((script.to_vec(), value));
         }
     }
@@ -484,7 +495,8 @@ pub fn build_signed_p2pkh(
         return Err(Error::InsufficientBalance);
     }
     let fee = total_in - total_out;
-    let min_fee = estimate_legacy_vsize(inputs.len(), outputs.len()).saturating_mul(fee_rate.max(1));
+    let min_fee =
+        estimate_legacy_vsize(inputs.len(), outputs.len()).saturating_mul(fee_rate.max(1));
     if fee < min_fee {
         return Err(Error::Transaction(format!(
             "fee {fee} is below the required {min_fee}"
@@ -571,9 +583,26 @@ mod tests {
             UtxoInput::from_parts(&"11".repeat(32), 0, 100_000, true).unwrap(),
             UtxoInput::from_parts(&"22".repeat(32), 1, 50_000, true).unwrap(),
         ];
-        let selection = select_utxos(utxos, 40_000, 2, true).unwrap();
+        let selection = select_utxos(utxos, 40_000, 2, true, DUST_LIMIT).unwrap();
         assert!(!selection.inputs.is_empty());
         assert!(selection.fee >= estimate_vsize(selection.inputs.len(), 2) * 2);
+    }
+
+    #[test]
+    fn dogecoin_dust_is_one_whole_coin() {
+        // Dogecoin relays nothing below one DOGE, so a change output between
+        // 546 and 100_000_000 satoshis would be unspendable.
+        assert_eq!(ChainId::Dogecoin.dust_limit(), 100_000_000);
+        assert_eq!(ChainId::Bitcoin.dust_limit(), 546);
+        assert_eq!(ChainId::BitcoinCash.dust_limit(), 546);
+
+        let utxos = vec![UtxoInput::from_parts(&"11".repeat(32), 0, 120_000_000, true).unwrap()];
+        // A leftover of 0.2 DOGE is below the Dogecoin dust limit, so it has
+        // to be absorbed into the fee instead of becoming a change output.
+        let selection =
+            select_legacy_utxos(utxos, 100_000_000, 1_000, ChainId::Dogecoin.dust_limit()).unwrap();
+        assert_eq!(selection.change, 0);
+        assert_eq!(selection.fee, 20_000_000);
     }
 
     #[test]
@@ -585,7 +614,8 @@ mod tests {
         pubkey.copy_from_slice(pubkey_point.as_bytes());
         let script = p2wpkh_script(&pubkey);
         let inputs = vec![UtxoInput::from_parts(&"ab".repeat(32), 0, 100_000, true).unwrap()];
-        let (raw, fee) = build_signed_p2wpkh(&key, &inputs, &script, 90_000, None, 2).unwrap();
+        let (raw, fee) =
+            build_signed_p2wpkh(&key, &inputs, &script, 90_000, None, 2, ChainId::Bitcoin).unwrap();
         assert!(fee >= 100);
         let bytes = hex::decode(&raw).unwrap();
         assert_eq!(&bytes[4..6], &[0x00, 0x01]);
@@ -608,7 +638,8 @@ mod tests {
         let script = p2wpkh_script(&pubkey);
 
         let inputs = vec![UtxoInput::from_parts(&"ab".repeat(32), 0, 100_000, true).unwrap()];
-        let (raw, fee) = build_signed_p2wpkh(&key, &inputs, &script, 90_000, None, 2).unwrap();
+        let (raw, fee) =
+            build_signed_p2wpkh(&key, &inputs, &script, 90_000, None, 2, ChainId::Bitcoin).unwrap();
         assert_eq!(fee, 10_000);
         assert_eq!(
             raw,
@@ -623,9 +654,16 @@ mod tests {
             UtxoInput::from_parts(&"ab".repeat(32), 0, 100_000, true).unwrap(),
             UtxoInput::from_parts(&"cd".repeat(32), 1, 60_000, true).unwrap(),
         ];
-        let (raw, fee) =
-            build_signed_p2wpkh(&key, &inputs, &script, 120_000, Some((&script, 25_000)), 2)
-                .unwrap();
+        let (raw, fee) = build_signed_p2wpkh(
+            &key,
+            &inputs,
+            &script,
+            120_000,
+            Some((&script, 25_000)),
+            2,
+            ChainId::Bitcoin,
+        )
+        .unwrap();
         assert_eq!(fee, 15_000);
         assert_eq!(
             raw,
@@ -645,6 +683,8 @@ mod tests {
     /// Legacy P2PKH spends, recomputed with libsecp256k1 (coincurve 21) in
     /// `tools/verify_tx_legacy.py`: Dogecoin signs with the classic
     /// pre-BIP143 digest, Bitcoin Cash with BIP143 plus SIGHASH_FORKID.
+    /// Dogecoin also relays nothing below one DOGE, so a smaller change
+    /// output is absorbed into the fee.
     #[test]
     fn legacy_p2pkh_transactions_match_reference_implementation() {
         use k256::SecretKey;
@@ -659,16 +699,8 @@ mod tests {
             UtxoInput::from_parts(&"cd".repeat(32), 1, 60_000, true).unwrap(),
         ];
 
-        let (raw, fee) = build_signed_p2pkh(
-            &key,
-            &single,
-            &script,
-            90_000,
-            None,
-            2,
-            LegacySighash::Classic,
-        )
-        .unwrap();
+        let (raw, fee) =
+            build_signed_p2pkh(&key, &single, &script, 90_000, None, 2, ChainId::Dogecoin).unwrap();
         assert_eq!(fee, 10000);
         assert_eq!(
             raw,
@@ -686,21 +718,20 @@ mod tests {
             120_000,
             Some((&script, 25_000)),
             2,
-            LegacySighash::Classic,
+            ChainId::Dogecoin,
         )
         .unwrap();
-        assert_eq!(fee, 15000);
+        assert_eq!(fee, 40000);
         assert_eq!(
             raw,
-            "0100000002abababababababababababababababababababababababababababababababab000000006b48\
-            3045022100fb8df853499a605b1286b2f17379cd933c37c0f67bbe656ef2637f72c84fb4ba02202e69ce09\
-            d49e5a588b409affdd5f003c4ba43323d6a3e13afb8d0aff8784309d0121034f355bdcb7cc0af728ef3cce\
-            b9615d90684bb5b2ca5f859ab0f0b704075871aafdffffffcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\
-            cdcdcdcdcdcdcdcdcdcdcdcdcd010000006a473044022032d06432e080ca632d35906b492c843489d29e89\
-            4ec6489ef5cee1e5d7263ee1022042f8eb975b76e156459edf759de42e6d48c82477473f4badbc309b8c8b\
-            fc9ffd0121034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aafdffffff02\
-            c0d40100000000001976a914fc7250a211deddc70ee5a2738de5f07817351cef88aca86100000000000019\
-            76a914fc7250a211deddc70ee5a2738de5f07817351cef88ac00000000"
+            "0100000002abababababababababababababababababababababababababababababababab000000006a47\
+            304402204b2368941eefc1fd4f79e9abce76d144e0a773e735f7fbb0c79a48563c55dfa80220373c1275fc\
+            2c7625de76c8b1f1191a84eaff80f5913a3080ccd732b9bca775ac0121034f355bdcb7cc0af728ef3cceb9\
+            615d90684bb5b2ca5f859ab0f0b704075871aafdffffffcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\
+            cdcdcdcdcdcdcdcdcdcdcdcd010000006a473044022055d795970a5b9cff8bdfa5330647bec4a9acd401d0\
+            ab7e447aa11a143c90ae24022024d9ad9c8d0aef211d50b7e5477b263fc9a279ab1993addcdf1343eec86e\
+            cb7e0121034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aafdffffff01c0\
+            d40100000000001976a914fc7250a211deddc70ee5a2738de5f07817351cef88ac00000000"
         );
 
         let (raw, fee) = build_signed_p2pkh(
@@ -710,7 +741,7 @@ mod tests {
             90_000,
             None,
             2,
-            LegacySighash::ForkId,
+            ChainId::BitcoinCash,
         )
         .unwrap();
         assert_eq!(fee, 10000);
@@ -730,7 +761,7 @@ mod tests {
             120_000,
             Some((&script, 25_000)),
             2,
-            LegacySighash::ForkId,
+            ChainId::BitcoinCash,
         )
         .unwrap();
         assert_eq!(fee, 15000);

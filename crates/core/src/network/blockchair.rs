@@ -76,6 +76,23 @@ impl BlockchairClient {
         self
     }
 
+    /// A client that prefers the key from the wallet settings and falls back
+    /// to the environment variable.
+    pub fn with_settings(
+        client: reqwest::Client,
+        base: impl Into<String>,
+        settings_key: Option<&str>,
+    ) -> Self {
+        let from_settings = settings_key
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .map(str::to_string);
+        match from_settings {
+            Some(key) => Self::new(client, base).with_key(Some(key)),
+            None => Self::new(client, base),
+        }
+    }
+
     fn url(&self, path: &str) -> String {
         let mut url = format!("{}{}", self.base, path);
         if let Some(key) = &self.api_key {

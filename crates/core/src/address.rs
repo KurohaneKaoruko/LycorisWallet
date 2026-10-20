@@ -417,7 +417,9 @@ pub fn cashaddr_decode(address: &str) -> Result<(u8, Vec<u8>)> {
         bytes.push(byte);
     }
     if bytes.len() < 21 {
-        return Err(Error::InvalidAddress("cashaddr payload is too short".into()));
+        return Err(Error::InvalidAddress(
+            "cashaddr payload is too short".into(),
+        ));
     }
     let version = bytes[0];
     Ok((version, bytes[1..21].to_vec()))
@@ -491,5 +493,3 @@ mod tests {
         .is_err());
     }
 }
-
-

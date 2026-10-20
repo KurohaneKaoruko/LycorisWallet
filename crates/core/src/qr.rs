@@ -50,10 +50,7 @@ impl Painter {
 
     /// Top-left corner of a module cell in SVG coordinates.
     fn cell(&self, x: usize, y: usize) -> (f64, f64) {
-        (
-            ((x + QUIET) * SCALE) as f64,
-            ((y + QUIET) * SCALE) as f64,
-        )
+        (((x + QUIET) * SCALE) as f64, ((y + QUIET) * SCALE) as f64)
     }
 
     /// A filled rounded square covering `size` modules.
@@ -139,11 +136,7 @@ pub fn svg(text: &str, dark: &str, light: &str) -> Result<String> {
     };
 
     // The three finder patterns, drawn as a rounded ring plus a solid core.
-    let finders = [
-        (0usize, 0usize),
-        (0usize, width - 7),
-        (width - 7, 0usize),
-    ];
+    let finders = [(0usize, 0usize), (0usize, width - 7), (width - 7, 0usize)];
     for (ox, oy) in finders {
         painter.mark(ox, oy, 7);
         painter.ring(ox, oy, 7, 2.6 * SCALE as f64, dark, FINDER_INSET);

@@ -42,7 +42,8 @@ def petal(draw, cx, cy, angle_deg, length, width, color):
 
 def render(size: int) -> Image.Image:
     canvas = size * SS
-    image = Image.new("RGB", (canvas, canvas), PAPER)
+    # 圆角块之外保持透明；透明像素也填纸张色，LANCZOS 缩小后边缘不会发黑。
+    image = Image.new("RGBA", (canvas, canvas), PAPER + (0,))
     draw = ImageDraw.Draw(image)
 
     # subtle inner border so the mark survives on both light and dark shells
@@ -50,7 +51,8 @@ def render(size: int) -> Image.Image:
     draw.rounded_rectangle(
         [margin, margin, canvas - margin, canvas - margin],
         radius=canvas * 0.22,
-        outline=(226, 214, 198),
+        fill=PAPER + (255,),
+        outline=(226, 214, 198, 255),
         width=int(canvas * 0.012),
     )
 

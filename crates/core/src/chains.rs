@@ -203,7 +203,7 @@ impl ChainId {
                 explorer_address: "https://xmrchain.net/search?value=",
                 rpc: "https://xmrchain.net/api",
                 price_id: "monero",
-                send_note: "CryptoNote · 双密钥（RingCT 转账即将支持）",
+                send_note: "CryptoNote · RingCT（经 monero-wallet-rpc 签名）",
             },
         }
     }
@@ -256,7 +256,11 @@ impl ChainId {
             ChainId::Bitcoin | ChainId::BitcoinCash => "聪",
             ChainId::Litecoin => "里特",
             ChainId::Dogecoin => "柴",
-            _ => "聪",
+            ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => {
+                "gwei"
+            }
+            ChainId::Solana => "lamports",
+            ChainId::Monero => "piconero",
         }
     }
 
@@ -403,9 +407,9 @@ pub struct ChainInfo {
 
 impl ChainInfo {
     pub fn send_supported(&self) -> bool {
-        // RingCT signing for Monero is a follow-up change; receive and history
-        // already work.
-        !matches!(self.id, ChainId::Monero)
+        // Monero spends are signed by a local `monero-wallet-rpc`; when it is
+        // not running the quote explains how to start it.
+        true
     }
 }
 

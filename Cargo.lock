@@ -2494,7 +2494,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "unicode-normalization",
- "uuid",
  "zeroize",
 ]
 
@@ -2514,6 +2513,16 @@ dependencies = [
  "tokio",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "lycoris-wasm"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "lycoris-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

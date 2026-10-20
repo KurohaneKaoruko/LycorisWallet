@@ -36,6 +36,8 @@ pub enum Error {
     Transaction(String),
     #[error("network request failed: {0}")]
     Network(String),
+    #[error("local RPC unavailable: {0}")]
+    RpcUnavailable(String),
     #[error("cryptography error: {0}")]
     Crypto(String),
     #[error("invalid vault format: {0}")]
@@ -73,6 +75,7 @@ impl Error {
             Error::UnsupportedChain(_) => "UNSUPPORTED_CHAIN",
             Error::Transaction(_) => "TRANSACTION_FAILED",
             Error::Network(_) => "NETWORK",
+            Error::RpcUnavailable(_) => "RPC_UNAVAILABLE",
             Error::Crypto(_) => "CRYPTO",
             Error::InsufficientBalance => "INSUFFICIENT_BALANCE",
             Error::Cancelled => "CANCELLED",

@@ -1,0 +1,20 @@
+[package]
+name = "lycoris-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WebAssembly bridge so the demo frontend runs the real Rust core"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# No HTTP adapters in the browser: the demo only needs derivation, address
+# validation and the QR renderer.
+lycoris-core = { path = "../core", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+# `k256`'s `std` feature pulls `rand_core`, whose `std` feature enables
+# `getrandom`. On wasm32-unknown-unknown getrandom 0.2 needs the JavaScript
+# backend; no demo code path actually draws entropy.
+getrandom = { version = "0.2", features = ["js"] }

@@ -7,7 +7,9 @@ use crate::chains::{ChainId, ChainKind};
 use crate::error::{Error, Result};
 use crate::hash::{chain_hash, public_fingerprint};
 use crate::slip10;
-use bip39::{Language, Mnemonic};
+#[cfg(feature = "vault")]
+use bip39::Language;
+use bip39::Mnemonic;
 use ed25519_dalek::SigningKey as Ed25519SigningKey;
 use k256::SecretKey;
 use serde::{Deserialize, Serialize};
@@ -148,6 +150,9 @@ fn parse_mnemonic(input: &str) -> Result<Mnemonic> {
     Mnemonic::parse_normalized(&normalized).map_err(|e| Error::InvalidMnemonic(e.to_string()))
 }
 
+/// Generate a fresh BIP-39 mnemonic. Not available in the WebAssembly build,
+/// which has no entropy source and only re-derives existing phrases.
+#[cfg(feature = "vault")]
 pub fn generate_mnemonic(word_count: usize) -> Result<String> {
     if word_count != 12 && word_count != 24 {
         return Err(Error::InvalidMnemonic("word count must be 12 or 24".into()));
@@ -227,6 +232,15 @@ impl PrivateKeyMaterial {
         match &self.inner {
             PrivateKeyInner::Ed25519(seed) => Ok(*seed),
             _ => Err(Error::Crypto("key is not ed25519".into())),
+        }
+    }
+
+    /// The Monero spend/view keypair. `monero-wallet-rpc` needs both halves
+    /// (and the address) to import a wallet that belongs to this phrase.
+    pub fn monero_keys(&self) -> Result<&crate::cryptonote::MoneroKeys> {
+        match &self.inner {
+            PrivateKeyInner::Monero(keys) => Ok(keys),
+            _ => Err(Error::Crypto("key is not a Monero keypair".into())),
         }
     }
 
@@ -496,7 +510,9 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                             &keys,
                             path,
                             info.hash.label(),
-                            info.hash.detail(),
+                            // Monero shares Keccak-256 with the EVM chains, but
+                            // not their description.
+                            "CryptoNote Keccak-256 · 32 byte digest",
                             "spend = reduce(H(phrase)) · view = reduce(Keccak(spend))",
                         )?);
                     }
@@ -794,7 +810,7 @@ mod tests {
         );
         assert!(find(ChainId::Dogecoin).send_supported);
         assert!(find(ChainId::BitcoinCash).send_supported);
-        // Monero still waits for RingCT signing.
-        assert!(!find(ChainId::Monero).send_supported);
+        // Monero spends are signed by a local monero-wallet-rpc.
+        assert!(find(ChainId::Monero).send_supported);
     }
 }

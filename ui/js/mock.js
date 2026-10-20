@@ -1,9 +1,42 @@
-/** In-memory stand-in for the Rust backend.
+/** Demo backend for the static build.
  *
  * Used when the interface runs in a plain browser (`?mock=1` or no Tauri
- * host). It mimics the command surface, formats and error codes, but keeps
- * every "secret" fake — the UI shows a 演示模式 badge so nobody mistakes it for
- * a real wallet. */
+ * host). The command surface, formats and error codes mirror the Rust backend,
+ * and whenever the WebAssembly core is available the addresses, fingerprints,
+ * address validation and QR codes are **real**: they come from the same
+ * `lycoris-core` the desktop app uses. Only balances, prices and broadcast
+ * results are demo data — the UI shows a 演示模式 badge so nobody mistakes the
+ * balances for a funded wallet. */
+
+import { BIP39_WORDS } from "./bip39-words.js?v=23";
+import { loadCore } from "./core.js?v=23";
+
+// The desktop build has a Rust backend already; only the browser demo needs
+// the wasm copy (1.2 MB, skipped entirely when Tauri is present).
+const wantsCore =
+  new URLSearchParams(location.search).has("mock") || !globalThis.__TAURI__;
+let core = null;
+if (wantsCore) {
+  try {
+    core = await loadCore();
+  } catch (error) {
+    console.warn("[lycoris] wasm core unavailable, using demo addresses", error);
+  }
+}
+
+/** Derivation is scrypt-heavy; cache per secret so a refresh does not re-derive. */
+const PREVIEW_CACHE = new Map();
+
+function corePreview(secret) {
+  if (!core) return null;
+  const key = JSON.stringify(secret);
+  const cached = PREVIEW_CACHE.get(key);
+  if (cached) return cached;
+  const preview = core.preview(secret);
+  if (PREVIEW_CACHE.size >= 24) PREVIEW_CACHE.clear();
+  PREVIEW_CACHE.set(key, preview);
+  return preview;
+}
 
 const CHAINS = [
   { id: "bitcoin", name: "Bitcoin", symbol: "BTC", decimals: 8, accent: "#F7931A", kind: "utxo" },
@@ -41,7 +74,7 @@ const BALANCES = {
   bsc: 1_240_000_000_000_000_000n,
   polygon: 486_000_000_000_000_000_000n,
   solana: 8_420_000_000n,
-  monero: 0n,
+  monero: 3_420_000_000_000n,
 };
 
 const ALGOS = {
@@ -239,6 +272,10 @@ const store = {
     priceService: true,
     visibleChains: [],
     blockchairApiKey: "",
+    moneroRpcUrl: "http://127.0.0.1:18083/json_rpc",
+    moneroRpcUser: "",
+    moneroRpcPassword: "",
+    moneroRestoreHeight: 0,
   },
   contacts: [],
 };
@@ -301,6 +338,10 @@ function uniqueLabel(base) {
 /* ----------------------------------------------------------------- accounts */
 
 function accountsFor(secret) {
+  // Prefer the real core: addresses, paths, hash descriptions and the
+  // explorer links all come from the same code the desktop app runs.
+  const preview = corePreview(secret);
+  if (preview) return preview.accounts;
   const seedText = secret.mode === "mnemonic" ? secret.mnemonic : `${secret.phrase}:${secret.derivation}`;
   return CHAINS.map((chain) => {
     const [algorithm, detail] = ALGOS[chain.id];
@@ -329,7 +370,7 @@ function accountsFor(secret) {
       publicKey: `0x${pick(keyStream(chain.id, seedText, secret.mode === "mnemonic" ? "mnemonic" : secret.derivation), HEX, 64)}`,
       accent: chain.accent,
       explorerUrl: "#",
-      sendSupported: !["monero"].includes(chain.id),
+      sendSupported: true,
       decimals: chain.decimals,
     };
   });
@@ -341,33 +382,41 @@ function walletView() {
     throw { code: "LOCKED", message: "钱包已锁定" };
   }
   const accounts = accountsFor(wallet.secret);
+  const preview = corePreview(wallet.secret);
   const isMnemonic = wallet.secret.mode === "mnemonic";
   return {
     id: wallet.id,
     mode: wallet.secret.mode,
     derivation: isMnemonic ? null : wallet.secret.derivation ?? "isolated",
     label: wallet.label,
-    fingerprint: fingerprintOf(accounts),
+    fingerprint: preview?.fingerprint ?? fingerprintOf(accounts),
     createdAt: wallet.createdAt ?? nowSeconds(),
-    formula: isMnemonic
-      ? "BIP-39 助记词 → 512 位种子 → BIP-32 / SLIP-0010 路径"
-      : wallet.secret.derivation === "strict"
-        ? 'H_chain(phrase) → 32 字节 → 私钥'
-        : 'H_chain("lycoris/v1/<chain>\\0" + phrase) → 32 字节 → 私钥',
+    formula:
+      preview?.formula ??
+      (isMnemonic
+        ? "BIP-39 助记词 → 512 位种子 → BIP-32 / SLIP-0010 路径"
+        : wallet.secret.derivation === "strict"
+          ? "H_chain(phrase) → 32 字节 → 私钥"
+          : 'H_chain("lycoris/v1/<chain>\\0" + phrase) → 32 字节 → 私钥'),
     accounts,
     settings: store.settings,
     contacts: store.contacts,
     activity: wallet.activity ?? [],
-    wallets: store.wallets.map((item) => ({
-      id: item.id,
-      label: item.label,
-      mode: item.secret.mode,
-      derivation: item.secret.mode === "mnemonic" ? null : item.secret.derivation ?? "isolated",
-      fingerprint: fingerprintOf(accountsFor(item.secret)),
-      createdAt: item.createdAt ?? nowSeconds(),
-      activityCount: (item.activity ?? []).length,
-      active: item.id === wallet.id,
-    })),
+    wallets: store.wallets.map((item) => {
+      const itemPreview = corePreview(item.secret);
+      return {
+        id: item.id,
+        label: item.label,
+        mode: item.secret.mode,
+        derivation:
+          item.secret.mode === "mnemonic" ? null : item.secret.derivation ?? "isolated",
+        fingerprint:
+          itemPreview?.fingerprint ?? fingerprintOf(accountsFor(item.secret)),
+        createdAt: item.createdAt ?? nowSeconds(),
+        activityCount: (item.activity ?? []).length,
+        active: item.id === wallet.id,
+      };
+    }),
   };
 }
 
@@ -377,25 +426,6 @@ function portfolio() {
   const assets = accounts.map((account) => {
     const chain = CHAINS.find((item) => item.id === account.chain);
     const price = PRICES[account.chain];
-    // Monero balances need view-key scanning; mirror the backend's honest
-    // error instead of showing a fake number.
-    if (account.chain === "monero") {
-      return {
-        chain: account.chain,
-        name: account.name,
-        symbol: account.symbol,
-        decimals: chain.decimals,
-        accent: account.accent,
-        address: account.address,
-        amount: "—",
-        priceUsd: price.usd,
-        priceCny: price.cny,
-        valueUsd: null,
-        valueCny: null,
-        explorerUrl: "#",
-        error: "隐私链：余额需视图密钥扫描，暂不支持在线查询（地址可正常收款）",
-      };
-    }
     const amount = unitsToText(BALANCES[account.chain], chain.decimals);
     const human = Number(BALANCES[account.chain]) / 10 ** chain.decimals;
     return {
@@ -427,17 +457,20 @@ function levelLabel(level) {
 function baseUnit(chainId) {
   if (chainId === "litecoin") return "里特";
   if (chainId === "dogecoin") return "柴";
+  if (chainId === "monero") return "piconero";
   return "聪";
 }
 
 function quoteFor(request) {
   const chain = CHAINS.find((item) => item.id === request.chain);
   if (!chain) throw { code: "UNSUPPORTED_CHAIN", message: "不支持的链" };
-  if (["monero"].includes(chain.id)) {
-    throw { code: "SEND_UNSUPPORTED", message: "该链的转账功能即将支持，收款地址已可用" };
-  }
-  if (!request.to || request.to.length < 12) {
-    throw { code: "INVALID_ADDRESS", message: "地址格式不正确" };
+  const to = String(request.to ?? "").trim();
+  // Real checksum / network validation from the Rust core when available.
+  const addressOk = core
+    ? core.validateAddress(chain.id, to)
+    : to.length >= 12;
+  if (!addressOk) {
+    throw { code: "INVALID_ADDRESS", message: "地址格式不正确（校验和或网络不符）" };
   }
   const balance = BALANCES[chain.id];
   const decimals = chain.decimals;
@@ -446,7 +479,7 @@ function quoteFor(request) {
   const legacy = ["dogecoin", "bitcoincash"].includes(chain.id);
   const feeBase = legacy
     ? chain.id === "dogecoin"
-      ? 100_000n
+      ? 1_000n
       : 2n
     : chain.kind === "utxo"
       ? 2_400n
@@ -455,6 +488,23 @@ function quoteFor(request) {
         : 210_000_000_000_000n;
 
   const levels = ["fast", "normal", "economy"].map((level, index) => {
+    if (chain.kind === "cryptonote") {
+      // Same numbers as the Rust side: a typical 1-in/2-out CLSAG transaction
+      // weighs ~1.6 KB, the dynamic fee floor is 20,000 piconero/byte, and
+      // Monero multiplies it by 20× / 4× / 1× for priority 3 / 2 / 1.
+      const multiplier = [20n, 4n, 1n][index];
+      const fee = 1_600n * 20_000n * multiplier;
+      const human = Number(fee) / 10 ** decimals;
+      return {
+        level,
+        label: levelLabel(level),
+        fee: unitsToText(fee, decimals),
+        feeFiat: `≈ $${(human * price).toFixed(2)}`,
+        eta: index === 2 ? "约 20 分钟" : "约 2 分钟",
+        note: `优先级 ${[3, 2, 1][index]} · 环签名 16 · 约 1.6 KB`,
+        selected: level === "normal",
+      };
+    }
     // 费率与 Rust 端一致：legacy 链是基准的 1.5 / 1 / 0.75 倍（聪/字节），
     // SegWit 链是 1.4 / 1 / 0.7 倍（聪/vB）。
     let rate = legacy
@@ -515,7 +565,9 @@ function quoteFor(request) {
             : "原生 SegWit（Bech32）"
         : chain.kind === "evm"
           ? "EIP-1559 · 21,000 gas"
-          : "Ed25519 系统转账",
+          : chain.kind === "cryptonote"
+            ? "CryptoNote · RingCT（本地 monero-wallet-rpc 签名）"
+            : "Ed25519 系统转账",
   };
 }
 
@@ -600,6 +652,34 @@ function pseudoQr(text, dark = "#141416", light = "#ffffff") {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" shape-rendering="geometricPrecision"><rect width="${total}" height="${total}" fill="${light}"/><g fill="${dark}">${shapes.join("")}</g></svg>`;
 }
 
+/** BIP-39 generator (entropy → SHA-256 checksum → 11-bit words). */
+async function generateMnemonic(wordCount) {
+  const count = wordCount === 24 ? 24 : 12;
+  const entropy = new Uint8Array(count === 24 ? 32 : 16);
+  crypto.getRandomValues(entropy);
+  const checksum = new Uint8Array(await crypto.subtle.digest("SHA-256", entropy));
+
+  const bits = [];
+  for (const byte of entropy) {
+    for (let shift = 7; shift >= 0; shift -= 1) bits.push((byte >> shift) & 1);
+  }
+  // 12 words carry a 4-bit checksum, 24 words an 8-bit one.
+  const checksumBits = count * 11 - entropy.length * 8;
+  for (let index = 0; index < checksumBits; index += 1) {
+    bits.push((checksum[index >> 3] >> (7 - (index & 7))) & 1);
+  }
+
+  const words = [];
+  for (let index = 0; index < count; index += 1) {
+    let value = 0;
+    for (let bit = 0; bit < 11; bit += 1) {
+      value = (value << 1) | bits[index * 11 + bit];
+    }
+    words.push(BIP39_WORDS[value]);
+  }
+  return words.join(" ");
+}
+
 /* ------------------------------------------------------------------ dispatch */
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -624,6 +704,8 @@ export async function mockCall(command, args = {}) {
         throw { code: "WEAK_PASSWORD", message: "密码至少需要 8 个字符" };
       }
       const secret = request.secret ?? {};
+      // Real BIP-39 checksum / derivation check before the wallet is stored.
+      if (core) corePreview(secret);
       const id = makeId();
       store.wallets = [
         {
@@ -666,6 +748,7 @@ export async function mockCall(command, args = {}) {
     case "add_wallet": {
       const request = args.request ?? {};
       const secret = request.secret ?? {};
+      if (core) corePreview(secret);
       if (secret.mode === "mnemonic") {
         const words = String(secret.mnemonic ?? "").trim().split(/\s+/).filter(Boolean);
         if (words.length !== 12 && words.length !== 24) {
@@ -698,23 +781,16 @@ export async function mockCall(command, args = {}) {
       return walletView();
     }
 
-    case "generate_mnemonic": {
-      const words =
-        "abandon ability able about above absent absorb abstract absurd abuse access accident account achieve acid acoustic acquire across action adapt address adjust admit adult advance advice aerobic affair afford afraid again agent agree ahead aim air airport aisle alarm album alert alien alley allow almost alone alpha already also alter always amazing among amount amused analyst anchor ancient anger angle angry animal ankle announce annual another answer antenna antique anxiety any apart apology appear apple approve april arch arctic area arena argue arm armed armor army around arrange arrest arrive arrow artefact artist artwork ask aspect assault asset assist assume asthma athlete atom attack attend attitude attract auction audit august aunt author auto autumn average avocado avoid awake aware away awesome awful awkward axis".split(
-          " ",
-        );
-      const rand = mulberry32(Math.floor(Math.random() * 2 ** 32));
-      const count = args.wordCount === 24 ? 24 : 12;
-      const picked = [];
-      while (picked.length < count) {
-        const word = words[Math.floor(rand() * words.length)];
-        picked.push(word);
-      }
-      return picked.join(" ");
-    }
+    case "generate_mnemonic":
+      // Real BIP-39: 128/256 bits of entropy plus a SHA-256 checksum. The
+      // wasm core accepts the result, so the demo never creates an invalid wallet.
+      return generateMnemonic(args.wordCount === 24 ? 24 : 12);
 
     case "preview_derivation": {
       const secret = args.secret ?? {};
+      // Real preview (accounts, fingerprint and formula) straight from the core.
+      const preview = corePreview(secret);
+      if (preview) return preview;
       if (secret.mode === "mnemonic") {
         const words = String(secret.mnemonic ?? "").trim().split(/\s+/).filter(Boolean);
         if (words.length !== 12 && words.length !== 24) {
@@ -728,6 +804,7 @@ export async function mockCall(command, args = {}) {
         mode: secret.mode,
         derivation: secret.mode === "mnemonic" ? null : secret.derivation ?? "isolated",
         accounts,
+        // Fallback path only: the wasm core is unavailable.
         fingerprint: fingerprintOf(accounts),
         formula:
           secret.mode === "mnemonic"
@@ -746,25 +823,44 @@ export async function mockCall(command, args = {}) {
       if (wallet?.secret?.mode !== "mnemonic") {
         throw { code: "ERROR", message: "当前钱包没有助记词" };
       }
-      return `${wallet.secret.mnemonic} (演示数据)`;
+      return wallet.secret.mnemonic;
     }
 
     case "export_private_key": {
       if (args.password !== store.password) {
         throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
       }
-      const rand = mulberry32(fnv1a(`${args.chain}:demo-key`));
-      const value =
-        args.chain === "bitcoin" || args.chain === "litecoin"
-          ? `${pick(rand, BASE58, 5)}…演示WIF…${pick(rand, BASE58, 5)}`
-          : args.chain === "solana"
-            ? pick(rand, BASE58, 64)
-            : `0x${pick(rand, HEX, 64)}`;
+      const wallet = activeWallet();
+      if (!wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      const chain = args.chain;
+      let value;
+      if (core) {
+        // Real key material, derived by the same core as the desktop app.
+        value = core.privateKey(wallet.secret, chain);
+      } else {
+        const rand = mulberry32(fnv1a(`${chain}:demo-key`));
+        value =
+          chain === "bitcoin" || chain === "litecoin"
+            ? `${pick(rand, BASE58, 5)}…演示WIF…${pick(rand, BASE58, 5)}`
+            : chain === "solana"
+              ? pick(rand, BASE58, 64)
+              : `0x${pick(rand, HEX, 64)}`;
+      }
+      const format =
+        chain === "solana"
+          ? "Base58 keypair"
+          : chain === "bitcoin" || chain === "litecoin"
+            ? "WIF"
+            : chain === "monero"
+              ? "Hex (spend‖view)"
+              : "Hex (0x…)";
       return {
-        chain: args.chain,
-        format: args.chain === "solana" ? "Base58 keypair" : args.chain === "bitcoin" || args.chain === "litecoin" ? "WIF" : "Hex (0x…)",
+        chain,
+        format,
         value,
-        warning: "演示模式导出的私钥是随机字符串，不控制任何资产。",
+        warning: core
+          ? "私钥由真内核从当前钱包派生。演示钱包只保存在浏览器本地，请勿向这些地址转入真实资产。"
+          : "演示模式导出的私钥是随机字符串，不控制任何资产。",
       };
     }
 
@@ -819,7 +915,10 @@ export async function mockCall(command, args = {}) {
         throw { code: "INSUFFICIENT_BALANCE", message: "余额不足以支付金额与手续费" };
       }
       const fee = quote.feeOptions.find((option) => option.level === (request.level ?? "normal")) ?? quote.feeOptions[1];
-      const txid = pick(mulberry32(fnv1a(`${request.chain}:${Date.now()}`)), HEX, 64);
+      const seed = mulberry32(fnv1a(`${request.chain}:${Date.now()}`));
+      // Solana signatures are 88-character base58 strings; everything else
+      // here uses a 32-byte hex transaction id.
+      const txid = chain.id === "solana" ? pick(seed, BASE58, 88) : pick(seed, HEX, 64);
       const explorerUrl = `${TX_EXPLORERS[chain.id] ?? ""}${txid}`;
       const result = {
         chain: chain.id,
@@ -855,8 +954,12 @@ export async function mockCall(command, args = {}) {
       if (!String(draft.name ?? "").trim()) {
         throw { code: "INVALID_CONTACT", message: "联系人名称不能为空" };
       }
-      if (String(draft.address ?? "").trim().length < 12) {
-        throw { code: "INVALID_ADDRESS", message: "地址格式不正确" };
+      const contactAddress = String(draft.address ?? "").trim();
+      const validContact = core
+        ? core.validateAddress(draft.chain, contactAddress)
+        : contactAddress.length >= 12;
+      if (!validContact) {
+        throw { code: "INVALID_ADDRESS", message: "地址格式不正确（校验和或网络不符）" };
       }
       const id = draft.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
       const existing = store.contacts.find((item) => item.id === id);
@@ -885,8 +988,29 @@ export async function mockCall(command, args = {}) {
       persist();
       return store.settings;
 
-    case "qr_svg":
+    case "qr_svg": {
+      // Real rounded QR from the core; the pseudo renderer is only a fallback
+      // for environments where the wasm failed to load.
+      if (core) {
+        try {
+          return core.qrSvg(args.text ?? "", args.dark, args.light);
+        } catch (error) {
+          console.warn("[lycoris] real QR renderer failed", error);
+        }
+      }
       return pseudoQr(args.text ?? "", args.dark, args.light);
+    }
+
+    case "monero_status":
+      return {
+        connected: false,
+        version: null,
+        height: null,
+        address: null,
+        walletMatches: false,
+        message:
+          "演示模式没有本地 monero-wallet-rpc；桌面版会连接设置里的地址。",
+      };
 
     case "open_external":
       globalThis.open?.(args.url, "_blank", "noopener");

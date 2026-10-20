@@ -555,7 +555,20 @@ pub fn recipient_script(chain: ChainId, address: &str) -> Result<Vec<u8>> {
 }
 
 /// Return the fee rate for a named speed level.
-pub fn fee_rate_for_level(fees: &crate::network::utxo::RecommendedFees, level: &str) -> u64 {
+/// Fee recommendation for the UTXO chains, in satoshis per virtual byte.
+///
+/// Lives here rather than in [`crate::network`] so the WebAssembly build (which
+/// has no HTTP adapters) can still price a transaction.
+#[derive(Debug, Clone, Copy)]
+pub struct RecommendedFees {
+    pub fastest: u64,
+    pub half_hour: u64,
+    pub hour: u64,
+    pub economy: u64,
+    pub minimum: u64,
+}
+
+pub fn fee_rate_for_level(fees: &RecommendedFees, level: &str) -> u64 {
     match level {
         "fast" => fees.fastest,
         "slow" => fees.hour,

@@ -4,7 +4,8 @@
 由每条链自己的原生哈希算法直接派生该链私钥——比特币用 SHA-256、莱特币用 scrypt、EVM 用
 Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
 
-所有密钥、签名与网络请求都发生在 Rust 侧，前端只是视图层。
+所有密钥、签名与网络请求都发生在 Rust 侧。Monero 是唯一例外：CryptoNote 的
+RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由本应用派生后交给它。
 
 ## 功能
 
@@ -15,9 +16,10 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
   支持新建、导入、重命名、切换与删除（删除需密码确认），交易记录按钱包隔离，地址簿与设置全局共享。
   旧版单钱包文件在解锁时自动迁移到新格式。
 - **十条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Solana、Monero。
-- **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 / UTXO P2WPKH 与 legacy P2PKH / Solana 系统转账）、交易记录、地址簿。
+- **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 / UTXO P2WPKH 与 legacy P2PKH / Solana 系统转账 / Monero CryptoNote）、交易记录、地址簿。
 - **本地加密**：Argon2id + XChaCha20-Poly1305 加密的钱包文件，自动锁定、密码尝试冷却。
-- **演示模式**：`ui/index.html?mock=1` 在浏览器里用内存假数据预览完整界面，不需要 Rust 后端。
+- **演示模式**：`ui/index.html?mock=1` 直接加载编译成 WebAssembly 的同一份 Rust 核心——地址、指纹、
+  地址校验和二维码都是真数据，只有余额、价格与广播结果是演示值，不需要 Rust 后端。
 
 ## 支持的网络
 
@@ -37,7 +39,8 @@ Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
 > Dogecoin 与 Bitcoin Cash 的收款、余额与转账均已可用：前者用 legacy P2PKH 传统 sighash，后者用
 > BIP-143 + SIGHASH-FORKID，交易字节与 libsecp256k1 独立实现逐字节一致。
 > 两条链的链上数据走 Blockchair，现在需要 API Key，可在「设置 → 网络」里填写（保存在加密钱包文件里）。
-> Monero 的收款地址派生已可用；隐私链余额需视图密钥扫描本地节点，转账（RingCT 环签名）在后续版本加入。
+> Monero 的收款地址派生、余额与转账均已可用：RingCT 签名由本地的 `monero-wallet-rpc` 完成，
+> 配置见下方「Monero 转账」一节。
 
 ### 口令派生规则
 
@@ -60,10 +63,41 @@ Monero 口令模式的派生：`spend = sc_reduce32(Keccak-256(message))`、`vie
 地址为 CryptoNote 双公钥 + Keccak-4 校验的 Monero base58（与 bip_utils 独立实现互相验证）；
 助记词模式走 SLIP-10 kholaw（ed25519 非强化变体）`m/44'/128'/0'/0/0`，`spend = sc_reduce32(Keccak-256(kL ‖ kR))`。
 
+## Monero 转账
+
+Monero 的每笔转账都需要 CLSAG 环签名和 Bulletproofs+ 范围证明。自己实现风险太高，因此
+Lycoris 把签名交给 Monero 官方的 `monero-wallet-rpc`（与 Feather Wallet 相同的架构），
+密钥仍由本应用从当前口令派生。
+
+1. 启动本地 RPC（`--wallet-dir` 指向一个专用目录；`--disable-rpc-login` 只适合本机监听）：
+
+```bash
+monero-wallet-rpc --rpc-bind-port 18083 --disable-rpc-login \
+  --wallet-dir ~/.lycoris/monero
+```
+
+2. 在「设置 → 网络 → Monero 钱包 RPC」里确认地址（默认 `http://127.0.0.1:18083/json_rpc`）、
+   可选的 RPC 用户名/密码，以及**恢复高度**。填创建钱包时的大致区块高度可以避免从创世块
+   扫描；留 0 会从头扫描，非常慢。
+3. 首次查询余额或转账时，应用会用当前钱包的 spend/view key 在 `--wallet-dir` 下创建钱包文件：
+   文件名 `lycoris-<地址哈希前 16 位 hex>`，钱包密码是 `keccak256(spend_key)` 的 hex。
+   两者都不落盘保存，每次都从当前口令重新计算。
+
+手续费按 Monero 动态费率估算：典型 1 入 2 出交易约 1.6 KB，费率下限 20,000 piconero/字节，
+快速 / 标准 / 经济对应优先级 3 / 2 / 1（20× / 4× / 1×）；实际费用以 RPC 返回为准。
+「全部」使用 `sweep_all`，手续费由 Monero 自己扣除。
+
+> `monero-wallet-rpc` 能接触视图密钥与花费密钥，请只连接本机或完全信任的节点，
+> 不要把 RPC 端口暴露到公网。
+>
+> 删除 Lycoris 的本机钱包文件不会删除 `--wallet-dir` 里的 Monero 钱包文件；需要彻底
+> 清理时请手动删除该目录。
+
 ## 仓库结构
 
 ```
 crates/core   纯 Rust 核心：派生、地址、vault、网络、交易签名、二维码
+crates/wasm   把核心编译成 WebAssembly 的裸 C ABI 桥（演示模式用）
 crates/cli    命令行入口（占位，尚未实现）
 src-tauri     Tauri 2 桌面外壳：命令、会话状态机、报价与广播、自动锁定
 ui            无打包器的原生 ES 模块前端（withGlobalTauri）
@@ -82,6 +116,18 @@ cargo build --release -p lycoris-wallet
 - 钱包文件默认保存在系统应用数据目录；设置环境变量 `LYCORIS_VAULT_DIR` 可覆盖（测试用）。
 - 演示前端：任意静态服务器指向 `ui/`，打开 `index.html?mock=1`；默认密码提示为 `lycoris-demo`。
 
+演示模式加载 `ui/vendor/lycoris-core.wasm`（已提交，约 1.2 MB）。修改核心后重新生成：
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo build -p lycoris-wasm --target wasm32-unknown-unknown --release
+copy target\wasm32-unknown-unknown\release\lycoris_wasm.wasm ui\vendor\lycoris-core.wasm
+```
+
+`crates/wasm` 使用裸 C ABI（`lycoris_alloc` / `lycoris_call` / `lycoris_result_free`），
+不需要 wasm-bindgen；`vault` 与 `network` 特性在 wasm 构建里关闭。少数由 `rand_core`
+间接引入的 wasm-bindgen 内部符号在 JS 侧用空函数占位，演示代码不会调用它们。
+
 ### 打包
 
 需要 Tauri CLI（仓库里没有预装）：
@@ -98,7 +144,7 @@ macOS 需要 `.icns`，仓库里没有提交，用上面第一条命令从 1024�
 
 仓库带两条 GitHub Actions 流水线：
 
-- **CI**（`.github/workflows/ci.yml`）：推送到 `main` 或提 PR 时跑 `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace` 和前端模块语法检查。
+- **CI**（`.github/workflows/ci.yml`）：推送到 `main` 或提 PR 时跑 `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`、前端模块语法检查，以及演示内核的 wasm 向量校验。
 - **Release**（`.github/workflows/release.yml`）：推 `v*` tag 时，在 Windows x64、macOS x64、macOS arm64、Linux x64 上并行打包，产出的安装包统一重命名成带版本号的文件，然后创建 GitHub Release。
 
 发布步骤：
@@ -137,22 +183,32 @@ cargo tauri ios init && cargo tauri ios build
 ## 验证
 
 ```bash
-cargo test -p lycoris-core            # 派生 / vault / 交易 / QR 共 30 项测试
-cargo test -p lycoris-wallet          # 会话生命周期与冷却
+cargo test -p lycoris-core            # 派生 / vault / 地址 / 交易 / QR / Monero RPC 共 61 项测试
+cargo test -p lycoris-wallet          # 会话生命周期、冷却、重置与 Monero 手续费/钱包命名
 cargo clippy --all-targets
 ```
 
 交易签名字节级对照（需要 Python：`eth-account`、`coincurve`、`solders`）：
 
 ```bash
-cargo run -q -p lycoris-core --example tx_fixtures > out/fixtures.json
-python tools/verify_tx.py out/fixtures.json   # 独立实现逐字节比对，输出 all fixtures match
+cargo run -q -p lycoris-core --example tx_fixtures > out/fixtures.txt
+python tools/verify_tx.py out/fixtures.txt        # EVM / Solana / SegWit 逐字节比对
+python tools/verify_tx_legacy.py out/fixtures.txt # DOGE 传统 sighash / BCH BIP-143 逐字节比对
 ```
 
 二维码矩阵用独立解码器回读（需要 Python：`pillow`、`pyzbar`；另装 `segno` 会追加尺寸对照）：
 
 ```bash
 python tools/verify_qr.py             # 自行调用 qr_fixtures 示例，输出 all QR fixtures decode
+cargo run -q -p lycoris-core --example qr_svg_fixtures > out/qr-svg.txt
+python tools/verify_qr_svg.py out/qr-svg.txt       # 解析实际渲染的 SVG，再用 zbar 回读
+```
+
+演示模式的内核桥接：
+
+```bash
+node tools/verify_core_wasm.mjs       # 固定地址向量 + 地址校验 + 生成二维码
+python tools/verify_qr_svg.py out/mock-qr-fixtures.txt
 ```
 
 > 验证产物（fixtures、解码位图、日志等）统一放在 `out/` 目录，该目录已被 `.gitignore` 排除，不会误提交。
@@ -161,6 +217,7 @@ python tools/verify_qr.py             # 自行调用 qr_fixtures 示例，输出
 
 - 交易记录目前只记录本机发起的转账，不索引收款；余额来自公开节点/接口。
 - 状态不会自动刷新（记录停留在「待确认」），请以区块浏览器为准。
+- Monero 余额与转账依赖本地 `monero-wallet-rpc`；首次扫描需要时间，恢复高度留 0 会从创世块扫起。
 - 尚无硬件钱包、多账户、隔离见证找零以外的 UTXO 管理。
 - 价格来自 CoinGecko 公共接口，可在设置里关闭。
 - `crates/cli` 仍是占位。

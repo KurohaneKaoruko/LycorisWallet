@@ -1,0 +1,6 @@
+{
+  "name": "lycoris-wallet-ui",
+  "private": true,
+  "type": "module",
+  "description": "Static ES-module frontend for Lycoris Wallet (no bundler, no dependencies)"
+}

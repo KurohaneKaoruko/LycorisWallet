@@ -4,6 +4,7 @@
 //! sees addresses, formatted amounts and transaction ids.
 
 use crate::error::{ApiError, ApiResult};
+use crate::monero;
 use crate::state::AppState;
 use lycoris_core::address;
 use lycoris_core::chains::{ChainId, ChainInfo, ChainKind};
@@ -62,7 +63,7 @@ fn level_label(level: &str) -> &'static str {
     }
 }
 
-fn format_amount(value: u128, decimals: u8) -> String {
+pub(crate) fn format_amount(value: u128, decimals: u8) -> String {
     truncate_decimal(&format_units(value, decimals), 8)
 }
 
@@ -152,18 +153,53 @@ async fn fetch_balance(
             .await
             .map(u128::from)
             .map_err(|error| error.to_string()),
-        ChainKind::Cryptonote => Err(
-            "Monero 为隐私链，地址余额需视图密钥扫描本地节点，暂不支持在线查询（地址可正常收款）"
-                .to_string(),
-        ),
+        // Monero balances come from monero-wallet-rpc in `refresh`, which
+        // needs the derived keys; this fan-out is stateless by design.
+        ChainKind::Cryptonote => {
+            Err("Monero 余额由本地 monero-wallet-rpc 提供（设置 → 网络）".to_string())
+        }
+    }
+}
+
+fn asset_from_result(
+    chain: ChainId,
+    address: String,
+    result: Result<u128, String>,
+    table: &HashMap<String, HashMap<String, f64>>,
+) -> (AssetBalance, Option<String>) {
+    let info = chain.info();
+    match result {
+        Ok(amount) => {
+            let mut asset = asset_from(chain, address, Some(amount), None);
+            asset.price_usd = price_of(table, &info, "usd");
+            asset.price_cny = price_of(table, &info, "cny");
+            let human = amount as f64 / 10f64.powi(i32::from(info.decimals));
+            asset.value_usd = asset.price_usd.map(|price| price * human);
+            asset.value_cny = asset.price_cny.map(|price| price * human);
+            (asset, None)
+        }
+        Err(message) => {
+            let warning = format!("{} 余额获取失败：{message}", info.name);
+            (
+                asset_from(chain, address, None, Some(message)),
+                Some(warning),
+            )
+        }
     }
 }
 
 pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
     state.touch();
-    let accounts = state.accounts()?;
+    let mut accounts = state.accounts()?;
     let client = lycoris_core::network::http_client();
     let table = load_prices(&client, None).await;
+
+    // Monero needs the active secret and a wallet RPC, so it cannot join the
+    // stateless balance fan-out below.
+    let monero_account = accounts
+        .iter()
+        .position(|account| account.chain.info().kind == ChainKind::Cryptonote)
+        .map(|index| accounts.remove(index));
 
     let mut tasks = tokio::task::JoinSet::new();
     for account in accounts {
@@ -177,26 +213,18 @@ pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
 
     let mut assets = Vec::new();
     let mut warnings = Vec::new();
+    if let Some(account) = monero_account {
+        let result = monero::balance(state, account.chain, &account.address).await;
+        let (asset, warning) = asset_from_result(account.chain, account.address, result, &table);
+        warnings.extend(warning);
+        assets.push(asset);
+    }
     while let Some(joined) = tasks.join_next().await {
         let Ok((chain, address, result)) = joined else {
             continue;
         };
-        let info = chain.info();
-        let asset = match result {
-            Ok(amount) => {
-                let mut asset = asset_from(chain, address, Some(amount), None);
-                asset.price_usd = price_of(&table, &info, "usd");
-                asset.price_cny = price_of(&table, &info, "cny");
-                let human = amount as f64 / 10f64.powi(i32::from(info.decimals));
-                asset.value_usd = asset.price_usd.map(|price| price * human);
-                asset.value_cny = asset.price_cny.map(|price| price * human);
-                asset
-            }
-            Err(message) => {
-                warnings.push(format!("{} 余额获取失败：{message}", info.name));
-                asset_from(chain, address, None, Some(message))
-            }
-        };
+        let (asset, warning) = asset_from_result(chain, address, result, &table);
+        warnings.extend(warning);
         assets.push(asset);
     }
     assets.sort_by_key(|asset| {
@@ -230,12 +258,12 @@ pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
 
 // -------------------------------------------------------------------- quoting
 
-struct QuoteFees {
-    options: Vec<FeeOption>,
+pub(crate) struct QuoteFees {
+    pub(crate) options: Vec<FeeOption>,
     /// Cost of the default ("normal") level, in the chain's smallest unit.
-    normal_fee: u128,
-    max_amount: Option<u128>,
-    balance: u128,
+    pub(crate) normal_fee: u128,
+    pub(crate) max_amount: Option<u128>,
+    pub(crate) balance: u128,
 }
 
 /// Parse a user-entered amount; `None` means "max".
@@ -568,23 +596,29 @@ async fn solana_quote(
 }
 
 async fn quote_fees(
+    state: &AppState,
     client: &reqwest::Client,
     chain: ChainId,
     address: &str,
     to: &str,
     amount: Option<u128>,
-    blockchair_key: Option<&str>,
 ) -> ApiResult<QuoteFees> {
     match chain.info().kind {
-        ChainKind::Utxo => utxo_quote(client, chain, address, to, amount, blockchair_key).await,
+        ChainKind::Utxo => {
+            let settings = state.settings()?;
+            utxo_quote(
+                client,
+                chain,
+                address,
+                to,
+                amount,
+                Some(settings.blockchair_api_key.as_str()),
+            )
+            .await
+        }
         ChainKind::Evm => evm_quote(client, chain, address, to, amount).await,
         ChainKind::Ed25519 => solana_quote(client, chain, address, to, amount).await,
-        // Monero send is guarded by send_supported(); reaching this arm
-        // means a stale frontend, so surface a clear error.
-        ChainKind::Cryptonote => Err(ApiError::new(
-            "UNSUPPORTED",
-            "Monero 转账需要环签名，当前版本暂不支持",
-        )),
+        ChainKind::Cryptonote => monero::quote(state, chain, to, amount).await,
     }
 }
 
@@ -599,7 +633,9 @@ fn chain_note(chain: ChainId) -> String {
             }
         }
         ChainKind::Ed25519 => "Ed25519 系统转账".to_string(),
-        ChainKind::Cryptonote => "CryptoNote · RingCT（即将支持）".to_string(),
+        ChainKind::Cryptonote => {
+            "CryptoNote · RingCT（CLSAG + Bulletproofs+，本地 monero-wallet-rpc 签名）".to_string()
+        }
     }
 }
 
@@ -619,12 +655,12 @@ pub async fn quote(state: &AppState, request: &QuoteRequest) -> ApiResult<SendQu
     let amount = parse_amount(&request.amount, info.decimals)?;
 
     let quote = quote_fees(
+        state,
         &client,
         request.chain,
         &account.address,
         &request.to,
         amount,
-        Some(state.settings()?.blockchair_api_key.as_str()),
     )
     .await?;
 
@@ -990,10 +1026,7 @@ pub async fn send(state: &AppState, request: &SendRequest) -> ApiResult<SendResu
             .await?
         }
         ChainKind::Cryptonote => {
-            return Err(ApiError::new(
-                "UNSUPPORTED",
-                "Monero 转账需要环签名，当前版本暂不支持",
-            ))
+            monero::send(state, request.chain, &request.to, amount, &level).await?
         }
     };
 

@@ -20,6 +20,10 @@ use curve25519_dalek::scalar::Scalar;
 
 /// Monero mainnet network prefix for a primary address.
 pub const MAINNET_ADDRESS_PREFIX: u8 = 0x12;
+/// Integrated address (`0x13`): primary keys plus an 8-byte payment id.
+pub const MAINNET_INTEGRATED_PREFIX: u8 = 0x13;
+/// Subaddress (`0x2a`): what exchanges hand out for deposits.
+pub const MAINNET_SUBADDRESS_PREFIX: u8 = 0x2a;
 
 const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
@@ -140,25 +144,35 @@ pub fn monero_base58_encode(data: &[u8]) -> String {
     out
 }
 
-/// Validate and decode a Monero primary address (mainnet, 0x12 prefix).
+/// Validate a mainnet Monero address: primary (95 chars), integrated
+/// (106 chars) or subaddress (95 chars), including the Keccak-4 checksum.
+///
+/// All three are valid recipients; subaddresses are what most exchanges hand
+/// out for deposits, so accepting only primary addresses would reject a large
+/// share of real destinations.
 pub fn monero_address_validate(address: &str) -> bool {
-    let decoded = match monero_base58_decode(address) {
+    let decoded = match monero_base58_decode(address.trim()) {
         Some(bytes) => bytes,
         None => return false,
     };
-    if decoded.len() != 69 || decoded[0] != MAINNET_ADDRESS_PREFIX {
-        return false;
-    }
-    // checksum: Keccak-4 over prefix + spend + view
-    let checksum = keccak256(&decoded[..65]);
-    decoded[65..] == checksum[..4]
+    let length = match decoded.first() {
+        Some(&MAINNET_ADDRESS_PREFIX) | Some(&MAINNET_SUBADDRESS_PREFIX) if decoded.len() == 69 => {
+            69
+        }
+        Some(&MAINNET_INTEGRATED_PREFIX) if decoded.len() == 77 => 77,
+        _ => return false,
+    };
+    // checksum: Keccak-4 over every byte before it
+    let checksum = keccak256(&decoded[..length - 4]);
+    decoded[length - 4..] == checksum[..4]
 }
 
 /// Decode Monero base58 back into raw bytes (checksum not verified here).
 /// Encoding size table: 8-byte blocks → 11 chars, and the trailing partial
 /// block maps 1→2, 2→3, 3→5, 4→6, 5→7, 6→9, 7→10 chars.
 fn monero_base58_decode(text: &str) -> Option<Vec<u8>> {
-    if text.is_empty() || text.len() > 96 {
+    // 106 characters is the longest mainnet form (integrated address).
+    if text.is_empty() || text.len() > 106 {
         return None;
     }
     const FULL_BLOCK_CHARS: usize = 11;
@@ -308,6 +322,40 @@ mod tests {
         let last = broken.pop().unwrap();
         broken.push(if last == 'A' { 'B' } else { 'A' });
         assert!(!monero_address_validate(&broken));
+    }
+
+    #[test]
+    fn integrated_and_subaddresses_validate() {
+        let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        let keys = MoneroKeys::from_spend_seed(&seed);
+
+        // Integrated address: prefix ‖ spend ‖ view ‖ payment id ‖ checksum.
+        let mut integrated = Vec::with_capacity(77);
+        integrated.push(MAINNET_INTEGRATED_PREFIX);
+        integrated.extend_from_slice(&keys.public_spend);
+        integrated.extend_from_slice(&keys.public_view);
+        integrated.extend_from_slice(&[0x42; 8]);
+        let checksum = keccak256(&integrated);
+        integrated.extend_from_slice(&checksum[..4]);
+        let integrated = monero_base58_encode(&integrated);
+        assert_eq!(integrated.len(), 106);
+        assert!(monero_address_validate(&integrated));
+
+        // Subaddress: same shape as a primary address, different prefix.
+        let mut subaddress = Vec::with_capacity(69);
+        subaddress.push(MAINNET_SUBADDRESS_PREFIX);
+        subaddress.extend_from_slice(&keys.public_spend);
+        subaddress.extend_from_slice(&keys.public_view);
+        let checksum = keccak256(&subaddress);
+        subaddress.extend_from_slice(&checksum[..4]);
+        let subaddress = monero_base58_encode(&subaddress);
+        assert_eq!(subaddress.len(), 95);
+        assert!(monero_address_validate(&subaddress));
+
+        // A testnet prefix must not pass as mainnet.
+        let mut testnet = subaddress.clone();
+        testnet.replace_range(..1, "9");
+        assert!(!monero_address_validate(&testnet));
     }
 }
 

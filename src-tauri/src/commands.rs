@@ -320,6 +320,13 @@ pub fn save_settings(
 }
 
 #[tauri::command]
+pub async fn monero_status(
+    state: State<'_, crate::state::AppState>,
+) -> ApiResult<crate::monero::MoneroStatus> {
+    crate::monero::status(&state).await
+}
+
+#[tauri::command]
 pub fn qr_svg(text: String, dark: Option<String>, light: Option<String>) -> ApiResult<String> {
     Ok(qr::svg(
         &text,

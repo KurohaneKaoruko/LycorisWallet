@@ -5,6 +5,15 @@ edition.workspace = true
 license.workspace = true
 description = "Core cryptography, wallet derivation, vault and chain adapters for Lycoris Wallet"
 
+[features]
+default = ["network", "vault"]
+# HTTP adapters. Disabled for the WebAssembly build the demo mode uses, which
+# only needs derivation, address validation and the QR renderer.
+network = ["dep:reqwest", "dep:tokio"]
+# Encrypted vault + entropy (rand/chrono). The WebAssembly demo never opens a
+# vault, and keeping these out means the module has zero host imports.
+vault = ["dep:rand", "dep:chrono", "bip39/rand"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
@@ -18,7 +27,7 @@ scrypt.workspace = true
 k256.workspace = true
 ed25519-dalek.workspace = true
 curve25519-dalek.workspace = true
-rand.workspace = true
+rand = { workspace = true, optional = true }
 bip39.workspace = true
 bech32.workspace = true
 bs58.workspace = true
@@ -27,12 +36,11 @@ argon2.workspace = true
 chacha20poly1305.workspace = true
 unicode-normalization.workspace = true
 qrcode.workspace = true
-reqwest.workspace = true
-tokio.workspace = true
+reqwest = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 hex.workspace = true
-chrono.workspace = true
-uuid.workspace = true
+chrono = { workspace = true, optional = true }
 subtle.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }

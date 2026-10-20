@@ -91,6 +91,9 @@ jobs:
           workspaces: . -> target
 
       - name: 安装 Tauri CLI
+        # Windows 默认 PowerShell 不会展开 $TAURI_CLI_VERSION（环境变量要用
+        # $env:…），统一用 bash 执行，三个平台行为一致。
+        shell: bash
         run: cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
 
       - name: 安装 Linux 打包依赖
@@ -115,7 +118,8 @@ jobs:
 
       - name: 收集并重命名发行文件
         shell: bash
-        run: .github/scripts/stage-assets.sh "${{ needs.version.outputs.version }}" "${{ matrix.target }}"
+        # 显式用 bash 调用，脚本的执行位在 Windows 上提交时可能丢失
+        run: bash .github/scripts/stage-assets.sh "${{ needs.version.outputs.version }}" "${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
         with:

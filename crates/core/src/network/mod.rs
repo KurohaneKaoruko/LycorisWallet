@@ -5,6 +5,7 @@
 
 pub mod blockchair;
 pub mod evm;
+pub mod monero;
 pub mod prices;
 pub mod solana;
 pub mod utxo;

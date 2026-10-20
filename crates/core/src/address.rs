@@ -177,6 +177,23 @@ pub fn validate_utxo_address(chain: ChainId, address: &str) -> Result<()> {
         .utxo_params()
         .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
     let address = address.trim();
+    // Bitcoin Cash also uses cashaddr (`bitcoincash:q…`), which is neither
+    // bech32 nor base58. Accept it when the prefix matches this chain.
+    if let Some((prefix, _)) = address.split_once(':') {
+        if prefix.eq_ignore_ascii_case(params.hrp) {
+            let (version, hash) = cashaddr_decode(address)?;
+            if version != 0 {
+                return Err(Error::InvalidAddress(
+                    "only P2PKH cashaddr is supported".into(),
+                ));
+            }
+            if hash.len() != 20 {
+                return Err(Error::InvalidAddress("invalid cashaddr hash".into()));
+            }
+            return Ok(());
+        }
+        return Err(Error::InvalidAddress("wrong network".into()));
+    }
     if let Ok((hrp, version, program)) = segwit::decode(address) {
         if hrp.as_str() != params.hrp {
             return Err(Error::InvalidAddress(format!(
@@ -491,5 +508,18 @@ mod tests {
             "qpdtccrxx78kcuc65mceurfwg60gmmqu9cwpjdt25n"
         )
         .is_err());
+    }
+
+    #[test]
+    fn cashaddr_addresses_validate() {
+        let address = "bitcoincash:qpdtccrxx78kcuc65mceurfwg60gmmqu9cwpjdt25n";
+        assert!(validate_address(ChainId::BitcoinCash, address).is_ok());
+        // The same payload on another chain's prefix must be rejected.
+        assert!(validate_address(ChainId::Bitcoin, address).is_err());
+        // Checksum errors must not slip through.
+        let mut broken = address.to_string();
+        let last = broken.pop().unwrap();
+        broken.push(if last == 'q' { 'p' } else { 'q' });
+        assert!(validate_address(ChainId::BitcoinCash, &broken).is_err());
     }
 }

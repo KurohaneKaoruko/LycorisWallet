@@ -12,11 +12,13 @@ pub mod derive;
 pub mod error;
 pub mod hash;
 pub mod models;
+#[cfg(feature = "network")]
 pub mod network;
 pub mod qr;
 pub mod slip10;
 pub mod tx;
 pub mod units;
+#[cfg(feature = "vault")]
 pub mod vault;
 
 pub use chains::{ChainId, ChainInfo, ChainKind, HashAlgorithm};
@@ -26,4 +28,5 @@ pub use derive::{
 };
 pub use error::{Error, Result};
 pub use models::*;
+#[cfg(feature = "vault")]
 pub use vault::{VaultData, VaultFile, WalletEntry};

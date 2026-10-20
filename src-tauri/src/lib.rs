@@ -5,6 +5,7 @@
 
 mod commands;
 mod error;
+mod monero;
 mod portfolio;
 mod state;
 mod window;
@@ -75,6 +76,7 @@ pub fn run() {
             commands::save_contact,
             commands::delete_contact,
             commands::save_settings,
+            commands::monero_status,
             commands::qr_svg,
             commands::open_external,
             commands::delete_vault,

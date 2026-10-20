@@ -15,14 +15,7 @@ pub struct Utxo {
     pub confirmed: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct RecommendedFees {
-    pub fastest: u64,
-    pub half_hour: u64,
-    pub hour: u64,
-    pub economy: u64,
-    pub minimum: u64,
-}
+pub use crate::tx::utxo::RecommendedFees;
 
 #[derive(Deserialize)]
 struct AddressResponse {

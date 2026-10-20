@@ -1,8 +1,8 @@
 /** Settings: wallet identity, backups, appearance, security, danger zone. */
 
-import { api, walletFull } from "../api.js?v=22";
-import { copyText, escapeHtml, formatDateTime } from "../format.js?v=22";
-import { askPassword, bindCopy, confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=22";
+import { api, walletFull } from "../api.js?v=23";
+import { copyText, escapeHtml, formatDateTime } from "../format.js?v=23";
+import { askPassword, bindCopy, confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=23";
 
 const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 60];
 
@@ -69,7 +69,49 @@ function networkCard(settings) {
           : ""
       }
     </div>
+    ${moneroSection(settings)}
   </div>`;
+}
+
+/** Monero cannot be signed by a generic ed25519 library: every spend needs a
+ *  CLSAG ring signature and a Bulletproofs+ range proof. The official
+ *  `monero-wallet-rpc` does that work; these fields point at it. The wallet
+ *  file lives in its `--wallet-dir` and is created from keys this app derives. */
+function moneroSection(settings) {
+  const url = settings.moneroRpcUrl ?? "http://127.0.0.1:18083/json_rpc";
+  const user = settings.moneroRpcUser ?? "";
+  const password = settings.moneroRpcPassword ?? "";
+  const height = settings.moneroRestoreHeight ?? 0;
+  return `<div class="setting-row" style="margin-top:20px">
+      <div class="text">
+        <div class="name">Monero 钱包 RPC</div>
+        <div class="desc">XMR 转账由本地 monero-wallet-rpc 完成 RingCT 签名。钱包文件保存在它自己的 --wallet-dir 里，花费密钥仍由本应用从当前口令派生。首次查询会按「恢复高度」扫描链上输出，0 表示从创世块开始（很慢）。</div>
+      </div>
+      <span class="chip" id="monero-chip">未检测</span>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="input" id="monero-rpc-url" placeholder="http://127.0.0.1:18083/json_rpc" value="${escapeHtml(
+        url,
+      )}" autocomplete="off" style="flex:2;min-width:240px" />
+      <input class="input" id="monero-rpc-user" placeholder="RPC 用户名（可选）" value="${escapeHtml(
+        user,
+      )}" autocomplete="off" style="flex:1;min-width:140px" />
+      <input class="input" id="monero-rpc-password" type="password" placeholder="RPC 密码（可选）" value="${escapeHtml(
+        password,
+      )}" autocomplete="new-password" style="flex:1;min-width:140px" />
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="input" id="monero-restore-height" type="number" min="0" step="1" placeholder="恢复高度（0 = 从创世扫描）" value="${escapeHtml(
+        String(height),
+      )}" style="flex:1;min-width:220px" />
+      <button class="btn btn-ghost btn-sm" type="button" data-action="save-monero">${icon(
+        "check",
+      )}保存</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-action="test-monero">${icon(
+        "activity",
+      )}测试连接</button>
+    </div>
+    <div class="desc" id="monero-status" style="margin-top:8px"></div>`;
 }
 
 function walletCard(wallet) {
@@ -267,6 +309,51 @@ function bind(ctx, container, paint) {
   container.querySelector('[data-action="clear-blockchair"]')?.addEventListener("click", () => {
     void patch({ blockchairApiKey: "" });
   });
+
+  // Monero wallet RPC: URL, optional HTTP auth and the restore height.
+  const moneroFields = () => ({
+    moneroRpcUrl:
+      (container.querySelector("#monero-rpc-url")?.value ?? "").trim() ||
+      "http://127.0.0.1:18083/json_rpc",
+    moneroRpcUser: (container.querySelector("#monero-rpc-user")?.value ?? "").trim(),
+    moneroRpcPassword: container.querySelector("#monero-rpc-password")?.value ?? "",
+    moneroRestoreHeight: Math.max(
+      0,
+      Math.floor(Number(container.querySelector("#monero-restore-height")?.value ?? 0) || 0),
+    ),
+  });
+  container.querySelector('[data-action="save-monero"]')?.addEventListener("click", () => {
+    void patch(moneroFields());
+  });
+  container
+    .querySelector('[data-action="test-monero"]')
+    ?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      const status = container.querySelector("#monero-status");
+      const chip = container.querySelector("#monero-chip");
+      button.disabled = true;
+      if (status) status.textContent = "正在连接 monero-wallet-rpc…";
+      try {
+        // Save first so the test uses exactly what the inputs show.
+        const next = await api.saveSettings({
+          ...ctx.state.wallet.settings,
+          ...moneroFields(),
+        });
+        ctx.state.wallet = { ...ctx.state.wallet, settings: next };
+        const result = await api.moneroStatus();
+        if (chip) chip.textContent = result.connected ? "已连接" : "未连接";
+        if (status) {
+          status.textContent = result.connected
+            ? `${result.message}${result.height ? ` · 区块高度 ${result.height}` : ""}`
+            : result.message;
+        }
+      } catch (error) {
+        if (chip) chip.textContent = "未连接";
+        if (status) status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
 
   // 链开关：切换单链显示 / 一键全开。
   // 不整页重绘（连续快速点击会互相覆盖），只翻转开关本体；保存串行排队，

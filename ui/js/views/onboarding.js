@@ -1,9 +1,9 @@
 /** Onboarding: choose a wallet mode, then either a BIP-39 mnemonic or a
  *  hashed passphrase, and finally encrypt everything behind a local password. */
 
-import { api } from "../api.js?v=22";
-import { escapeHtml, shortAddress, copyText } from "../format.js?v=22";
-import { bindCopy, debounce, icon, setBusy, toast } from "../ui.js?v=22";
+import { api } from "../api.js?v=23";
+import { escapeHtml, shortAddress, copyText } from "../format.js?v=23";
+import { bindCopy, debounce, icon, setBusy, toast } from "../ui.js?v=23";
 
 const STEPS = ["选择模式", "生成密钥", "设置密码"];
 

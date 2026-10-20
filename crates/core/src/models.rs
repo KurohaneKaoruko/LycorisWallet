@@ -42,6 +42,24 @@ pub struct Settings {
     /// it the Dogecoin and Bitcoin Cash endpoints refuse to answer.
     #[serde(default)]
     pub blockchair_api_key: String,
+    /// Local `monero-wallet-rpc` endpoint. Monero spends need CLSAG ring
+    /// signatures and Bulletproofs+ range proofs, so the app delegates signing
+    /// to the official Monero tool and only keeps the keys here.
+    #[serde(default = "default_monero_rpc_url")]
+    pub monero_rpc_url: String,
+    #[serde(default)]
+    pub monero_rpc_user: String,
+    #[serde(default)]
+    pub monero_rpc_password: String,
+    /// Block height the wallet scans from when `monero-wallet-rpc` creates the
+    /// wallet file. 0 scans the whole chain (slow); the height at which the
+    /// wallet was created is the useful value.
+    #[serde(default)]
+    pub monero_restore_height: u64,
+}
+
+pub fn default_monero_rpc_url() -> String {
+    "http://127.0.0.1:18083/json_rpc".to_string()
 }
 
 impl Default for Settings {
@@ -54,6 +72,10 @@ impl Default for Settings {
             price_service: true,
             visible_chains: Vec::new(),
             blockchair_api_key: String::new(),
+            monero_rpc_url: default_monero_rpc_url(),
+            monero_rpc_user: String::new(),
+            monero_rpc_password: String::new(),
+            monero_restore_height: 0,
         }
     }
 }

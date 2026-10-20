@@ -472,6 +472,11 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
         }
         WalletSecret::Passphrase { phrase, derivation } => {
             let isolated = *derivation == DerivationMode::Isolated;
+            let derivation_label = if isolated {
+                "H_chain(phrase)"
+            } else {
+                "H(phrase)"
+            };
             let mut accounts = Vec::with_capacity(ChainId::ALL.len());
             for chain in ChainId::ALL {
                 let info = chain.info();
@@ -488,9 +493,9 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                             chain,
                             &key,
                             path,
+                            derivation_label,
                             info.hash.label(),
                             info.hash.detail(),
-                            info.hash.label(),
                         )?);
                     }
                     ChainKind::Ed25519 => {
@@ -498,9 +503,9 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                             chain,
                             &digest,
                             path,
+                            derivation_label,
                             info.hash.label(),
                             info.hash.detail(),
-                            info.hash.label(),
                         )?);
                     }
                     ChainKind::Cryptonote => {
@@ -509,11 +514,11 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                             chain,
                             &keys,
                             path,
+                            derivation_label,
                             info.hash.label(),
                             // Monero shares Keccak-256 with the EVM chains, but
                             // not their description.
                             "CryptoNote Keccak-256 · 32 byte digest",
-                            "spend = reduce(H(phrase)) · view = reduce(Keccak(spend))",
                         )?);
                     }
                 }
@@ -657,6 +662,30 @@ mod tests {
             .unwrap()
             .address;
         assert_ne!(btc, ltc);
+    }
+
+    #[test]
+    fn passphrase_accounts_expose_the_chain_hash_not_the_derivation_detail() {
+        let secret =
+            WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated)
+                .unwrap();
+        let accounts = derive_accounts(&secret).unwrap();
+
+        let ltc = accounts
+            .iter()
+            .find(|x| x.chain == ChainId::Litecoin)
+            .unwrap();
+        assert_eq!(ltc.derivation, "H_chain(phrase)");
+        assert_eq!(ltc.hash_algorithm, "scrypt");
+        assert_eq!(ltc.hash_detail, "N=16384, r=8, p=1 · 32 byte digest");
+
+        let xmr = accounts
+            .iter()
+            .find(|x| x.chain == ChainId::Monero)
+            .unwrap();
+        assert_eq!(xmr.derivation, "H_chain(phrase)");
+        assert_eq!(xmr.hash_algorithm, "Keccak-256");
+        assert_eq!(xmr.hash_detail, "CryptoNote Keccak-256 · 32 byte digest");
     }
 
     #[test]

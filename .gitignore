@@ -12,6 +12,8 @@ node_modules
 dist
 .DS_Store
 Thumbs.db
+__pycache__/
+*.pyc
 
 # Hidden directories (editor/tool caches, etc.) — never commit dot-dirs
 .*/

@@ -10,9 +10,11 @@ fn encode(text: &str) -> Result<QrCode> {
 }
 
 /// Geometry of the rendered symbol, in SVG user units.
-/// Four modules of quiet zone, as the QR specification asks for — scanners
-/// need that margin to find the symbol on a screen.
-const QUIET: usize = 4;
+/// Two modules of quiet zone: the spec suggests four, but the screen scanner
+/// tests (`tools/verify_qr_svg.py`) pass with two, and the extra space is
+/// better spent on larger modules. The light paper around the symbol still
+/// provides the contrast scanners need.
+const QUIET: usize = 2;
 const SCALE: usize = 8;
 /// Data modules are drawn slightly smaller than their cell so they read as
 /// separate tiles instead of a solid block — that is also what gives the

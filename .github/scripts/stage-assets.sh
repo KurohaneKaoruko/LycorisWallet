@@ -10,8 +10,23 @@ set -euo pipefail
 
 VERSION="${1:?需要版本号}"
 TARGET="${2:?需要 target 三元组}"
-BUNDLE="src-tauri/target/${TARGET}/release/bundle"
-BIN_DIR="src-tauri/target/${TARGET}/release"
+
+# 本仓库是 Cargo workspace，cargo 的 target 目录在仓库根目录；
+# 如果以后拆成独立 Tauri 工程，产物则落在 src-tauri/target。两种都兼容。
+cd "$(dirname "$0")/../.."
+OUT_DIR=""
+for candidate in "target/${TARGET}/release" "src-tauri/target/${TARGET}/release"; do
+  if [ -d "$candidate/bundle" ]; then
+    OUT_DIR="$candidate"
+    break
+  fi
+done
+if [ -z "$OUT_DIR" ]; then
+  echo "找不到打包目录: 已尝试 target/${TARGET}/release/bundle 与 src-tauri/target/${TARGET}/release/bundle" >&2
+  exit 1
+fi
+BUNDLE="$OUT_DIR/bundle"
+BIN_DIR="$OUT_DIR"
 DIST="dist"
 
 case "$TARGET" in

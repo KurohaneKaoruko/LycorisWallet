@@ -2,10 +2,6 @@
 # 把 Tauri 打出来的安装包重命名为带版本号的发行文件名，并收集到 dist/。
 #
 # 用法: stage-assets.sh <version> <target-triple>
-# 产物示例:
-#   LycorisWallet_0.1.1_x64-setup.exe
-#   LycorisWallet_0.1.1_amd64.AppImage
-#   LycorisWallet_0.1.1_arm64.dmg
 set -euo pipefail
 
 VERSION="${1:?需要版本号}"

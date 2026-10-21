@@ -153,18 +153,18 @@ macOS 需要 `.icns`，仓库里没有提交，用上面第一条命令从 1024�
 2. 打 tag 并推送：
 
 ```bash
-git tag -a v0.1.1 -m "v0.1.1"
-git push origin v0.1.1
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
 ```
 
 3. 等待流水线跑完，Release 页面会拿到这些文件：
 
 | 平台 | 文件名 |
 | --- | --- |
-| Windows x64 | `LycorisWallet_0.1.1_x64-setup.exe` / `LycorisWallet_0.1.1_x64.msi` |
-| macOS Apple Silicon | `LycorisWallet_0.1.1_arm64.dmg` |
-| macOS Intel | `LycorisWallet_0.1.1_x64.dmg` |
-| Linux x64 | `LycorisWallet_0.1.1_amd64.AppImage` / `.deb` / `.rpm` |
+| Windows x64 | `LycorisWallet_0.2.0_x64-setup.exe` / `LycorisWallet_0.2.0_x64.msi` |
+| macOS Apple Silicon | `LycorisWallet_0.2.0_arm64.dmg` |
+| macOS Intel | `LycorisWallet_0.2.0_x64.dmg` |
+| Linux x64 | `LycorisWallet_0.2.0_amd64.AppImage` / `.deb` / `.rpm` |
 
 也可以在 Actions 页面手动触发 Release 流水线并填写版本号（此时会自行补打 tag）。
 未做代码签名的 macOS 包首次打开需要在「系统设置 → 隐私与安全性」里放行。

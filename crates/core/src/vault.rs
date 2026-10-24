@@ -1,7 +1,8 @@
-use crate::derive::WalletSecret;
+use crate::derive::{BatchAccountSpec, WalletSecret};
 use crate::error::{Error, Result};
 use crate::models::{ActivityItem, Contact, Settings};
-use argon2::{Algorithm, Argon2, Params, Version};
+
+type CoreResult<T> = Result<T>;use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use rand::rngs::OsRng;
@@ -77,6 +78,13 @@ pub struct WalletEntry {
     pub secret: WalletSecret,
     #[serde(default)]
     pub activity: Vec<ActivityItem>,
+    /// Derived accounts pinned to this wallet (recipe only, no key material).
+    /// Empty list = the wallet uses only its base derivation.
+    #[serde(default)]
+    pub batch_accounts: Vec<BatchAccountSpec>,
+    /// Currently selected derived account; `None` = the base account.
+    #[serde(default)]
+    pub active_batch: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -142,6 +150,8 @@ impl<'de> Deserialize<'de> for VaultData {
                 created_at,
                 secret,
                 activity: wire.activity,
+                batch_accounts: Vec::new(),
+                active_batch: None,
             });
         }
         let active_wallet = if wallets.iter().any(|wallet| wallet.id == wire.active_wallet) {
@@ -170,6 +180,8 @@ impl VaultData {
             created_at,
             secret,
             activity: Vec::new(),
+            batch_accounts: Vec::new(),
+            active_batch: None,
         };
         Self {
             version: VAULT_VERSION,
@@ -191,9 +203,79 @@ impl VaultData {
             created_at: now(),
             secret,
             activity: Vec::new(),
+            batch_accounts: Vec::new(),
+            active_batch: None,
         });
         self.active_wallet = id.clone();
         id
+    }
+
+    /// Attach derived accounts to the active wallet and select the first new
+    /// one. Existing accounts with the same id are kept (idempotent), so
+    /// calling this twice with overlapping ranges does not duplicate.
+    pub fn add_batch_accounts(
+        &mut self,
+        specs: Vec<BatchAccountSpec>,
+    ) -> CoreResult<Vec<BatchAccountSpec>> {
+        let wallet = self.active_mut()?;
+        for spec in specs {
+            if !wallet.batch_accounts.iter().any(|s| s.id == spec.id) {
+                wallet.batch_accounts.push(spec);
+            }
+        }
+        // Newest addition becomes the selected derived account.
+        if let Some(last) = wallet.batch_accounts.last() {
+            wallet.active_batch = Some(last.id.clone());
+        }
+        Ok(wallet.batch_accounts.clone())
+    }
+
+    /// Select a derived account of the active wallet by id.
+    pub fn select_batch_account(&mut self, id: &str) -> CoreResult<BatchAccountSpec> {
+        let wallet = self.active_mut()?;
+        let spec = wallet
+            .batch_accounts
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+            .ok_or(Error::BatchAccountNotFound)?;
+        wallet.active_batch = Some(id.to_string());
+        Ok(spec)
+    }
+
+    /// Rename a derived account of the active wallet.
+    pub fn rename_batch_account(
+        &mut self,
+        id: &str,
+        label: &str,
+    ) -> CoreResult<BatchAccountSpec> {
+        let trimmed = label.trim();
+        if trimmed.is_empty() {
+            return Err(Error::Message("账户名称不能为空".into()));
+        }
+        let wallet = self.active_mut()?;
+        let spec = wallet
+            .batch_accounts
+            .iter_mut()
+            .find(|s| s.id == id)
+            .ok_or(Error::BatchAccountNotFound)?;
+        spec.label = Some(trimmed.to_string());
+        Ok(spec.clone())
+    }
+
+    /// Remove a derived account from the active wallet. Selecting the removed
+    /// account falls back to the base account (index-0 plain derivation).
+    pub fn remove_batch_account(&mut self, id: &str) -> CoreResult<()> {
+        let wallet = self.active_mut()?;
+        let before = wallet.batch_accounts.len();
+        wallet.batch_accounts.retain(|s| s.id != id);
+        if wallet.batch_accounts.len() == before {
+            return Err(Error::BatchAccountNotFound);
+        }
+        if wallet.active_batch.as_deref() == Some(id) {
+            wallet.active_batch = wallet.batch_accounts.first().map(|s| s.id.clone());
+        }
+        Ok(())
     }
 
     /// Remove a wallet. The vault always keeps at least one.

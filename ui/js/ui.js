@@ -23,6 +23,7 @@ const ICONS = {
   trash:
     '<path d="M4.8 7.4h14.4"/><path d="M9.4 7.4V5.8c0-.8.6-1.4 1.4-1.4h2.4c.8 0 1.4.6 1.4 1.4v1.6"/><path d="M6.6 7.4 7.4 19c0 .8.7 1.4 1.5 1.4h6.2c.8 0 1.5-.6 1.5-1.4l.8-11.6"/>',
   edit: '<path d="M4.5 19.5h4l9.4-9.4-4-4-9.4 9.4v4Z"/><path d="m14.6 5.4 4 4"/>',
+  more: '<circle cx="5.5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18.5" cy="12" r="1.4"/>',
   lock:
     '<path d="M7.4 10.6V8.8a4.6 4.6 0 1 1 9.2 0v1.8"/><rect x="5.2" y="10.6" width="13.6" height="9.4" rx="2.4"/>',
   key: '<circle cx="8" cy="15.4" r="3.4"/><path d="m10.6 13 8-8"/><path d="m16 7.6 2 2"/><path d="m14 9.6 2 2"/>',
@@ -35,6 +36,9 @@ const ICONS = {
   wallet:
     '<rect x="3.4" y="6.4" width="17.2" height="12.6" rx="2.6"/><path d="M3.4 10.4h17.2"/><path d="M16.4 14.6h1.6"/>',
   arrowUpRight: '<path d="M7 17 17 7"/><path d="M9.4 7H17v7.6"/>',
+  arrowLeft: '<path d="M19 12H5"/><path d="m11 6-6 6 6 6"/>',
+  coins:
+    '<ellipse cx="12" cy="6.6" rx="7.2" ry="3.1"/><path d="M4.8 6.6v5c0 1.7 3.2 3.1 7.2 3.1s7.2-1.4 7.2-3.1v-5"/><path d="M4.8 11.6v5c0 1.7 3.2 3.1 7.2 3.1s7.2-1.4 7.2-3.1v-5"/>',
   shield:
     '<path d="M12 3.6 5.4 6v5.6c0 4 2.8 7.4 6.6 8.8 3.8-1.4 6.6-4.8 6.6-8.8V6L12 3.6Z"/><path d="m9.2 12 2 2 3.6-3.8"/>',
   plus: '<path d="M12 5.4v13.2M5.4 12h13.2"/>',
@@ -45,6 +49,8 @@ const ICONS = {
   clock: '<circle cx="12" cy="12" r="8.4"/><path d="M12 7.8V12l3 1.8"/>',
   sparkle:
     '<path d="M12 4.4l1.7 4.6 4.6 1.7-4.6 1.7L12 17l-1.7-4.6L5.7 10.7l4.6-1.7L12 4.4Z"/><path d="M18.6 16.4l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z"/>',
+  layers:
+    '<path d="m12 4 8.4 4.4L12 12.8 3.6 8.4 12 4Z"/><path d="m4.4 12.6 7.6 4 7.6-4"/><path d="m4.4 16.6 7.6 4 7.6-4"/>',
 };
 
 export function icon(name, className = "") {
@@ -98,8 +104,9 @@ export function openModal(html, { onMount, dismissable = true } = {}) {
       if (event.target === backdrop) close(null);
     });
   }
-  backdrop.querySelectorAll("[data-close]").forEach((button) => {
-    button.addEventListener("click", () => close(null));
+  // Delegated: buttons rendered later (repainted modal bodies) still close.
+  backdrop.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close]")) close(null);
   });
   onMount?.(backdrop.querySelector(".modal"), close);
   const firstInput = backdrop.querySelector("input, textarea, button.btn-primary");

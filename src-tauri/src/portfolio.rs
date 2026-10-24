@@ -190,40 +190,91 @@ fn asset_from_result(
 
 pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
     state.touch();
-    let mut accounts = state.accounts()?;
+    // 聚合钱包的全部派生账户：总览显示所有已添加地址的资产总和。
+    let all_accounts = state.all_accounts()?;
+    let current = state.accounts()?;
     let client = lycoris_core::network::http_client();
     let table = load_prices(&client, None).await;
 
     // Monero needs the active secret and a wallet RPC, so it cannot join the
     // stateless balance fan-out below.
-    let monero_account = accounts
-        .iter()
-        .position(|account| account.chain.info().kind == ChainKind::Cryptonote)
-        .map(|index| accounts.remove(index));
+    let (monero_entries, rest): (Vec<_>, Vec<_>) = all_accounts
+        .into_iter()
+        .partition(|(_, account)| account.chain.info().kind == ChainKind::Cryptonote);
 
     let mut tasks = tokio::task::JoinSet::new();
-    for account in accounts {
+    for (id, account) in rest {
         let client = client.clone();
         let chain = account.chain;
         tasks.spawn(async move {
             let result = fetch_balance(&client, chain, &account.address).await;
-            (chain, account.address, result)
+            (id, chain, account.address, result)
         });
     }
 
-    let mut assets = Vec::new();
+    // (chain -> amount, error, address of the currently selected account)
+    let mut amounts: HashMap<ChainId, (u128, Option<String>)> = HashMap::new();
+    let mut addresses: HashMap<ChainId, String> = current
+        .iter()
+        .map(|account| (account.chain, account.address.clone()))
+        .collect();
     let mut warnings = Vec::new();
-    if let Some(account) = monero_account {
+
+    // Monero 没有多派生账户约定(一个 spend/view 对就是一个钱包),只有
+    // 当前选中账户参与统计,余额来自本地 monero-wallet-rpc。
+    if let Some((_, account)) = monero_entries.first() {
         let result = monero::balance(state, account.chain, &account.address).await;
-        let (asset, warning) = asset_from_result(account.chain, account.address, result, &table);
-        warnings.extend(warning);
-        assets.push(asset);
+        match result {
+            Ok(amount) => {
+                amounts.insert(account.chain, (amount, None));
+            }
+            Err(message) => {
+                warnings.push(format!("{} 余额获取失败：{message}", account.chain.info().name));
+                amounts.insert(account.chain, (0, Some(message)));
+            }
+        }
     }
+
     while let Some(joined) = tasks.join_next().await {
-        let Ok((chain, address, result)) = joined else {
+        let Ok((id, chain, address, result)) = joined else {
             continue;
         };
-        let (asset, warning) = asset_from_result(chain, address, result, &table);
+        let _ = id;
+        match result {
+            Ok(amount) => {
+                let entry = amounts.entry(chain).or_insert((0, None));
+                entry.0 = entry.0.saturating_add(amount);
+            }
+            Err(message) => {
+                let entry = amounts.entry(chain).or_insert((0, None));
+                if entry.1.is_none() {
+                    entry.1 = Some(message);
+                }
+            }
+        }
+        // 记录每个地址,资产页要展示所有派生地址。
+        addresses.entry(chain).or_insert(address);
+    }
+
+    let mut assets = Vec::new();
+    for chain in ChainId::ALL {
+        let Some(address) = addresses.get(&chain) else {
+            continue;
+        };
+        let (amount, error) = amounts
+            .get(&chain)
+            .cloned()
+            .unwrap_or((0, Some("余额未查询".into())));
+        let (asset, warning) = asset_from_result(
+            chain,
+            address.clone(),
+            if error.is_some() {
+                Err(error.unwrap_or_default())
+            } else {
+                Ok(amount)
+            },
+            &table,
+        );
         warnings.extend(warning);
         assets.push(asset);
     }

@@ -4,6 +4,7 @@ import { api, hasTauri, isMock, listen } from "./api.js?v=23";
 import { escapeHtml } from "./format.js?v=23";
 import { icon, openModal, toast } from "./ui.js?v=23";
 import { render as renderActivity } from "./views/activity.js?v=23";
+import { render as renderAsset } from "./views/asset.js?v=23";
 import { render as renderContacts } from "./views/contacts.js?v=23";
 import { render as renderDashboard } from "./views/dashboard.js?v=23";
 import { render as renderOnboarding } from "./views/onboarding.js?v=23";
@@ -22,6 +23,7 @@ const VIEWS = {
   onboarding: renderOnboarding,
   unlock: renderUnlock,
   dashboard: renderDashboard,
+  asset: renderAsset,
   receive: renderReceive,
   send: renderSend,
   activity: renderActivity,

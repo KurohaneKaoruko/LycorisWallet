@@ -191,6 +191,144 @@ pub struct DerivationPreview {
     pub formula: String,
 }
 
+/// How multiple accounts are spread out from one secret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchStrategy {
+    /// Mnemonic wallets: bump the last BIP-32 address index
+    /// (`m/84'/0'/0'/0/1`, `/2`, …). Passphrase wallets: the chain domain is
+    /// mixed in together with the account index.
+    #[default]
+    Path,
+    /// `H(domain‖phrase‖#index)` — an explicit salted hash. For mnemonic
+    /// wallets this leaves the standard BIP-32 tree and hashes the phrase.
+    Salted,
+    /// `H^index(base)` — the chain hash applied `index` times to the *base
+    /// account's key seed*, whichever way the base key was produced. Index
+    /// starts at 1 because 0 would repeat the base account.
+    Iterated,
+}
+
+impl BatchStrategy {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Path => "路径派生",
+            Self::Salted => "加盐派生",
+            Self::Iterated => "迭代哈希",
+        }
+    }
+
+    pub fn detail(self) -> &'static str {
+        match self {
+            Self::Path => "BIP-32 地址索引递增 · 标准路径",
+            Self::Salted => "H(域名‖口令‖#序号) · 每个序号独立密钥",
+            Self::Iterated => "H(…) 连续哈希 N 次 · 基于基础私钥",
+        }
+    }
+
+    /// Upper bound for user-supplied indices. Keeps a mistyped count from
+    /// freezing the UI (iterated scrypt at 14 rounds is ~50 ms per account,
+    /// and BIP-39 to_seed is ~30 ms).
+    pub fn max_count(self) -> u32 {
+        match self {
+            Self::Path | Self::Salted => 100,
+            Self::Iterated => 50,
+        }
+    }
+
+    /// Which strategies the UI should offer for a wallet mode. Mnemonic
+    /// wallets walk the BIP-32 tree; passphrase wallets have no mnemonic and
+    /// therefore no path to walk (`Path` there is a salted-hash alias).
+    pub fn available_for(mode: WalletMode) -> &'static [BatchStrategy] {
+        match mode {
+            WalletMode::Mnemonic => &[Self::Path, Self::Salted, Self::Iterated],
+            WalletMode::Passphrase => &[Self::Salted, Self::Iterated],
+        }
+    }
+
+    /// The strategies a stored vault may still reference from older versions.
+    /// `Path` entries in a passphrase wallet keep deriving as salted hashes.
+    #[allow(dead_code)]
+    pub fn is_valid_for(self, mode: WalletMode) -> bool {
+        match mode {
+            WalletMode::Mnemonic => true,
+            // Tolerated for legacy specs: `Path` derives as a salted hash.
+            WalletMode::Passphrase => true,
+        }
+    }
+}
+
+/// Request for [`derive_accounts_batch`]: which accounts to derive and how.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchRequest {
+    #[serde(default)]
+    pub strategy: BatchStrategy,
+    /// Number of accounts, 1..=strategy.max_count().
+    pub count: u32,
+    /// First account index (0-based). Defaults to 0.
+    #[serde(default)]
+    pub start: u32,
+}
+
+/// A derived account pinned to a wallet. Only the *recipe* is stored —
+/// strategy + index — never key material; the addresses are recomputed
+/// deterministically from the wallet secret on demand. The fingerprint is a
+/// public value kept for the wallet list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchAccountSpec {
+    /// Stable identifier (`"{strategy}:{index}"`) used for switching.
+    pub id: String,
+    pub strategy: BatchStrategy,
+    pub index: u32,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub fingerprint: String,
+}
+
+impl BatchAccountSpec {
+    pub fn new(strategy: BatchStrategy, index: u32) -> Self {
+        Self {
+            id: format!("{}:{}", strategy_id(strategy), index),
+            strategy,
+            index,
+            label: None,
+            fingerprint: String::new(),
+        }
+    }
+
+    pub fn display_label(&self) -> String {
+        self.label
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!("#{}", self.index))
+    }
+}
+
+/// The snake_case spelling used in [`BatchAccountSpec::id`].
+pub fn strategy_id(strategy: BatchStrategy) -> &'static str {
+    match strategy {
+        BatchStrategy::Path => "path",
+        BatchStrategy::Salted => "salted",
+        BatchStrategy::Iterated => "iterated",
+    }
+}
+
+/// Human-readable formula for one derived account, shown in the UI next to
+/// the derivation path.
+pub fn spec_formula(spec: &BatchAccountSpec, mode: WalletMode) -> String {
+    match (spec.strategy, mode) {
+        (BatchStrategy::Path, WalletMode::Mnemonic) => {
+            format!("BIP-32 地址索引 {} · 路径派生", spec.index)
+        }
+        (BatchStrategy::Path, _) => format!("H_chain(密语, #{}) · 加盐派生", spec.index),
+        (BatchStrategy::Salted, _) => format!("H_chain(密语, #{}) · 加盐派生", spec.index),
+        (BatchStrategy::Iterated, _) => format!("H_chain^{}(基础私钥) · 迭代哈希", spec.index),
+    }
+}
+
 pub struct PrivateKeyMaterial {
     pub chain: ChainId,
     inner: PrivateKeyInner,
@@ -528,6 +666,442 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
     }
 }
 
+/// Derive one account of `chain` at 0-based `index` for a mnemonic wallet,
+/// bumping the last (address) component of the standard path.
+fn mnemonic_account_at_index(seed: &[u8; 64], chain: ChainId, index: u32) -> Result<Account> {
+    let info = chain.info();
+    let base = info.derivation_path;
+    match info.kind {
+        ChainKind::Utxo | ChainKind::Evm => {
+            let path = replace_last_index(base, index);
+            let derived = bip32::derive_path(seed, &path)?;
+            let algorithm = match info.kind {
+                ChainKind::Utxo => "BIP-32 / BIP-84",
+                ChainKind::Evm => "BIP-32 / BIP-44",
+                ChainKind::Ed25519 | ChainKind::Cryptonote => unreachable!(),
+            };
+            account_from_secp(chain, &derived.key, &path, algorithm, algorithm, "地址索引递增")
+        }
+        ChainKind::Ed25519 => {
+            let path = replace_last_index(base, index);
+            let derived = slip10::derive_path(seed, &path)?;
+            account_from_ed25519(
+                chain,
+                &derived.key,
+                &path,
+                "BIP-39 / SLIP-0010",
+                "SLIP-0010 ed25519",
+                "Hardened ed25519 derivation",
+            )
+        }
+        ChainKind::Cryptonote => {
+            // Monero has no usable multi-account convention here: its standard
+            // path ends in non-hardened steps that kholaw rejects, and the
+            // ecosystem treats one (spend, view) pair as *the* wallet. Account
+            // 0 is the normal wallet; further indices derive subaddresses via
+            // the account index where support exists. Keep repeating account 0
+            // so the batch stays aligned; the UI explains this.
+            let _ = index;
+            let mut k64 = [0u8; 64];
+            k64.copy_from_slice(&crate::slip10::derive_kholaw_path(seed, base)?);
+            let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+            k64.zeroize();
+            account_from_monero(
+                chain,
+                &keys,
+                base,
+                "BIP-39 / SLIP-0010 kholaw",
+                "Keccak-256 · CryptoNote",
+                "spend = reduce(kholaw) · view = reduce(Keccak(spend))",
+            )
+        }
+    }
+}
+
+fn account_from_digest(
+    chain: ChainId,
+    digest: [u8; 32],
+    path: &str,
+    derivation_label: &str,
+    hash_detail: &str,
+) -> Result<Account> {
+    let info = chain.info();
+    match info.kind {
+        ChainKind::Utxo | ChainKind::Evm => {
+            let key = secp_from_digest(digest)?;
+            account_from_secp(
+                chain,
+                &key,
+                path,
+                derivation_label,
+                info.hash.label(),
+                hash_detail,
+            )
+        }
+        ChainKind::Ed25519 => account_from_ed25519(
+            chain,
+            &digest,
+            path,
+            derivation_label,
+            info.hash.label(),
+            hash_detail,
+        ),
+        ChainKind::Cryptonote => {
+            let keys = crate::cryptonote::MoneroKeys::from_spend_seed(&digest);
+            account_from_monero(chain, &keys, path, derivation_label, info.hash.label(), hash_detail)
+        }
+    }
+}
+
+/// Derive every chain for one account `index` of a mnemonic wallet using the
+/// salted strategy. The mnemonic words are hashed with the chain domain and
+/// the index mixed in; this deliberately leaves the BIP-32 tree.
+fn mnemonic_salted_account(mnemonic: &str, chain: ChainId, index: u32) -> Result<Account> {
+    let digest = crate::hash::chain_hash_salted(mnemonic, chain, true, index)?;
+    account_from_digest(
+        chain,
+        digest,
+        &format!("salted · #{}", index),
+        "H(phrase, #index)",
+        "加盐哈希 · 32 byte digest",
+    )
+}
+
+fn mnemonic_iterated_account(seed: &[u8; 64], chain: ChainId, index: u32) -> Result<Account> {
+    let digest = mnemonic_iterated_digest(seed, chain, index)?;
+    account_from_digest(
+        chain,
+        digest,
+        &format!("iterated · #{}", index),
+        "H^index(base)",
+        "迭代哈希 · 32 byte digest",
+    )
+}
+
+/// The iterated strategy for mnemonic wallets: hash the *base account's key
+/// seed* `index` times. The base key comes from the same derivation the base
+/// account uses (BIP-32/SLIP-0010 path; Monero via its kholaw spend seed), so
+/// the chain is anchored to the wallet's base key, not to the bare words.
+fn mnemonic_iterated_digest(seed: &[u8; 64], chain: ChainId, index: u32) -> Result<[u8; 32]> {
+    let base = match chain.info().kind {
+        ChainKind::Utxo | ChainKind::Evm => {
+            bip32::derive_path(seed, chain.info().derivation_path)?.key.to_bytes().into()
+        }
+        ChainKind::Ed25519 => slip10::derive_path(seed, chain.info().derivation_path)?.key,
+        ChainKind::Cryptonote => {
+            // Anchor to the base account's actual spend key, the same value
+            // `from_kholaw_key` reduces to for the base address.
+            let mut k64 = slip10::derive_kholaw_path(seed, chain.info().derivation_path)?;
+            let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+            k64.zeroize();
+            keys.private_spend
+        }
+    };
+    crate::hash::chain_key_iterated(base, chain, index)
+}
+
+/// The iterated strategy for passphrase wallets: hash the *base account's
+/// 32-byte digest* `index` times, so account #1 already differs from the base.
+fn passphrase_iterated_digest(
+    phrase: &str,
+    chain: ChainId,
+    isolated: bool,
+    index: u32,
+) -> Result<[u8; 32]> {
+    let base = crate::hash::chain_hash(phrase, chain, isolated)?;
+    crate::hash::chain_key_iterated(base, chain, index)
+}
+
+fn passphrase_account_at_index(
+    phrase: &str,
+    chain: ChainId,
+    isolated: bool,
+    strategy: BatchStrategy,
+    index: u32,
+) -> Result<Account> {
+    let (digest, path, label, detail) = match strategy {
+        BatchStrategy::Path | BatchStrategy::Salted => (
+            crate::hash::chain_hash_salted(phrase, chain, isolated, index)?,
+            format!("salted · #{}", index),
+            if isolated { "H_chain(phrase, #i)" } else { "H(phrase, #i)" },
+            "加盐哈希 · 32 byte digest",
+        ),
+        BatchStrategy::Iterated => (
+            passphrase_iterated_digest(phrase, chain, isolated, index)?,
+            format!("iterated · #{}", index),
+            "H_chain^i(base)",
+            "迭代哈希 · 32 byte digest",
+        ),
+    };
+    account_from_digest(chain, digest, &path, label, detail)
+}
+
+/// Derive the full per-chain account list for batch account `index`.
+///
+/// Every strategy yields one address per chain so a batch account has exactly
+/// the same shape as a single wallet. `Path` for passphrase wallets is an
+/// alias of `Salted` because a bare phrase has no BIP-32 tree to walk.
+fn derive_single_account_batch(
+    secret: &WalletSecret,
+    strategy: BatchStrategy,
+    index: u32,
+) -> Result<Vec<Account>> {
+    match secret {
+        WalletSecret::Mnemonic { .. } => match strategy {
+            BatchStrategy::Path => {
+                let seed = secret.mnemonic()?.to_seed("");
+                ChainId::ALL
+                    .iter()
+                    .map(|chain| mnemonic_account_at_index(&seed, *chain, index))
+                    .collect()
+            }
+            BatchStrategy::Salted => {
+                let mnemonic = secret.mnemonic()?.to_string();
+                ChainId::ALL
+                    .iter()
+                    .map(|chain| mnemonic_salted_account(&mnemonic, *chain, index))
+                    .collect()
+            }
+            BatchStrategy::Iterated => {
+                let seed = secret.mnemonic()?.to_seed("");
+                ChainId::ALL
+                    .iter()
+                    .map(|chain| mnemonic_iterated_account(&seed, *chain, index))
+                    .collect()
+            }
+        },
+        WalletSecret::Passphrase { phrase, derivation } => {
+            let isolated = *derivation == DerivationMode::Isolated;
+            ChainId::ALL
+                .iter()
+                .map(|chain| passphrase_account_at_index(phrase, *chain, isolated, strategy, index))
+                .collect()
+        }
+    }
+}
+
+/// Derive `request.count` batch accounts starting at `request.start`. The
+/// returned vector has one entry per account, each covering every chain.
+pub fn derive_accounts_batch(
+    secret: &WalletSecret,
+    request: &BatchRequest,
+) -> Result<Vec<Vec<Account>>> {
+    secret.validate()?;
+    let max = request.strategy.max_count();
+    if request.count == 0 || request.count > max {
+        return Err(Error::Message(format!("账户数量必须在 1..={max} 之间")));
+    }
+    // The iterated chain is anchored at the base key: index 0 would repeat the
+    // base account exactly, so it is not a valid starting point.
+    if request.strategy == BatchStrategy::Iterated && request.start == 0 {
+        return Err(Error::Message("迭代哈希从序号 1 开始（0 号即基础账户）".into()));
+    }
+    let end = request.start.saturating_add(request.count).min(max);
+    if end - request.start < request.count {
+        return Err(Error::Message(format!("起始序号 + 数量不能超过 {max}")));
+    }
+    (request.start..end)
+        .map(|index| derive_single_account_batch(secret, request.strategy, index))
+        .collect()
+}
+
+/// Derive one chain's account for every index in `indices`, sharing the
+/// expensive seed expansion (mnemonic) across the whole batch. Used by the
+/// portfolio aggregation and the per-asset address list.
+pub fn derive_chain_accounts_batch(
+    secret: &WalletSecret,
+    strategy: BatchStrategy,
+    indices: &[u32],
+    chain: ChainId,
+) -> Result<Vec<Account>> {
+    match secret {
+        WalletSecret::Mnemonic { .. } => match strategy {
+            BatchStrategy::Path => {
+                let seed = secret.mnemonic()?.to_seed("");
+                indices
+                    .iter()
+                    .map(|index| mnemonic_account_at_index(&seed, chain, *index))
+                    .collect()
+            }
+            BatchStrategy::Salted => {
+                let mnemonic = secret.mnemonic()?.to_string();
+                indices
+                    .iter()
+                    .map(|index| mnemonic_salted_account(&mnemonic, chain, *index))
+                    .collect()
+            }
+            BatchStrategy::Iterated => {
+                let seed = secret.mnemonic()?.to_seed("");
+                indices
+                    .iter()
+                    .map(|index| mnemonic_iterated_account(&seed, chain, *index))
+                    .collect()
+            }
+        },
+        WalletSecret::Passphrase { phrase, derivation } => {
+            let isolated = *derivation == DerivationMode::Isolated;
+            indices
+                .iter()
+                .map(|index| passphrase_account_at_index(phrase, chain, isolated, strategy, *index))
+                .collect()
+        }
+    }
+}
+
+/// Derive the full per-chain account list for one stored
+/// [`BatchAccountSpec`].
+/// This is the runtime entry the session uses to materialise a wallet's
+/// selected derived account.
+pub fn derive_accounts_for_spec(
+    secret: &WalletSecret,
+    spec: &BatchAccountSpec,
+) -> Result<Vec<Account>> {
+    derive_single_account_batch(secret, spec.strategy, spec.index)
+}
+
+/// Derive one chain's private key for a stored [`BatchAccountSpec`] (or the
+/// base account when `strategy`/`index` are `None`). Powers the per-address
+/// detail dialog; the caller must gate it behind a password check like any
+/// other private-key export.
+pub fn derive_chain_private_key_for_spec(
+    secret: &WalletSecret,
+    spec: Option<&BatchAccountSpec>,
+    chain: ChainId,
+) -> Result<PrivateKeyMaterial> {
+    secret.validate()?;
+    let (strategy, index) = match spec {
+        None => (None, 0u32),
+        Some(spec) => (Some(spec.strategy), spec.index),
+    };
+    match secret {
+        WalletSecret::Mnemonic { .. } => {
+            let mnemonic = secret.mnemonic()?;
+            match (chain.info().kind, strategy) {
+                (ChainKind::Utxo | ChainKind::Evm, None) => {
+                    let seed = mnemonic.to_seed("");
+                    let path = chain.info().derivation_path;
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Secp(bip32::derive_path(&seed, path)?.key),
+                    })
+                }
+                (ChainKind::Ed25519, None) => {
+                    let seed = mnemonic.to_seed("");
+                    let path = chain.info().derivation_path;
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Ed25519(slip10::derive_path(&seed, path)?.key),
+                    })
+                }
+                (ChainKind::Cryptonote, None) => {
+                    let seed = mnemonic.to_seed("");
+                    let base = chain.info().derivation_path;
+                    let mut k64 = [0u8; 64];
+                    k64.copy_from_slice(&crate::slip10::derive_kholaw_path(&seed, base)?);
+                    let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+                    k64.zeroize();
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Monero(keys),
+                    })
+                }
+                // Derived accounts below: Path shares the seed, the rest are
+                // pure hashes of the phrase.
+                (ChainKind::Utxo | ChainKind::Evm, Some(BatchStrategy::Path)) => {
+                    let seed = mnemonic.to_seed("");
+                    let info = chain.info();
+                    let path = replace_last_index(info.derivation_path, index);
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Secp(bip32::derive_path(&seed, &path)?.key),
+                    })
+                }
+                (ChainKind::Ed25519, Some(BatchStrategy::Path)) => {
+                    let seed = mnemonic.to_seed("");
+                    let path = replace_last_index(chain.info().derivation_path, index);
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Ed25519(slip10::derive_path(&seed, &path)?.key),
+                    })
+                }
+                (ChainKind::Cryptonote, Some(BatchStrategy::Path)) => {
+                    // Same convention as `mnemonic_account_at_index`: repeat
+                    // the base Monero account for every index.
+                    let seed = mnemonic.to_seed("");
+                    let base = chain.info().derivation_path;
+                    let mut k64 = [0u8; 64];
+                    k64.copy_from_slice(&crate::slip10::derive_kholaw_path(&seed, base)?);
+                    let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+                    k64.zeroize();
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Monero(keys),
+                    })
+                }
+                (_, Some(BatchStrategy::Salted)) => {
+                    let digest = crate::hash::chain_hash_salted(&mnemonic.to_string(), chain, true, index)?;
+                    Ok(digest_to_key(chain, digest))
+                }
+                (_, Some(BatchStrategy::Iterated)) => {
+                    let seed = mnemonic.to_seed("");
+                    let digest = mnemonic_iterated_digest(&seed, chain, index)?;
+                    Ok(digest_to_key(chain, digest))
+                }
+            }
+        }
+        WalletSecret::Passphrase { phrase, derivation } => {
+            let isolated = *derivation == DerivationMode::Isolated;
+            let digest = match strategy {
+                None => crate::hash::chain_hash(phrase, chain, isolated)?,
+                Some(BatchStrategy::Path | BatchStrategy::Salted) => {
+                    crate::hash::chain_hash_salted(phrase, chain, isolated, index)?
+                }
+                Some(BatchStrategy::Iterated) => {
+                    passphrase_iterated_digest(phrase, chain, isolated, index)?
+                }
+            };
+            Ok(digest_to_key(chain, digest))
+        }
+    }
+}
+
+/// Wrap a raw 32-byte digest into chain-appropriate key material. Mirrors the
+/// key branches of [`derive_private_key`].
+fn digest_to_key(chain: ChainId, digest: [u8; 32]) -> PrivateKeyMaterial {
+    match chain.info().kind {
+        ChainKind::Utxo | ChainKind::Evm => PrivateKeyMaterial {
+            chain,
+            // `secp_from_digest` is total: it rehashes in the ~2^-128 case.
+            inner: PrivateKeyInner::Secp(
+                secp_from_digest(digest).expect("digest -> secp256k1 is total"),
+            ),
+        },
+        ChainKind::Ed25519 => PrivateKeyMaterial {
+            chain,
+            inner: PrivateKeyInner::Ed25519(digest),
+        },
+        ChainKind::Cryptonote => PrivateKeyMaterial {
+            chain,
+            inner: PrivateKeyInner::Monero(crate::cryptonote::MoneroKeys::from_spend_seed(
+                &digest,
+            )),
+        },
+    }
+}
+
+/// Replace the final path component: `m/84'/0'/0'/0/0` + index 3 becomes
+/// `m/84'/0'/0'/0/3`. Hardened markers on the replaced component are kept:
+/// `m/44'/501'/0'/0'` + 2 becomes `m/44'/501'/0'/2'`.
+fn replace_last_index(path: &str, index: u32) -> String {
+    match path.rsplit_once('/') {
+        Some((head, last)) => {
+            let marker = if last.ends_with(['\'', 'h']) { &last[last.len() - 1..] } else { "" };
+            format!("{head}/{index}{marker}")
+        }
+        None => path.to_string(),
+    }
+}
+
 pub fn derive_private_key(secret: &WalletSecret, chain: ChainId) -> Result<PrivateKeyMaterial> {
     secret.validate()?;
     match secret {
@@ -622,6 +1196,137 @@ pub fn preview_derivation(secret: &WalletSecret) -> Result<DerivationPreview> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_path_bumps_the_bip32_address_index() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let secret = WalletSecret::new_mnemonic(mnemonic).unwrap();
+        let batch = derive_accounts_batch(
+            &secret,
+            &BatchRequest { strategy: BatchStrategy::Path, count: 2, start: 0 },
+        )
+        .unwrap();
+        assert_eq!(batch.len(), 2);
+        // Account #0 must equal the plain derivation.
+        let plain = derive_accounts(&secret).unwrap();
+        for (plain_acc, batch_acc) in plain.iter().zip(&batch[0]) {
+            assert_eq!(plain_acc.address, batch_acc.address, "index 0 == plain for {}", plain_acc.chain);
+        }
+        // Account #1 must differ everywhere except Monero (single-account).
+        for (plain_acc, batch_acc) in plain.iter().zip(&batch[1]) {
+            if plain_acc.chain == ChainId::Monero {
+                assert_eq!(plain_acc.address, batch_acc.address);
+                // Monero repeats the base account (no address-index
+                // convention), so its path intentionally stays unchanged.
+                continue;
+            }
+            assert_ne!(
+                plain_acc.address, batch_acc.address,
+                "index 1 must differ for {}",
+                plain_acc.chain
+            );
+            assert!(
+                batch_acc.path.ends_with("/1") || batch_acc.path.ends_with("/1'"),
+                "path should end in /1 or /1', got {}",
+                batch_acc.path
+            );
+        }
+    }
+
+    #[test]
+    fn batch_salted_is_deterministic_and_index_disjoint() {
+        let secret = WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated).unwrap();
+        let batch = derive_accounts_batch(
+            &secret,
+            &BatchRequest { strategy: BatchStrategy::Salted, count: 3, start: 0 },
+        )
+        .unwrap();
+        let again = derive_accounts_batch(
+            &secret,
+            &BatchRequest { strategy: BatchStrategy::Salted, count: 3, start: 0 },
+        )
+        .unwrap();
+        for (a, b) in batch.iter().zip(&again) {
+            for (x, y) in a.iter().zip(b) {
+                assert_eq!(x.address, y.address);
+            }
+        }
+        // All three accounts differ on every chain.
+        for chain in ChainId::ALL {
+            let addrs: Vec<_> = batch
+                .iter()
+                .map(|accounts| accounts.iter().find(|a| a.chain == chain).unwrap().address.clone())
+                .collect();
+            assert_eq!(addrs.len(), 3);
+            assert_ne!(addrs[0], addrs[1]);
+            assert_ne!(addrs[1], addrs[2]);
+            assert_ne!(addrs[0], addrs[2]);
+        }
+    }
+
+    #[test]
+    fn batch_iterated_is_anchored_to_base_key() {
+        let secret = WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated).unwrap();
+        let plain = derive_accounts(&secret).unwrap();
+        // Index 1 must already differ from the base account: the chain starts
+        // at the base key and hashes it once more.
+        let batch = derive_accounts_batch(
+            &secret,
+            &BatchRequest { strategy: BatchStrategy::Iterated, count: 2, start: 1 },
+        )
+        .unwrap();
+        for (plain_acc, batch_acc) in plain.iter().zip(&batch[0]) {
+            assert_ne!(
+                plain_acc.address, batch_acc.address,
+                "H(base) must differ from base for {}",
+                plain_acc.chain
+            );
+        }
+        // And index 0 is rejected outright — it would repeat the base.
+        assert!(derive_accounts_batch(
+            &secret,
+            &BatchRequest { strategy: BatchStrategy::Iterated, count: 1, start: 0 },
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn batch_start_window_is_respected_and_bounded() {
+        let secret = WalletSecret::new_passphrase("seed phrase", DerivationMode::Isolated).unwrap();
+        let batch = derive_accounts_batch(
+            &secret,
+            &BatchRequest { strategy: BatchStrategy::Salted, count: 2, start: 5 },
+        )
+        .unwrap();
+        assert_eq!(batch.len(), 2);
+        assert!(batch[0][0].path.ends_with("#5"), "got {}", batch[0][0].path);
+        assert!(batch[1][0].path.ends_with("#6"), "got {}", batch[1][0].path);
+
+        // Out-of-range requests are rejected.
+        assert!(derive_accounts_batch(
+            &secret,
+            &BatchRequest { strategy: BatchStrategy::Salted, count: 0, start: 0 }
+        )
+        .is_err());
+        assert!(derive_accounts_batch(
+            &secret,
+            &BatchRequest { strategy: BatchStrategy::Salted, count: 101, start: 0 }
+        )
+        .is_err());
+        assert!(derive_accounts_batch(
+            &secret,
+            &BatchRequest { strategy: BatchStrategy::Iterated, count: 2, start: 49 }
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn replace_last_index_swaps_only_the_final_component() {
+        assert_eq!(replace_last_index("m/84'/0'/0'/0/0", 7), "m/84'/0'/0'/0/7");
+        assert_eq!(replace_last_index("m/44'/60'/0'/0/0", 12), "m/44'/60'/0'/0/12");
+        // Hardened final components keep their marker.
+        assert_eq!(replace_last_index("m/44'/501'/0'/0'", 2), "m/44'/501'/0'/2'");
+    }
 
     #[test]
     fn bip39_wallet_has_known_btc_and_eth_addresses() {

@@ -131,7 +131,7 @@ export function render(ctx) {
 
     mount(root) {
       root.querySelectorAll(".asset-row[data-chain]").forEach((row) => {
-        const open = () => ctx.go("receive", { chain: row.dataset.chain });
+        const open = () => ctx.go("asset", { chain: row.dataset.chain });
         row.addEventListener("click", open);
         row.addEventListener("keydown", (event) => {
           if (event.key === "Enter" || event.key === " ") {

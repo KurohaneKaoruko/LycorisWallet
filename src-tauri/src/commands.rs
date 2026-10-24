@@ -179,6 +179,101 @@ pub fn add_wallet(
     Ok(state.add_wallet(request.name, secret)?)
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchCreateRequest {
+    pub batch: lycoris_core::derive::BatchRequest,
+    /// Optional label prefix; accounts default to 「钱包名 #序号」.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// Preview a batch derivation **for the active wallet's secret** without
+/// touching the vault. Returns one fingerprint + address list per account.
+#[tauri::command]
+pub fn preview_batch(
+    state: State<'_, crate::state::AppState>,
+    batch: lycoris_core::derive::BatchRequest,
+) -> ApiResult<Vec<lycoris_core::derive::DerivationPreview>> {
+    let secret = state.active_secret()?;
+    let accounts = lycoris_core::derive::derive_accounts_batch(&secret, &batch)?;
+    Ok(accounts
+        .iter()
+        .map(|accounts| {
+            let fingerprint = lycoris_core::derive::derive_fingerprint(accounts);
+            lycoris_core::derive::DerivationPreview {
+                mode: secret.mode(),
+                derivation: secret.derivation_mode(),
+                accounts: accounts.clone(),
+                fingerprint,
+                formula: String::new(),
+            }
+        })
+        .collect())
+}
+
+/// Pin derived accounts onto the active wallet and select the last one.
+#[tauri::command]
+pub fn add_wallets_batch(
+    state: State<'_, crate::state::AppState>,
+    request: BatchCreateRequest,
+) -> ApiResult<WalletView> {
+    Ok(state.add_batch_accounts(&request.batch, request.name)?)
+}
+
+/// One chain's addresses across the active wallet's accounts (base + every
+/// derived account). Powers the per-asset detail page.
+#[tauri::command]
+pub fn chain_addresses(
+    state: State<'_, crate::state::AppState>,
+    chain: ChainId,
+) -> ApiResult<Vec<lycoris_core::models::ChainAddressView>> {
+    Ok(state.chain_addresses(chain)?)
+}
+
+/// Full detail (derivation info + keys) for one address of the active
+/// wallet. Requires the vault password like every other key export.
+#[tauri::command]
+pub fn account_detail(
+    state: State<'_, crate::state::AppState>,
+    chain: ChainId,
+    id: Option<String>,
+    password: String,
+) -> ApiResult<lycoris_core::models::AccountDetailView> {
+    if !state.verify_password(&password)? {
+        return Err(ApiError::from(lycoris_core::Error::IncorrectPassword));
+    }
+    Ok(state.account_detail(chain, id.as_deref())?)
+}
+
+/// Switch which derived account the wallet displays (`None` = base account).
+#[tauri::command]
+pub fn select_batch_account(
+    state: State<'_, crate::state::AppState>,
+    id: Option<String>,
+) -> ApiResult<WalletView> {
+    Ok(state.select_batch_account(id)?)
+}
+
+/// Rename a derived account of the active wallet.
+#[tauri::command]
+pub fn rename_batch_account(
+    state: State<'_, crate::state::AppState>,
+    id: String,
+    label: String,
+) -> ApiResult<WalletView> {
+    Ok(state.rename_batch_account(&id, &label)?)
+}
+
+/// Remove a derived account from the active wallet.
+#[tauri::command]
+pub fn remove_batch_account(
+    state: State<'_, crate::state::AppState>,
+    id: String,
+) -> ApiResult<WalletView> {
+    Ok(state.remove_batch_account(&id)?)
+}
+
 #[tauri::command]
 pub fn switch_wallet(
     state: State<'_, crate::state::AppState>,

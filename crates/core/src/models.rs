@@ -139,6 +139,64 @@ pub struct WalletSummary {
     pub active: bool,
 }
 
+/// A derived account as seen by the UI (recipe + public values only).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DerivedAccountView {
+    pub id: String,
+    pub strategy: crate::derive::BatchStrategy,
+    pub index: u32,
+    pub label: String,
+    pub fingerprint: String,
+    /// True when this account is the one the wallet currently shows.
+    pub active: bool,
+}
+
+/// One chain's address across the wallet's accounts (base + every derived
+/// account), used by the per-asset detail page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChainAddressView {
+    /// `None` = the base derivation.
+    pub id: Option<String>,
+    pub label: String,
+    pub address: String,
+    pub path: String,
+    /// True when this account is the one the wallet currently shows.
+    pub active: bool,
+}
+
+/// Full detail for one address of the active wallet: public info plus the
+/// private key, which the backend only returns after a password check.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDetailView {
+    pub chain: ChainId,
+    pub chain_name: String,
+    pub symbol: String,
+    /// `None` = the base derivation.
+    pub id: Option<String>,
+    pub label: String,
+    pub address: String,
+    pub address_format: String,
+    pub path: String,
+    pub derivation: String,
+    pub hash_algorithm: String,
+    pub public_key: String,
+    /// Export format ("WIF" / "Hex (0x…)" / "Base58 keypair" / …).
+    pub private_key_format: String,
+    pub private_key: String,
+    /// Where the key comes from: the secret type ("口令" / "助记词") plus a
+    /// redacted preview, so the user can tell *which* phrase produced it.
+    pub source_kind: String,
+    pub source_preview: String,
+    /// Ordered, human-readable steps from the secret to this private key.
+    pub steps: Vec<String>,
+    /// One-line formula, e.g. `SHA-256("lycoris/v1/bitcoin\0" ‖ 口令 ‖ "\0#1")`.
+    pub formula: String,
+    pub warning: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WalletView {
@@ -156,6 +214,12 @@ pub struct WalletView {
     pub activity: Vec<ActivityItem>,
     /// Every wallet stored in the vault, active one flagged.
     pub wallets: Vec<WalletSummary>,
+    /// Derived accounts pinned to the active wallet (base account excluded).
+    #[serde(default)]
+    pub batch_accounts: Vec<DerivedAccountView>,
+    /// `None` = showing the base derivation.
+    #[serde(default)]
+    pub active_batch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

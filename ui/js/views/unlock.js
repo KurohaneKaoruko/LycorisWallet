@@ -12,16 +12,7 @@ export function render(ctx) {
   return {
     html: `<section class="onboarding"><div class="onboarding-inner" style="max-width:440px">
         <div class="brand-head">
-          <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
-            <g fill="var(--vermilion)">
-              <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" />
-              <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" transform="rotate(72 16 16)" />
-              <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" transform="rotate(144 16 16)" />
-              <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" transform="rotate(216 16 16)" />
-              <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" transform="rotate(288 16 16)" />
-            </g>
-            <circle cx="16" cy="16" r="2.4" fill="var(--ink)" />
-          </svg>
+          <img class="mark" src="favicon-flower.svg" alt="" draggable="false" />
           <h1>钱包已锁定</h1>
           <p>${status.label ? escapeHtml(status.label) : "输入本地密码解锁"}</p>
         </div>

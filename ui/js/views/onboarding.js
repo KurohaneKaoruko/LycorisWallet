@@ -53,16 +53,7 @@ function stepBar(step) {
 
 function brandHead() {
   return `<div class="brand-head">
-      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
-        <g fill="var(--vermilion)">
-          <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" />
-          <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" transform="rotate(72 16 16)" />
-          <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" transform="rotate(144 16 16)" />
-          <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" transform="rotate(216 16 16)" />
-          <ellipse cx="16" cy="9.2" rx="2.6" ry="5.2" transform="rotate(288 16 16)" />
-        </g>
-        <circle cx="16" cy="16" r="2.4" fill="var(--ink)" />
-      </svg>
+      <img class="mark" src="favicon-flower.svg" alt="" draggable="false" />
       <h1>Lycoris Wallet</h1>
       <p>本地优先的多链钱包 · 密钥与签名永远留在你的设备上</p>
     </div>`;

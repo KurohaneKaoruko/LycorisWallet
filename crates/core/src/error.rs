@@ -20,6 +20,8 @@ pub enum Error {
     CorruptVault,
     #[error("wallet not found in this vault")]
     WalletNotFound,
+    #[error("derived account not found in this wallet")]
+    BatchAccountNotFound,
     #[error("the last wallet cannot be removed")]
     LastWallet,
     #[error("invalid mnemonic: {0}")]
@@ -67,6 +69,7 @@ impl Error {
             Error::WeakPassword => "WEAK_PASSWORD",
             Error::CorruptVault | Error::Format(_) => "CORRUPT_VAULT",
             Error::WalletNotFound => "WALLET_NOT_FOUND",
+            Error::BatchAccountNotFound => "BATCH_ACCOUNT_NOT_FOUND",
             Error::LastWallet => "LAST_WALLET",
             Error::InvalidMnemonic(_) => "INVALID_MNEMONIC",
             Error::InvalidPassphrase(_) => "INVALID_PASSPHRASE",

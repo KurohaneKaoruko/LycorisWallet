@@ -215,7 +215,7 @@ function fingerprintOf(accounts) {
   for (let group = 0; group < 4; group += 1) {
     parts.push(pick(rand, alphabet, 4));
   }
-  return parts.join(" ");
+  return parts.join("-");
 }
 
 function unitsToText(value, decimals) {
@@ -381,18 +381,30 @@ function walletView() {
   if (store.locked || !wallet) {
     throw { code: "LOCKED", message: "钱包已锁定" };
   }
-  const accounts = accountsFor(wallet.secret);
+  const selectedSpec = (wallet.batchAccounts ?? []).find(
+    (spec) => spec.id === wallet.activeBatch,
+  );
+  // Demo mode cannot re-derive for real; perturb the seed so each account
+  // shows different addresses. The desktop app uses the real derivation.
+  const secret = selectedSpec
+    ? perturbSecret(wallet.secret, selectedSpec.index)
+    : wallet.secret;
+  const accounts = accountsFor(secret);
   const preview = corePreview(wallet.secret);
   const isMnemonic = wallet.secret.mode === "mnemonic";
+  const activeFingerprint = selectedSpec
+    ? fingerprintOf(accounts)
+    : preview?.fingerprint ?? fingerprintOf(accounts);
   return {
     id: wallet.id,
     mode: wallet.secret.mode,
     derivation: isMnemonic ? null : wallet.secret.derivation ?? "isolated",
     label: wallet.label,
-    fingerprint: preview?.fingerprint ?? fingerprintOf(accounts),
+    fingerprint: activeFingerprint,
     createdAt: wallet.createdAt ?? nowSeconds(),
-    formula:
-      preview?.formula ??
+    formula: selectedSpec
+      ? `批量派生 · ${selectedSpec.strategy} · #${selectedSpec.index}`
+      : preview?.formula ??
       (isMnemonic
         ? "BIP-39 助记词 → 512 位种子 → BIP-32 / SLIP-0010 路径"
         : wallet.secret.derivation === "strict"
@@ -417,7 +429,26 @@ function walletView() {
         active: item.id === wallet.id,
       };
     }),
+    batchAccounts: (wallet.batchAccounts ?? []).map((spec) => ({
+      id: spec.id,
+      strategy: spec.strategy,
+      index: spec.index,
+      label: spec.label || `#${spec.index}`,
+      fingerprint: (spec.fingerprint ?? "").toUpperCase(),
+      active: spec.id === wallet.activeBatch,
+    })),
+    activeBatch: wallet.activeBatch ?? null,
   };
+}
+
+/** Demo-only: change the seed text so a derived account shows new addresses. */
+function perturbSecret(secret, index) {
+  if (secret.mode === "mnemonic") {
+    const words = String(secret.mnemonic ?? "").trim().split(/\s+/);
+    const rotated = words.length > 0 ? [...words.slice(index % words.length), ...words.slice(0, index % words.length)] : words;
+    return { ...secret, mnemonic: rotated.join(" ") };
+  }
+  return { ...secret, phrase: `${secret.phrase ?? ""} #${index}` };
 }
 
 function portfolio() {
@@ -777,6 +808,286 @@ export async function mockCall(command, args = {}) {
       const wallet = store.wallets.find((item) => item.id === args.id);
       if (!wallet) throw { code: "WALLET_NOT_FOUND", message: "找不到该钱包" };
       store.activeId = wallet.id;
+      persist();
+      return walletView();
+    }
+
+    case "preview_batch": {
+      const batch = args.batch ?? {};
+      const wallet = activeWallet();
+      if (store.locked || !wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      const count = Math.min(Math.max(Number(batch?.count ?? 1), 1), 3);
+      const start = Math.max(Number(batch?.start ?? 0), 0);
+      const strategy = batch?.strategy ?? "salted";
+      const previews = [];
+      for (let offset = 0; offset < count; offset += 1) {
+        const index = start + offset;
+        // The mock perturbs the secret so different indices look different.
+        const branched = perturbSecret(wallet.secret, index);
+        const preview = corePreview(branched) ?? (() => {
+          const accounts = accountsFor(branched);
+          return {
+            mode: wallet.secret.mode,
+            derivation:
+              wallet.secret.mode === "mnemonic" ? null : wallet.secret.derivation ?? "isolated",
+            accounts,
+            fingerprint: fingerprintOf(accounts),
+            formula: "",
+          };
+        })();
+        previews.push({ ...preview, formula: `批量派生 · ${strategy} · #${index}` });
+      }
+      return previews;
+    }
+
+    case "add_wallets_batch": {
+      const request = args.request ?? {};
+      const batch = request.batch ?? {};
+      const wallet = activeWallet();
+      if (store.locked || !wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      // 路径派生只属于助记词钱包;口令钱包没有 BIP-32 树可走。
+      if (batch.strategy === "path" && wallet.secret.mode !== "mnemonic") {
+        throw { code: "INVALID_BATCH", message: "路径派生只适用于助记词钱包" };
+      }
+      const count = Math.max(Number(batch.count ?? 1), 1);
+      const start = Math.max(Number(batch.start ?? 0), 0);
+      const max = batch.strategy === "iterated" ? 50 : 100;
+      if (count > max || start + count > max) {
+        throw { code: "INVALID_BATCH", message: `账户数量或序号超出范围（1..=${max}）` };
+      }
+      // 迭代哈希基于基础私钥,0 号会与基础账户重合。
+      if (batch.strategy === "iterated" && start < 1) {
+        throw { code: "INVALID_BATCH", message: "迭代哈希从序号 1 开始（0 号即基础账户）" };
+      }
+      wallet.batchAccounts ??= [];
+      for (let offset = 0; offset < count; offset += 1) {
+        const index = start + offset;
+        const id = `${batch.strategy}:${index}`;
+        if (wallet.batchAccounts.some((spec) => spec.id === id)) continue;
+        const demoAccounts = accountsFor(perturbSecret(wallet.secret, index));
+        wallet.batchAccounts.push({
+          id,
+          strategy: batch.strategy,
+          index,
+          label: request.name ? `${request.name} #${index}` : `#${index}`,
+          fingerprint: fingerprintOf(demoAccounts).toUpperCase(),
+        });
+      }
+      if (wallet.batchAccounts.length > 0) {
+        wallet.activeBatch = wallet.batchAccounts[wallet.batchAccounts.length - 1].id;
+      }
+      persist();
+      return walletView();
+    }
+
+    case "select_batch_account": {
+      const wallet = activeWallet();
+      if (store.locked || !wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      if (args.id == null) {
+        wallet.activeBatch = null;
+      } else {
+        const spec = (wallet.batchAccounts ?? []).find((spec) => spec.id === args.id);
+        if (!spec) throw { code: "BATCH_ACCOUNT_NOT_FOUND", message: "找不到该派生账户" };
+        wallet.activeBatch = spec.id;
+      }
+      persist();
+      return walletView();
+    }
+
+    case "chain_addresses": {
+      const wallet = activeWallet();
+      if (store.locked || !wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      const chain = args.chain;
+      const base = accountsFor(wallet.secret).find((a) => a.chain === chain);
+      const rows = [
+        {
+          id: null,
+          label: "基础账户",
+          address: base.address,
+          path: base.path,
+          active: !wallet.activeBatch,
+        },
+      ];
+      for (const spec of wallet.batchAccounts ?? []) {
+        const account = accountsFor(perturbSecret(wallet.secret, spec.index)).find(
+          (a) => a.chain === chain,
+        );
+        rows.push({
+          id: spec.id,
+          label: spec.label || `#${spec.index}`,
+          address: account.address,
+          path: account.path,
+          active: wallet.activeBatch === spec.id,
+        });
+      }
+      return rows;
+    }
+
+    case "account_detail": {
+      if (args.password !== store.password) {
+        throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
+      }
+      const wallet = activeWallet();
+      if (store.locked || !wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      const chain = args.chain;
+      const spec = args.id
+        ? (wallet.batchAccounts ?? []).find((item) => item.id === args.id)
+        : null;
+      if (args.id && !spec) throw { code: "BATCH_ACCOUNT_NOT_FOUND", message: "找不到该派生账户" };
+      const secret = spec ? perturbSecret(wallet.secret, spec.index) : wallet.secret;
+      const account = accountsFor(secret).find((a) => a.chain === chain);
+      let value;
+      if (core) {
+        value = core.privateKey(secret, chain);
+      } else {
+        const rand = mulberry32(fnv1a(`${chain}:${args.id ?? "base"}:demo-key`));
+        value =
+          chain === "bitcoin" || chain === "litecoin"
+            ? `${pick(rand, BASE58, 5)}…演示WIF…${pick(rand, BASE58, 5)}`
+            : chain === "solana"
+              ? pick(rand, BASE58, 64)
+              : chain === "monero"
+                ? pick(rand, HEX, 128)
+                : `0x${pick(rand, HEX, 64)}`;
+      }
+      const format =
+        chain === "solana"
+          ? "Base58 keypair"
+          : chain === "bitcoin" || chain === "litecoin"
+            ? "WIF"
+            : chain === "monero"
+              ? "Hex (spend‖view)"
+              : "Hex (0x…)";
+      // 来源说明：让用户能说清私钥从哪来、怎么算（与桌面端 account_detail 一致）。
+      const isMnemonic = wallet.secret.mode === "mnemonic";
+      const trimmed = isMnemonic ? "" : String(wallet.secret.phrase ?? "").trim();
+      const redact = (text) => {
+        const chars = [...text.trim()];
+        return chars.length <= 4
+          ? "•".repeat(chars.length)
+          : `${chars.slice(0, 2).join("")}…${chars.slice(-2).join("")}（共 ${chars.length} 字符）`;
+      };
+      const preview = isMnemonic
+        ? "BIP-39 助记词（见 设置 → 导出助记词）"
+        : trimmed;
+      const domain = `lycoris/v1/${chain}`;
+      const hashName =
+        chain === "litecoin" || chain === "dogecoin"
+          ? "scrypt"
+          : chain === "monero"
+            ? "Keccak-256"
+            : "SHA-256";
+      const isolated = !isMnemonic && wallet.secret.derivation !== "strict";
+      const index = spec?.index ?? 0;
+      const strategyKey = spec?.strategy ?? "base";
+      let sourceKind;
+      let steps;
+      let formula;
+      if (isMnemonic) {
+        sourceKind = "助记词";
+        if (spec && strategyKey === "salted") {
+          steps = [
+            "取助记词原文（12/24 个单词）",
+            `拼消息："${domain}\\0" + 助记词 + "\\0#${index}"`,
+            `digest = ${hashName}(消息)`,
+            "digest 即该链 32 字节私钥种子（离开标准 BIP-32 树）",
+          ];
+          formula = `${hashName}("${domain}\\0" ‖ 助记词 ‖ "\\0#${index}")`;
+        } else if (spec && strategyKey === "iterated") {
+          steps = [
+            "助记词 → PBKDF2-HMAC-SHA512 → 512 位种子",
+            `沿基础路径 ${account.path} 派生基础私钥 base`,
+            `连续哈希 base 自己 ${index} 次 → digest`,
+            "digest 即该链 32 字节私钥种子",
+          ];
+          formula = `${hashName}^${index}(base)`;
+        } else {
+          steps = [
+            "助记词 → PBKDF2-HMAC-SHA512 → 512 位种子",
+            `沿路径 ${account.path} 做BIP-32/SLIP-0010 子钥派生`,
+            "派生出的私钥字节即该链私钥",
+          ];
+          formula = `BIP-32(${account.path})`;
+        }
+      } else if (!spec) {
+        sourceKind = "口令";
+        steps = [
+          `取口令（NFKD 规范化）：${redact(trimmed)}`,
+          isolated ? `拼消息："${domain}\\0" + 口令` : "拼消息：口令原文",
+          `digest = ${hashName}(消息)`,
+          "digest 即该链 32 字节私钥种子",
+        ];
+        formula = isolated ? `${hashName}("${domain}\\0" ‖ 口令)` : `${hashName}(口令)`;
+      } else if (strategyKey === "iterated") {
+        sourceKind = "口令";
+        steps = [
+          `取口令（NFKD 规范化）：${redact(trimmed)}`,
+          `计算基础私钥 base = ${hashName}(口令)`,
+          `连续哈希 base 自己 ${index} 次 → digest`,
+          "digest 即该链 32 字节私钥种子",
+        ];
+        formula = `${hashName}^${index}(base)`;
+      } else {
+        sourceKind = "口令";
+        steps = [
+          `取口令（NFKD 规范化）：${redact(trimmed)}`,
+          isolated ? `拼消息："${domain}\\0" + 口令` : "拼消息：口令原文",
+          `追加账户序号：消息 + "\\0#${index}"`,
+          `digest = ${hashName}(消息)`,
+          "digest 即该链 32 字节私钥种子",
+        ];
+        formula = isolated
+          ? `${hashName}("${domain}\\0" ‖ 口令 ‖ "\\0#${index}")`
+          : `${hashName}(口令 ‖ "\\0#${index}")`;
+      }
+      return {
+        chain,
+        chainName: account.name,
+        symbol: account.symbol,
+        id: spec?.id ?? null,
+        label: spec ? spec.label || `#${spec.index}` : "基础账户",
+        address: account.address,
+        addressFormat: account.addressFormat,
+        path: account.path,
+        derivation: account.derivation,
+        hashAlgorithm: account.hashAlgorithm,
+        publicKey: account.publicKey,
+        privateKeyFormat: format,
+        privateKey: value,
+        sourceKind,
+        sourcePreview: preview,
+        steps,
+        formula,
+        warning: core
+          ? "任何持有该私钥的人都能控制此地址的全部资产。请勿截图、勿粘贴到网页，用完请清理剪贴板。"
+          : "演示模式展示的私钥是随机字符串，不控制任何资产。",
+      };
+    }
+
+    case "rename_batch_account": {
+      const wallet = activeWallet();
+      if (store.locked || !wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      const spec = (wallet.batchAccounts ?? []).find((spec) => spec.id === args.id);
+      if (!spec) throw { code: "BATCH_ACCOUNT_NOT_FOUND", message: "找不到该派生账户" };
+      const label = String(args.label ?? "").trim();
+      if (!label) throw { code: "INVALID_LABEL", message: "账户名称不能为空" };
+      spec.label = label;
+      persist();
+      return walletView();
+    }
+
+    case "remove_batch_account": {
+      const wallet = activeWallet();
+      if (store.locked || !wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      const accounts = wallet.batchAccounts ?? [];
+      const before = accounts.length;
+      wallet.batchAccounts = accounts.filter((spec) => spec.id !== args.id);
+      if (wallet.batchAccounts.length === before) {
+        throw { code: "BATCH_ACCOUNT_NOT_FOUND", message: "找不到该派生账户" };
+      }
+      if (wallet.activeBatch === args.id) {
+        wallet.activeBatch = wallet.batchAccounts[0]?.id ?? null;
+      }
       persist();
       return walletView();
     }

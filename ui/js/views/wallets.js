@@ -41,25 +41,30 @@ function modeLabel(wallet) {
 }
 
 function listMarkup(ctx) {
-  const wallets = ctx.state.wallet?.wallets ?? [];
+  const view = ctx.state.wallet;
+  const wallets = view?.wallets ?? [];
   const rows = wallets
-    .map(
-      (wallet) => `<div class="wallet-row ${wallet.active ? "is-active" : ""}" data-id="${wallet.id}">
+    .map((wallet) => {
+      const isActive = wallet.active;
+      const accountCount = isActive ? (view?.batchAccounts ?? []).length : 0;
+      return `<div class="wallet-row ${isActive ? "is-active" : ""}" data-id="${wallet.id}">
       <span class="wallet-mark">${icon("wallet")}</span>
       <div class="wallet-main">
         <div class="wallet-name">${escapeHtml(wallet.label)}
-          ${wallet.active ? '<span class="chip chip-ok">当前使用</span>' : ""}</div>
+          ${isActive ? '<span class="chip chip-ok">当前使用</span>' : ""}</div>
         <div class="wallet-sub">
           <span class="chip">${escapeHtml(modeLabel(wallet))}</span>
           <span class="fingerprint muted">${escapeHtml(wallet.fingerprint)}</span>
         </div>
         <div class="wallet-sub muted small">创建于 ${escapeHtml(
           formatDateTime(wallet.createdAt),
-        )} · ${wallet.activityCount} 条交易记录</div>
+        )} · ${wallet.activityCount} 条交易记录${
+          isActive && accountCount > 0 ? ` · ${accountCount} 个派生账户` : ""
+        }</div>
       </div>
       <div class="wallet-actions">
         ${
-          wallet.active
+          isActive
             ? ""
             : `<button class="btn btn-ghost btn-sm" type="button" data-action="switch">${icon(
                 "check",
@@ -72,16 +77,16 @@ function listMarkup(ctx) {
           wallets.length <= 1 ? 'disabled title="至少保留一个钱包"' : ""
         }>${icon("trash")}删除</button>
       </div>
-    </div>`,
-    )
+    </div>`;
+    })
     .join("");
 
   return `<div class="section-title">
       <h2>全部钱包</h2>
-      <span class="hint">共 ${wallets.length} 个 · 收款地址、余额与转账都属于「当前使用」的那个</span>
+      <span class="hint">共 ${wallets.length} 个 · 派生账户在「总览 → 资产」按需添加</span>
     </div>
     <div class="wallet-list">${rows}</div>
-    <p class="hint" style="margin-top:12px">所有钱包共用同一个本地密码。删除钱包只会把它从本机文件里移除，只要还记得助记词或口令，随时可以重新导入。</p>`;
+    <p class="hint" style="margin-top:12px">所有钱包共用同一个本地密码。派生账户只存「派生方式 + 序号」，不占额外密钥；只要记得助记词/口令，随时可以全部恢复。派生账户的切换与管理在「总览 → 资产」页进行。</p>`;
 }
 
 /* ----------------------------------------------------------------- binding */
@@ -440,3 +445,210 @@ function bindForm(body, local, { ctx, close, onDone, paint }) {
     }
   });
 }
+
+/* ------------------------------------------------------------- batch flow */
+
+const STRATEGY_LABELS = {
+  path: { title: "路径派生", desc: "BIP-32 地址索引递增，与主流钱包兼容（助记词）" },
+  salted: { title: "加盐派生", desc: "H(域名‖密语‖#序号)，每个序号独立密钥" },
+  iterated: { title: "迭代哈希", desc: "链哈希对自身迭代 N 次，序号即次数" },
+};
+
+/** Pin more derived accounts onto the current wallet. */
+function batchFlow(ctx, onDone) {
+  const wallet = ctx.state.wallet;
+  if (!wallet) return;
+  const local = {
+    strategy: "salted",
+    count: 5,
+    start: 1,
+    labelPrefix: "",
+    previews: null,
+    previewing: false,
+    previewError: null,
+    busy: false,
+  };
+
+  openModal(`<div id="batch-wallet-body"></div>`, {
+    onMount(element, close) {
+      const body = element.querySelector("#batch-wallet-body");
+      const paint = () => {
+        body.innerHTML = batchFormMarkup(local, wallet);
+        bindBatchForm(body, local, { ctx, close, onDone, paint });
+      };
+      paint();
+      void runBatchPreview(body, local);
+    },
+  });
+}
+
+function batchFormMarkup(local, wallet) {
+  return `<h2>批量派生账户</h2>
+    <p class="hint" style="margin:6px 0 12px">
+      给「${escapeHtml(wallet.label)}」追加派生账户。所有账户共用这一份${wallet.mode === "mnemonic" ? "助记词" : "口令"}，
+      只记录「派生方式 + 序号」，不额外保存任何密钥；切换账户时全链地址、余额与收款码一起跟随。
+    </p>
+
+    <div class="field">
+      <span class="field-label">派生方式</span>
+      <div class="seg seg-col" role="group">
+        ${Object.entries(STRATEGY_LABELS)
+          .map(
+            ([key, meta]) =>
+              `<button type="button" data-strategy="${key}" aria-pressed="${local.strategy === key}">
+                 <span class="seg-title">${meta.title}</span><span class="seg-desc">${meta.desc}</span>
+               </button>`,
+          )
+          .join("")}
+      </div>
+    </div>
+
+    <div class="row" style="gap:12px">
+      <div class="field" style="flex:1">
+        <label for="batch-count">账户数量（1–${maxCount(local)}）</label>
+        <input class="input" id="batch-count" type="number" min="1" max="${maxCount(local)}" value="${local.count}" />
+      </div>
+      <div class="field" style="flex:1">
+        <label for="batch-start">起始序号</label>
+        <input class="input" id="batch-start" type="number" min="0" max="${maxCount(local) - 1}" value="${local.start}" />
+      </div>
+      <div class="field" style="flex:2">
+        <label for="batch-prefix">名称前缀（可选）</label>
+        <input class="input" id="batch-prefix" type="text" placeholder="留空则用「${escapeHtml(wallet.label)} #序号」" value="${escapeHtml(
+          local.labelPrefix,
+        )}" />
+      </div>
+    </div>
+
+    <div id="batch-preview">${batchPreviewMarkup(local)}</div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-close type="button">取消</button>
+      <button class="btn btn-primary" id="batch-save" type="button" ${
+        local.previews && !local.busy ? "" : "disabled"
+      }>添加 ${local.count} 个账户</button>
+    </div>`;
+}
+
+function maxCount(local) {
+  return local.strategy === "iterated" ? 50 : 100;
+}
+
+function batchPreviewMarkup(local) {
+  if (local.previewing) {
+    return `<div class="stack-sm"><div class="skeleton" style="height:58px"></div><div class="skeleton" style="height:58px"></div></div>`;
+  }
+  if (local.previewError) {
+    return `<div class="note note-warn">${icon("warn")}<div>${escapeHtml(local.previewError)}</div></div>`;
+  }
+  if (!local.previews) return "";
+  return `<div class="stack-sm">
+      <div class="field-label">派生预览（前 ${local.previews.length} 个 · 每个含全部链地址）</div>
+      ${local.previews
+        .map(
+          (preview, offset) => `<div class="preview-account" style="margin-bottom:8px">
+            <div class="head">
+              <span class="dot" style="--accent:var(--vermilion)"></span>
+              #${local.start + offset}
+              <span class="fingerprint muted">${escapeHtml(preview.fingerprint)}</span>
+            </div>
+            <div class="addr">${escapeHtml(preview.accounts[0].address)} <span class="muted">+${preview.accounts.length - 1} 链</span></div>
+          </div>`,
+        )
+        .join("")}
+    </div>`;
+}
+
+let batchPreviewToken = 0;
+
+async function runBatchPreview(body, local) {
+  local.previewing = true;
+  local.previewError = null;
+  patchBatchPreview(body, local);
+  const token = ++batchPreviewToken;
+  try {
+    const previews = await api.previewBatch({
+      batch: { strategy: local.strategy, count: Math.min(local.count, 3), start: local.start },
+    });
+    if (token !== batchPreviewToken) return;
+    local.previews = previews;
+    local.previewError = null;
+  } catch (error) {
+    if (token !== batchPreviewToken) return;
+    local.previews = null;
+    local.previewError = error.message;
+  } finally {
+    if (token === batchPreviewToken) {
+      local.previewing = false;
+      patchBatchPreview(body, local);
+    }
+  }
+}
+
+function patchBatchPreview(body, local) {
+  const container = body.querySelector("#batch-preview");
+  if (container) container.innerHTML = batchPreviewMarkup(local);
+  const save = body.querySelector("#batch-save");
+  if (save) {
+    save.textContent = `添加 ${local.count} 个账户`;
+    save.disabled = !(local.previews && !local.busy);
+  }
+}
+
+function bindBatchForm(body, local, { ctx, close, onDone, paint }) {
+  body.querySelectorAll("[data-strategy]").forEach((button) => {
+    button.addEventListener("click", () => {
+      local.strategy = button.dataset.strategy;
+      const max = maxCount(local);
+      local.count = Math.min(local.count, max);
+      local.start = Math.min(local.start, max - 1);
+      paint();
+      void runBatchPreview(body, local);
+    });
+  });
+
+  const countField = body.querySelector("#batch-count");
+  countField.addEventListener("input", () => {
+    const value = Number(countField.value);
+    if (Number.isFinite(value)) {
+      local.count = Math.max(1, Math.min(maxCount(local), Math.floor(value)));
+      patchBatchPreview(body, local);
+    }
+  });
+  const startField = body.querySelector("#batch-start");
+  startField.addEventListener("input", () => {
+    const value = Number(startField.value);
+    if (Number.isFinite(value)) {
+      local.start = Math.max(0, Math.min(maxCount(local) - 1, Math.floor(value)));
+      patchBatchPreview(body, local);
+      debounce(() => void runBatchPreview(body, local), 420)();
+    }
+  });
+  const prefixField = body.querySelector("#batch-prefix");
+  prefixField.addEventListener("input", () => {
+    local.labelPrefix = prefixField.value;
+  });
+
+  body.querySelector("#batch-save")?.addEventListener("click", async (event) => {
+    if (!local.previews || local.busy) return;
+    local.busy = true;
+    const button = event.currentTarget;
+    setBusy(button, true, "派生中…");
+    try {
+      const view = await api.addWalletsBatch({
+        batch: { strategy: local.strategy, count: local.count, start: local.start },
+        name: local.labelPrefix.trim() || null,
+      });
+      ctx.setWallet(view);
+      close();
+      onDone?.();
+      toast(`已为当前钱包添加 ${local.count} 个派生账户`, "success");
+    } catch (error) {
+      local.busy = false;
+      setBusy(button, false);
+      toast(error.message, "error");
+    }
+  });
+}
+
+/* ------------------------------------------------ batch account management */
+

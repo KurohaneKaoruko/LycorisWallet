@@ -23,8 +23,10 @@ pub mod vault;
 
 pub use chains::{ChainId, ChainInfo, ChainKind, HashAlgorithm};
 pub use derive::{
-    derive_accounts, derive_fingerprint, derive_private_key, preview_derivation, Account,
-    DerivationMode, PrivateKeyMaterial, WalletMode, WalletSecret,
+    derive_accounts, derive_accounts_batch, derive_accounts_for_spec, derive_chain_accounts_batch,
+    derive_chain_private_key_for_spec, derive_fingerprint, derive_private_key, preview_derivation,
+    Account, BatchAccountSpec, BatchRequest, BatchStrategy, DerivationMode, DerivationPreview,
+    PrivateKeyMaterial, WalletMode, WalletSecret,
 };
 pub use error::{Error, Result};
 pub use models::*;

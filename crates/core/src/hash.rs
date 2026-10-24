@@ -46,16 +46,41 @@ pub fn derivation_message(phrase: &str, chain: ChainId, isolated: bool) -> Resul
 /// phrases. The UI and docs repeat this warning.
 pub fn chain_hash(phrase: &str, chain: ChainId, isolated: bool) -> Result<[u8; 32]> {
     let message = derivation_message(phrase, chain, isolated)?;
+    hash_message(&message, chain)
+}
+
+/// The same chain-native hash, but the account index is mixed into the hashed
+/// message (`…\0#<index>`). Every account gets an independent key while the
+/// formula stays a one-line salted hash.
+pub fn chain_hash_salted(phrase: &str, chain: ChainId, isolated: bool, index: u32) -> Result<[u8; 32]> {
+    let mut message = derivation_message(phrase, chain, isolated)?;
+    message.extend_from_slice(format!("\0#{}", index).as_bytes());
+    hash_message(&message, chain)
+}
+
+/// Iterated hashing (the "hash chain" strategy): the chain hash is applied to
+/// the *base account's 32-byte key seed* `rounds` times. The base key is
+/// whatever the base account already has — a mnemonic-path key or a passphrase
+/// hash — so the chain never folds back onto it: round 1 already differs.
+pub fn chain_key_iterated(base: [u8; 32], chain: ChainId, rounds: u32) -> Result<[u8; 32]> {
+    let mut digest = base;
+    for _ in 0..rounds {
+        digest = hash_message(&digest, chain)?;
+    }
+    Ok(digest)
+}
+
+fn hash_message(message: &[u8], chain: ChainId) -> Result<[u8; 32]> {
     let algorithm = chain.info().hash;
     match algorithm {
         HashAlgorithm::Sha256 => {
-            let digest = Sha256::digest(&message);
+            let digest = Sha256::digest(message);
             let mut out = [0u8; 32];
             out.copy_from_slice(&digest);
             Ok(out)
         }
         HashAlgorithm::Keccak256 => {
-            let digest = Keccak256::digest(&message);
+            let digest = Keccak256::digest(message);
             let mut out = [0u8; 32];
             out.copy_from_slice(&digest);
             Ok(out)
@@ -64,7 +89,7 @@ pub fn chain_hash(phrase: &str, chain: ChainId, isolated: bool) -> Result<[u8; 3
             let params = ScryptParams::new(14, 8, 1, 32)
                 .map_err(|e| Error::Crypto(format!("invalid scrypt parameters: {e}")))?;
             let mut out = [0u8; 32];
-            scrypt(&message, SCRYPT_SALT, &params, &mut out)
+            scrypt(message, SCRYPT_SALT, &params, &mut out)
                 .map_err(|e| Error::Crypto(format!("scrypt failed: {e}")))?;
             Ok(out)
         }
@@ -80,7 +105,8 @@ pub fn public_fingerprint(addresses: &[String]) -> String {
         hasher.update(b"\n");
     }
     let digest = hasher.finalize();
-    let hex = hex::encode(&digest[..8]);
+    // 全大写十六进制,与钱包界面其他指纹展示一致,也更易读.
+    let hex = hex::encode(&digest[..8]).to_uppercase();
     format!(
         "{}-{}-{}-{}",
         &hex[0..4],

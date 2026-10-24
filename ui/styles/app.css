@@ -969,6 +969,246 @@
   flex-wrap: wrap;
 }
 
+/* 资产详情子页：hero 与派生地址行 */
+
+.asset-hero-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.asset-mark-lg {
+  width: 46px;
+  height: 46px;
+  font-size: 15px;
+}
+
+.asset-total {
+  margin-top: 4px;
+}
+
+.asset-price {
+  margin-top: 6px;
+}
+
+.addr-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-sm);
+  margin-top: 8px;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+
+.addr-row:hover {
+  background: var(--hair);
+}
+
+.addr-row.is-active {
+  border-color: var(--vermilion-ring);
+  background: var(--vermilion-tint);
+}
+
+.addr-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.addr-mono {
+  margin-top: 3px;
+  font-family: var(--mono, monospace);
+  font-size: 12.5px;
+  word-break: break-all;
+}
+
+.addr-path {
+  margin-top: 2px;
+}
+
+.addr-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* 地址详情弹窗：键值行 + 私钥遮蔽区 */
+
+.detail-card {
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-sm);
+  padding: 4px 12px;
+  background: var(--paper-inset, var(--paper));
+}
+
+.detail-card-secret {
+  border-color: color-mix(in srgb, var(--vermilion) 35%, var(--hair));
+}
+
+/* 私钥来源:三段链(密语 → 公式 → 私钥),默认折叠 */
+
+.detail-source {
+  border: 1px solid color-mix(in srgb, var(--accent-ink, var(--ink-3)) 30%, var(--hair));
+  border-radius: var(--radius-sm);
+  background: var(--paper-inset, var(--paper));
+}
+
+.detail-source summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  list-style: none;
+  user-select: none;
+}
+
+.detail-source summary::-webkit-details-marker {
+  display: none;
+}
+
+.detail-source summary svg {
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+}
+
+.detail-source[open] summary {
+  border-bottom: 1px solid var(--hair);
+}
+
+.detail-source .hint {
+  font-weight: 400;
+}
+
+.key-chain {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 10px 12px 12px;
+}
+
+.key-chain-box {
+  padding: 9px 12px;
+  border: 1px dashed var(--hair-strong, var(--hair));
+  border-radius: var(--radius-xs);
+  background: var(--paper-raised);
+  font-size: 12px;
+  word-break: break-all;
+  text-align: center;
+  color: var(--ink);
+}
+
+.key-chain-formula {
+  color: var(--ink-2);
+}
+
+.key-chain-secret {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.key-chain-final {
+  position: relative;
+  display: block;
+  border-color: color-mix(in srgb, var(--vermilion) 45%, var(--hair-strong, var(--hair)));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--vermilion);
+}
+
+.key-chain-final.is-revealed {
+  padding-right: 34px;
+  letter-spacing: normal;
+}
+
+.key-chain-final.is-revealed .key-chain-final-text {
+  word-break: break-all;
+  text-align: left;
+}
+
+.key-chain-eye {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--ink-3);
+}
+
+.key-chain-eye:hover {
+  color: var(--vermilion);
+}
+
+.key-chain-eye svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.key-chain-arrow {
+  align-self: center;
+  font-size: 11px;
+  color: var(--ink-3);
+  line-height: 1.2;
+}
+
+.detail-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 0;
+}
+
+.detail-row + .detail-row {
+  border-top: 1px solid var(--hair);
+}
+
+.detail-key {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.detail-value {
+  min-width: 0;
+  font-size: 12.5px;
+  text-align: right;
+  word-break: break-all;
+}
+
+.detail-value.mono,
+.detail-secret-value {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.detail-secret-value {
+  margin-top: 2px;
+  word-break: break-all;
+  color: var(--ink-2);
+  letter-spacing: 0.02em;
+}
+
 /* --------------------------------------------------------------- responsive */
 
 /* 平板/窄桌面：侧栏收窄为图标 */
@@ -1190,10 +1430,25 @@
     place-items: end center;
     padding: 0;
     align-items: end;
+    /* 小屏抽屉模式：蒙版更深，聚焦弹窗内容 */
+    background: rgba(0, 0, 0, 0.68);
   }
 
   .modal-foot {
     padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+
+  /* 触屏设备一律不显示滚动条 */
+  .stage,
+  .modal,
+  .rail {
+    scrollbar-width: none;
+  }
+
+  .stage::-webkit-scrollbar,
+  .modal::-webkit-scrollbar,
+  .rail::-webkit-scrollbar {
+    display: none;
   }
 
   /* 表格类横向滚动容器 */

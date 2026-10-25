@@ -21,6 +21,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui-react/package-lock.json
+
+      - name: 构建前端（ui-react）
+        # src-tauri 的 generate_context! 宏在编译期读取 tauri.conf.json 的
+        # frontendDist（../ui-react/dist，gitignore 不入库），必须先构建出来。
+        working-directory: ui-react
+        run: |
+          npm ci
+          npm run build
+
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -61,10 +76,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: 检查所有前端模块
+      - name: 构建并检查 React 前端（ui-react）
+        working-directory: ui-react
         run: |
-          find ui/js -name '*.js' -print0 | xargs -0 -n1 node --check
-          echo "前端模块语法检查通过"
+          npm ci
+          npm run build
 
       - name: 校验演示内核（WebAssembly）
         run: node tools/verify_core_wasm.mjs

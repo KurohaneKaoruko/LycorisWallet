@@ -8,6 +8,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -40,7 +41,7 @@ export interface SessionState {
 
 export interface AppActions {
   go: (view: ViewId, params?: Record<string, unknown>) => void;
-  setWallet: (wallet: WalletView) => void;
+  setWallet: (wallet: WalletView | null) => void;
   /** 重新拉取钱包（可选保留当前派生选择之外的刷新）。 */
   reloadWallet: () => Promise<void>;
   refreshPortfolio: (force?: boolean) => Promise<Portfolio | null>;
@@ -85,12 +86,20 @@ export function SessionProvider({
   });
   let portfolioFetch: Promise<Portfolio> | null = null;
   let lastPortfolioAt = 0;
+  // TTL 判定里要读最近的 portfolio；用 ref 而不是 state 依赖，
+  // 否则每次成功都会换出新的 callback 身份，App 的 effect 会跟着重跑（按钮闪烁的根源）。
+  const portfolioRef = useRef<Portfolio | null>(null);
 
   const go = useCallback((view: ViewId, params: Record<string, unknown> = {}) => {
     setState((s) => ({ ...s, view, params: { ...params } }));
   }, []);
 
-  const setWallet = useCallback((wallet: WalletView) => {
+  const setWallet = useCallback((wallet: WalletView | null) => {
+    if (!wallet) {
+      // 旧版允许 setWallet(null)（删除钱包文件后回到引导页）。
+      setState((s) => ({ ...s, wallet: null }));
+      return;
+    }
     setState((s) => ({
       ...s,
       wallet: applyVisibleChains(wallet, wallet.settings?.visibleChains ?? []),
@@ -104,8 +113,8 @@ export function SessionProvider({
 
   const refreshPortfolio = useCallback(
     async (force = false): Promise<Portfolio | null> => {
-      if (!force && Date.now() / 1000 - lastPortfolioAt < PORTFOLIO_TTL && state.portfolio) {
-        return state.portfolio;
+      if (!force && Date.now() / 1000 - lastPortfolioAt < PORTFOLIO_TTL && portfolioRef.current) {
+        return portfolioRef.current;
       }
       if (portfolioFetch) return portfolioFetch;
       setState((s) => ({ ...s, portfolioLoading: true }));
@@ -113,6 +122,7 @@ export function SessionProvider({
         .refreshPortfolio()
         .then((portfolio) => {
           lastPortfolioAt = Date.now() / 1000;
+          portfolioRef.current = portfolio;
           setState((s) => ({ ...s, portfolio, portfolioLoading: false }));
           return portfolio;
         })
@@ -126,7 +136,7 @@ export function SessionProvider({
         });
       return portfolioFetch;
     },
-    [state.portfolio],
+    [],
   );
 
   const refreshStatus = useCallback(async (): Promise<VaultStatus> => {
@@ -147,6 +157,8 @@ export function SessionProvider({
       // demo mode may not implement locking; still drop to the lock screen.
     }
     if (isMock) await walletFull().catch(() => {});
+    portfolioRef.current = null;
+    lastPortfolioAt = 0;
     setState((s) => ({
       ...s,
       view: "unlock",

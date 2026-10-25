@@ -4,8 +4,9 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api";
+import { copyText } from "../clipboard";
 import { useSession } from "../shell/session";
-import { Modal, useDialogs, useToast } from "../ui/overlay";
+import { Modal, useDialogs, useTabScroll, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
 import { groupDigits, shortAddress } from "../format";
 import type { ChainId, FeeOption, SendQuote, SendResult } from "../types";
@@ -14,6 +15,7 @@ export function SendView() {
   const { wallet, params, go, reloadWallet } = useSession();
   const toast = useToast();
   const { confirm } = useDialogs();
+  const tabsRef = useTabScroll<HTMLDivElement>();
 
   const [chainId, setChainId] = useState<ChainId>(((params.chain as ChainId) ?? "bitcoin"));
   const presetTo = (params.to as string | undefined) ?? "";
@@ -26,6 +28,7 @@ export function SendView() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<SendResult | null>(null);
+  const [pickingContact, setPickingContact] = useState(false);
 
   const account = wallet?.accounts.find((item) => item.chain === chainId);
 
@@ -38,6 +41,13 @@ export function SendView() {
     setQuote(null);
     setError("");
   }, [chainId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 旧版为输入防抖自动询价：地址+金额齐了就自动 requestQuote。
+  useEffect(() => {
+    if (!to.trim() || !amount.trim()) return;
+    const timer = window.setTimeout(() => void requestQuote(), 500);
+    return () => window.clearTimeout(timer);
+  }, [to, amount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const requestQuote = async () => {
     if (!account || !to.trim() || !amount.trim()) return;
@@ -108,20 +118,102 @@ export function SendView() {
     );
   }
 
+  /* 成功后整页替换为回执视图（与旧版 successMarkup 一致）。 */
+  if (result) {
+    return (
+      <section className="view">
+        <div className="page-head">
+          <div>
+            <h1>已广播</h1>
+            <div className="sub">交易已发送到 {result.chain} 网络，等待打包确认。</div>
+          </div>
+        </div>
+        <div className="card card-pad stack" style={{ maxWidth: 640 }}>
+          <div className="note note-ok">
+            <Icon name="check" />
+            <div>
+              {result.amount} {result.symbol} 已发送到 {shortAddress(result.to, 14, 8)}
+            </div>
+          </div>
+          <div className="kv">
+            <span className="kv-key">交易哈希</span>
+            <span className="kv-value mono">{result.txid}</span>
+          </div>
+          <div className="kv">
+            <span className="kv-key">手续费</span>
+            <span className="kv-value">
+              {groupDigits(result.fee)} {result.symbol}
+            </span>
+          </div>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            <button
+              className="btn btn-primary"
+              type="button"
+              data-action="copy-tx"
+              onClick={async () => {
+                const ok = await copyText(result.txid);
+                toast(ok ? "交易哈希已复制" : "复制失败", ok ? "success" : "error");
+              }}
+            >
+              <Icon name="copy" />
+              复制交易哈希
+            </button>
+            <button
+              className="btn"
+              type="button"
+              data-action="explorer"
+              onClick={async () => {
+                try {
+                  await api.openExternal(result.explorerUrl);
+                } catch (e) {
+                  toast((e as Error).message, "error");
+                }
+              }}
+            >
+              <Icon name="external" />
+              在浏览器中查看
+            </button>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              data-action="again"
+              onClick={() => setResult(null)}
+            >
+              <Icon name="send" />
+              再转一笔
+            </button>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              data-action="activity"
+              onClick={() => {
+                setResult(null);
+                go("activity");
+              }}
+            >
+              <Icon name="activity" />
+              查看记录
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="view">
       <div className="page-head">
         <div>
           <h1>转账</h1>
-          <div className="sub">所有签名都在本机完成；交易直接广播到对应网络。</div>
+          <div className="sub">金额与手续费都由本地 Rust 引擎计算，签名永远不离开设备。</div>
         </div>
         <button className="btn" type="button" onClick={() => go("receive", { chain: chainId })}>
           <Icon name="receive" />
-          去收款
+          收款
         </button>
       </div>
 
-      <div className="tabs" role="tablist" style={{ marginBottom: 16 }}>
+      <div className="tabs" role="tablist" style={{ marginBottom: 16 }} ref={tabsRef}>
         {wallet.accounts.map((item) => (
           <button
             key={item.chain}
@@ -137,158 +229,211 @@ export function SendView() {
         ))}
       </div>
 
-      <div className="card card-pad stack">
-        <div className="field">
-          <label htmlFor="send-to">收款地址</label>
-          <input
-            className="input mono"
-            id="send-to"
-            spellCheck={false}
-            autoComplete="off"
-            placeholder={`粘贴 ${account.name} 地址`}
-            value={to}
-            onChange={(event) => {
-              setTo(event.target.value);
-              setQuote(null);
-            }}
-          />
-        </div>
-        <div className="row" style={{ gap: 12, alignItems: "flex-end" }}>
-          <div className="field" style={{ flex: 1 }}>
-            <label htmlFor="send-amount">金额（可用 {groupDigits(account.address ? quote?.balance ?? "…" : "…")} {account.symbol}）</label>
+      <div className="send-layout">
+        <div className="card card-pad stack">
+          <div className="field">
+            <div className="row-between">
+              <label htmlFor="send-to">收款地址</label>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                data-action="pick-contact"
+                onClick={() => {
+                  const contacts = wallet.contacts ?? [];
+                  if (contacts.length === 0) {
+                    toast("地址簿还是空的，去「联系人」添加", "info");
+                    return;
+                  }
+                  setPickingContact(true);
+                }}
+              >
+                <Icon name="contacts" />
+                从联系人选择
+              </button>
+            </div>
             <input
-              className="input"
-              id="send-amount"
-              type="text"
-              inputMode="decimal"
-              placeholder="0.00"
-              value={amount}
+              className="input mono"
+              id="send-to"
+              spellCheck={false}
+              autoComplete="off"
+              placeholder={`粘贴 ${account.name} 地址`}
+              value={to}
               onChange={(event) => {
-                setAmount(event.target.value);
+                setTo(event.target.value);
                 setQuote(null);
               }}
             />
           </div>
-          <button className="btn" type="button" disabled={quoting || !to.trim() || !amount.trim()} onClick={() => void requestQuote()}>
-            {quoting ? "询价中…" : "获取费率"}
-          </button>
-        </div>
 
-        {quote?.warning ? (
-          <div className="note note-warn">
-            <Icon name="warn" />
-            <div>{quote.warning}</div>
-          </div>
-        ) : null}
-        {quote?.note ? (
-          <div className="note">
-            <Icon name="info" />
-            <div>{quote.note}</div>
-          </div>
-        ) : null}
-
-        {fees.length > 0 ? (
           <div className="field">
-            <span className="field-label">手续费</span>
-            <div className="fee-grid">
-              {fees.map((fee) => (
-                <button
-                  key={fee.level}
-                  className={`fee-card${selectedFee === fee.level ? " is-selected" : ""}`}
-                  type="button"
-                  aria-pressed={selectedFee === fee.level}
-                  onClick={() => setSelectedFee(fee.level)}
-                >
-                  <div className="fee-label">{fee.label}</div>
-                  <div className="fee-value">
-                    {fee.fee} {account.symbol}
-                  </div>
-                  {fee.feeFiat ? <div className="fee-fiat">{fee.feeFiat}</div> : null}
-                  <div className="fee-eta muted small">{fee.eta}</div>
-                  {fee.note ? <div className="fee-note muted small">{fee.note}</div> : null}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {error ? <p className="error-text">{error}</p> : null}
-
-        <div className="modal-foot" style={{ justifyContent: "flex-end" }}>
-          <button
-            className="btn btn-primary"
-            type="button"
-            disabled={!quote?.canSend || !selectedFee || sending}
-            onClick={() => void send()}
-          >
-            {sending ? "广播中…" : "签名并广播"}
-          </button>
-        </div>
-      </div>
-
-      {result ? (
-        <Modal title="转账成功" onClose={() => setResult(null)}>
-          <div className="stack-sm" style={{ marginTop: 10 }}>
-            <div className="kv">
-              <span className="kv-key">金额</span>
-              <span className="kv-value">
-                {groupDigits(result.amount)} {result.symbol}
+            <div className="row-between">
+              <label htmlFor="send-amount">金额</label>
+              <span className="hint">
+                可用 {groupDigits(quote?.balance ?? "0")} {account.symbol}
               </span>
             </div>
-            <div className="kv">
-              <span className="kv-key">手续费</span>
-              <span className="kv-value">
-                {groupDigits(result.fee)} {result.symbol}
-              </span>
-            </div>
-            <div className="kv">
-              <span className="kv-key">收款方</span>
-              <span className="kv-value mono">{shortAddress(result.to, 18, 10)}</span>
-            </div>
-            <span className="field-label">交易哈希</span>
-            <div className="copy-field">
-              <span className="value mono">{shortAddress(result.txid, 20, 10)}</span>
+            <div className="amount-input">
+              <input
+                id="send-amount"
+                inputMode="decimal"
+                placeholder="0.0"
+                autoComplete="off"
+                value={amount}
+                onChange={(event) => {
+                  setAmount(event.target.value);
+                  setQuote(null);
+                }}
+              />
+              <span className="unit">{account.symbol}</span>
               <button
                 className="btn btn-ghost btn-sm"
                 type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(result.txid);
-                    toast("已复制", "success");
-                  } catch {
-                    toast("复制失败", "error");
+                onClick={() => {
+                  if (quote?.maxAmount) {
+                    setAmount(String(quote.maxAmount));
+                    setQuote(null);
                   }
                 }}
               >
-                <Icon name="copy" />
+                全部
               </button>
             </div>
-            <div className="note">
-              <Icon name="check" />
-              <div>交易已广播。确认进度可在区块浏览器查看，记录已保存到本机交易历史。</div>
-            </div>
           </div>
-          <div className="modal-foot">
-            <button className="btn" type="button" onClick={() => setResult(null)}>
-              完成
-            </button>
+
+          <div className="field">
+            <span className="field-label">网络费</span>
+            <div className="fee-list">
+              {quoting ? (
+                <>
+                  <div className="skeleton" style={{ height: 56 }} />
+                  <div className="skeleton" style={{ height: 56 }} />
+                  <div className="skeleton" style={{ height: 56 }} />
+                </>
+              ) : fees.length === 0 ? (
+                <p className="hint">填入地址和金额后自动获取费率。</p>
+              ) : (
+                fees.map((fee) => (
+                  <button
+                    key={fee.level}
+                    className="fee-option"
+                    type="button"
+                    data-level={fee.level}
+                    aria-pressed={selectedFee === fee.level}
+                    onClick={() => setSelectedFee(fee.level)}
+                  >
+                    <span className="fee-radio" />
+                    <span>
+                      <span className="fee-name">{fee.label}</span>
+                      <span className="fee-note">
+                        {fee.note ?? ""} → {fee.eta}
+                      </span>
+                    </span>
+                    <span className="fee-value">
+                      {groupDigits(fee.fee)} <span className="muted small">{account.symbol}</span>
+                      {fee.feeFiat ? <div className="fiat">{fee.feeFiat}</div> : null}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+            <p className="hint">{quote?.note ?? ""}</p>
+          </div>
+
+          {error ? <div className="note note-danger"><Icon name="warn" /><div>{error}</div></div> : null}
+          {quote?.warning ? <div className="note note-warn"><Icon name="warn" /><div>{quote.warning}</div></div> : null}
+
+          <div className="row" style={{ justifyContent: "flex-end" }}>
             <button
               className="btn btn-primary"
               type="button"
-              onClick={async () => {
-                try {
-                  await api.openExternal(result.explorerUrl);
-                } catch {
-                  // best-effort
-                }
-              }}
+              disabled={!quote?.canSend || !selectedFee || sending}
+              onClick={() => void send()}
             >
-              <Icon name="external" />
-              区块浏览器
+              <Icon name="send" />
+              {sending ? "广播中…" : "确认转账"}
+            </button>
+          </div>
+        </div>
+
+        <div className="stack">
+          <div className="card card-pad">
+            <div className="section-title"><h2>摘要</h2></div>
+            {!quote ? (
+              <p className="hint">等待报价。</p>
+            ) : (
+              <div className="summary stack-sm">
+                <div className="kv">
+                  <span className="kv-key">金额</span>
+                  <span className="kv-value">{groupDigits(amount || quote.amount)} {quote.symbol}</span>
+                </div>
+                <div className="kv">
+                  <span className="kv-key">网络费（{fees.find((f) => f.level === selectedFee)?.label ?? ""}）</span>
+                  <span className="kv-value">
+                    {groupDigits(fees.find((f) => f.level === selectedFee)?.fee ?? "0")} {quote.symbol}
+                  </span>
+                </div>
+                <div className="kv">
+                  <span className="kv-key">转账后余额</span>
+                  <span className="kv-value">{groupDigits(quote.balance)} {quote.symbol}</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="card card-pad">
+            <div className="section-title"><h2>当前账户</h2></div>
+            <div className="kv"><span className="kv-key">地址</span><span className="kv-value mono">{shortAddress(account.address, 14, 8)}</span></div>
+            <div className="kv"><span className="kv-key">派生</span><span className="kv-value">{account.derivation}</span></div>
+            <div className="kv"><span className="kv-key">路径</span><span className="kv-value mono">{account.path}</span></div>
+          </div>
+          <div className="note">
+            <Icon name="info" />
+            <div>转账前请再次核对地址和网络。发错网络的钱无法找回。</div>
+          </div>
+        </div>
+      </div>
+
+      {pickingContact ? (
+        <Modal title="选择联系人" onClose={() => setPickingContact(false)}>
+          <div className="stack-sm" style={{ marginTop: 12 }}>
+            {(wallet.contacts ?? []).map((contact) => (
+              <button
+                key={contact.id}
+                className="btn btn-ghost btn-block"
+                type="button"
+                style={{ justifyContent: "flex-start" }}
+                onClick={() => {
+                  setPickingContact(false);
+                  if (contact.chain !== chainId) setChainId(contact.chain);
+                  setTo(contact.address);
+                  setQuote(null);
+                }}
+              >
+                <span className="dot" style={{ ["--accent" as string]: accentFor(contact.chain) }} />
+                {contact.name} · {shortAddress(contact.address, 10, 6)}
+              </button>
+            ))}
+          </div>
+          <div className="modal-foot">
+            <button className="btn btn-ghost" type="button" onClick={() => setPickingContact(false)}>
+              取消
             </button>
           </div>
         </Modal>
       ) : null}
     </section>
+  );
+}
+
+/** 联系人列表点的颜色（与 dashboard accentFor 同源）。 */
+function accentFor(chain: ChainId): string {
+  return (
+    ({
+      bitcoin: "#f7931a",
+      litecoin: "#345d9d",
+      dogecoin: "#c2a633",
+      bitcoincash: "#0ac18e",
+      monero: "#ff6600",
+      solana: "#9945ff",
+    } as Record<string, string>)[chain] ?? "#8a7cff"
   );
 }

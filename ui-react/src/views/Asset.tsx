@@ -35,27 +35,13 @@ function maxCount(strategy: string): number {
 /* ------------------------------------------------------------- detail dialog */
 
 function KeyChain({ detail }: { detail: AccountDetailView }) {
-  const [revealed, setRevealed] = useState(false);
   return (
-    <div className="detail-source">
-      <div className="key-chain">
-        <span className="key-chain-box mono">{detail.sourcePreview}</span>
-        <span className="key-chain-arrow">↓</span>
-        <span className="key-chain-box key-chain-formula mono">{detail.formula}</span>
-        <span className="key-chain-arrow">↓</span>
-        <span className={`key-chain-box key-chain-final mono${revealed ? " is-revealed" : ""}`}>
-          <span className="key-chain-final-text">{revealed ? detail.privateKey : "私钥"}</span>
-          <button
-            className="key-chain-eye"
-            type="button"
-            title={revealed ? "隐藏私钥" : "显示私钥"}
-            aria-label={revealed ? "隐藏私钥" : "显示私钥"}
-            onClick={() => setRevealed((value) => !value)}
-          >
-            <Icon name={revealed ? "eyeOff" : "eye"} />
-          </button>
-        </span>
-      </div>
+    <div className="key-chain">
+      <span className="key-chain-box mono">{detail.sourcePreview}</span>
+      <span className="key-chain-arrow">↓</span>
+      <span className="key-chain-box key-chain-formula mono">{detail.formula}</span>
+      <span className="key-chain-arrow">↓</span>
+      <span className="key-chain-box key-chain-final mono">{detail.privateKey}</span>
     </div>
   );
 }
@@ -75,66 +61,53 @@ function DetailDialog({
         {detail.chainName}（{detail.symbol}）· {detail.label}
       </p>
       <div className="detail-card">
-        <div className="kv">
-          <span className="kv-key">派生账户</span>
-          <span className="kv-value">{detail.label}</span>
+        <div className="detail-row">
+          <span className="detail-key">派生账户</span>
+          <span className="detail-value">{detail.label}</span>
         </div>
-        <div className="kv">
-          <span className="kv-key">派生路径</span>
-          <span className="kv-value mono">{detail.path}</span>
+        <div className="detail-row">
+          <span className="detail-key">派生路径</span>
+          <span className="detail-value mono">{detail.path}</span>
         </div>
-        <div className="kv">
-          <span className="kv-key">派生方式</span>
-          <span className="kv-value">{detail.derivation}</span>
+        <div className="detail-row">
+          <span className="detail-key">派生方式</span>
+          <span className="detail-value">{detail.derivation}</span>
         </div>
-        <div className="kv">
-          <span className="kv-key">哈希算法</span>
-          <span className="kv-value">{detail.hashAlgorithm}</span>
+        <div className="detail-row">
+          <span className="detail-key">哈希算法</span>
+          <span className="detail-value">{detail.hashAlgorithm}</span>
         </div>
-        <span className="field-label">地址（{detail.addressFormat}）</span>
-        <div className="copy-field">
-          <span className="value mono">{detail.address}</span>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            title="复制地址"
-            onClick={async () => {
-              const ok = await copyText(detail.address);
-              toast(ok ? "已复制" : "复制失败", ok ? "success" : "error");
-            }}
-          >
-            <Icon name="copy" />
-          </button>
+        <div className="detail-row">
+          <span className="detail-key">地址格式</span>
+          <span className="detail-value">{detail.addressFormat}</span>
         </div>
-        <span className="field-label">公钥</span>
-        <div className="copy-field">
-          <span className="value mono">{shortAddress(detail.publicKey, 24, 12)}</span>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            title="复制公钥"
-            onClick={async () => {
-              const ok = await copyText(detail.publicKey);
-              toast(ok ? "已复制" : "复制失败", ok ? "success" : "error");
-            }}
-          >
-            <Icon name="copy" />
-          </button>
+        <div className="detail-row">
+          <span className="detail-key">地址</span>
+          <span className="detail-value mono">{detail.address}</span>
         </div>
-        <span className="field-label">私钥信息（{detail.sourceKind}）</span>
+        <div className="detail-row">
+          <span className="detail-key">公钥</span>
+          <span className="detail-value mono">{detail.publicKey}</span>
+        </div>
+      </div>
+      <details className="detail-source" style={{ marginTop: 12 }}>
+        <summary>
+          <Icon name="info" />
+          私钥信息<span className="hint">（点击展开）</span>
+        </summary>
         <KeyChain detail={detail} />
-        <div className="note note-warn">
-          <Icon name="warn" />
-          <div>{detail.warning}</div>
-        </div>
+      </details>
+      <div className="note note-warn" style={{ marginTop: 12 }}>
+        <Icon name="warn" />
+        <div>{detail.warning}</div>
       </div>
       <div className="modal-foot">
         <button
-          className="btn"
+          className="btn btn-ghost"
           type="button"
           onClick={async () => {
             const ok = await copyText(detail.privateKey);
-            toast(ok ? "私钥已复制，注意剪贴板安全" : "复制失败", ok ? "success" : "error");
+            toast(ok ? "已复制" : "复制失败", ok ? "success" : "error");
           }}
         >
           <Icon name="copy" />
@@ -412,6 +385,18 @@ export function AssetView() {
     }
   };
 
+  // 与旧版 withAccount 一致:先把该行账户切为当前,再跳转收款/转账。
+  const withAccount = async (row: ChainAddressView, target: "receive" | "send") => {
+    try {
+      if ((wallet?.activeBatch ?? null) !== (row.id ?? null)) {
+        setWallet(await api.selectBatchAccount(row.id));
+      }
+      go(target, { chain: chainId });
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
+
   const dialogs = useDialogs();
 
   const openDetail = async (row: ChainAddressView) => {
@@ -548,17 +533,17 @@ export function AssetView() {
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      go("receive", { chain: chainId });
+                      void withAccount(row, "receive");
                     }}
                   >
                     收款
                   </button>
                   <button
-                    className="btn btn-ghost btn-sm"
+                    className="btn btn-sm"
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      go("send", { chain: chainId });
+                      void withAccount(row, "send");
                     }}
                   >
                     转账

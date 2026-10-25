@@ -7,7 +7,7 @@
 //! per wallet.
 
 use lycoris_core::chains::ChainId;
-use lycoris_core::derive::{preview_derivation, Account, WalletMode, WalletSecret};
+use lycoris_core::derive::{preview_derivation, Account, KeySlotKind, WalletMode, WalletSecret};
 use lycoris_core::error::{Error, Result as CoreResult};
 use lycoris_core::models::{
     AccountDetailView, ChainAddressView, Contact, Settings, VaultStatus, WalletSummary, WalletView,
@@ -319,6 +319,118 @@ impl AppState {
         Ok(data.active()?.secret.clone())
     }
 
+    /// 钥匙环补加/替换:仅私钥钱包;密码确认后写回 vault。
+    pub fn update_key_slot(
+        &self,
+        slot: KeySlotKind,
+        key: &str,
+        password: &str,
+    ) -> CoreResult<WalletView> {
+        if !self.verify_password(password)? {
+            return Err(Error::IncorrectPassword);
+        }
+        let normalized = lycoris_core::derive::normalize_key_slot(
+            match slot {
+                KeySlotKind::Secp256k1 => lycoris_core::derive::KeySlotKind::Secp256k1,
+                KeySlotKind::Ed25519 => lycoris_core::derive::KeySlotKind::Ed25519,
+                KeySlotKind::Monero => lycoris_core::derive::KeySlotKind::Monero,
+            },
+            key,
+        )
+        .map_err(Error::InvalidPrivateKey)?;
+        self.mutate(|data| {
+            let wallet = data.active_mut()?;
+            let lycoris_core::derive::WalletSecret::PrivateKey { keys } = &mut wallet.secret else {
+                return Err(Error::Message("只有私钥钱包才能管理钥匙环".into()));
+            };
+            match slot {
+                KeySlotKind::Secp256k1 => keys.secp256k1 = Some(normalized.clone()),
+                KeySlotKind::Ed25519 => keys.ed25519 = Some(normalized.clone()),
+                KeySlotKind::Monero => keys.monero = Some(normalized.clone()),
+            }
+            wallet.secret.validate()?;
+            Ok(())
+        })?;
+        // 钥匙环变了,派生账户全部重算。
+        self.rebuild(|_| Ok(()))?;
+        self.wallet()
+    }
+
+    /// 钥匙环摘除:清空一个槽。至少要留一个槽。
+    pub fn remove_key_slot(&self, slot: KeySlotKind, password: &str) -> CoreResult<WalletView> {
+        if !self.verify_password(password)? {
+            return Err(Error::IncorrectPassword);
+        }
+        self.mutate(|data| {
+            let wallet = data.active_mut()?;
+            let lycoris_core::derive::WalletSecret::PrivateKey { keys } = &mut wallet.secret else {
+                return Err(Error::Message("只有私钥钱包才能管理钥匙环".into()));
+            };
+            match slot {
+                KeySlotKind::Secp256k1 => keys.secp256k1 = None,
+                KeySlotKind::Ed25519 => keys.ed25519 = None,
+                KeySlotKind::Monero => keys.monero = None,
+            }
+            wallet.secret.validate()?;
+            Ok(())
+        })?;
+        self.rebuild(|_| Ok(()))?;
+        self.wallet()
+    }
+
+    /// 聚合钱包补加一把私钥(密码确认;成功后重派生并返回钱包视图)。
+    pub fn add_aggregate_key(
+        &self,
+        chain: ChainId,
+        key: &str,
+        label: Option<String>,
+        password: &str,
+    ) -> CoreResult<WalletView> {
+        if !self.verify_password(password)? {
+            return Err(Error::IncorrectPassword);
+        }
+        self.mutate(|data| {
+            let wallet = data.active_mut()?;
+            wallet.secret.add_aggregate_key(chain, key, label)?;
+            Ok(())
+        })?;
+        self.rebuild(|_| Ok(()))?;
+        self.wallet()
+    }
+
+    /// 聚合钱包摘除一把私钥(密码确认)。
+    pub fn remove_aggregate_key(&self, id: &str, password: &str) -> CoreResult<WalletView> {
+        if !self.verify_password(password)? {
+            return Err(Error::IncorrectPassword);
+        }
+        self.mutate(|data| {
+            let wallet = data.active_mut()?;
+            wallet.secret.remove_aggregate_key(id)?;
+            Ok(())
+        })?;
+        self.rebuild(|_| Ok(()))?;
+        self.wallet()
+    }
+
+    /// 聚合钱包重命名一把私钥的备注(密码确认)。
+    pub fn rename_aggregate_key(
+        &self,
+        id: &str,
+        label: &str,
+        password: &str,
+    ) -> CoreResult<WalletView> {
+        if !self.verify_password(password)? {
+            return Err(Error::IncorrectPassword);
+        }
+        self.mutate(|data| {
+            let wallet = data.active_mut()?;
+            wallet.secret.rename_aggregate_key(id, label)?;
+            Ok(())
+        })?;
+        self.rebuild(|_| Ok(()))?;
+        self.wallet()
+    }
+
     pub fn accounts(&self) -> CoreResult<Vec<Account>> {
         let session = self.session();
         session
@@ -341,6 +453,34 @@ impl AppState {
         let session = self.session();
         let data = session.data.as_ref().ok_or(Error::Locked)?;
         let wallet = data.active()?;
+
+        // 聚合钱包:该链上的每把钥匙一行,id 指向钥匙记录本身;没有
+        // 「基础/派生」之分,全部直接可用。
+        if let WalletSecret::Aggregate { entries } = &wallet.secret {
+            let mut out = Vec::new();
+            for (index, entry) in entries.iter().filter(|e| e.chain == chain).enumerate() {
+                let account = entry.account()?;
+                out.push(ChainAddressView {
+                    id: Some(entry.id.clone()),
+                    label: entry
+                        .label
+                        .clone()
+                        .unwrap_or_else(|| format!("{} 钥匙 #{}", chain.info().name, index + 1)),
+                    address: account.address,
+                    path: "imported · direct".into(),
+                    // 默认高亮第一把;选中态由 active_batch 指向条目 id。
+                    active: wallet
+                        .active_batch
+                        .as_ref()
+                        .map(|id| id == &entry.id)
+                        .unwrap_or(index == 0),
+                });
+            }
+            if out.is_empty() {
+                return Err(Error::UnsupportedChain(chain.to_string()));
+            }
+            return Ok(out);
+        }
 
         let base = preview_derivation(&wallet.secret)?;
         let account = base
@@ -401,6 +541,55 @@ impl AppState {
         let session = self.session();
         let data = session.data.as_ref().ok_or(Error::Locked)?;
         let wallet = data.active()?;
+
+        // 聚合钱包:id 直接指向钥匙记录;导出的钥匙就是导入的那把。
+        if let WalletSecret::Aggregate { entries } = &wallet.secret {
+            let entry = id
+                .and_then(|id| entries.iter().find(|e| e.id == id))
+                .or_else(|| entries.iter().find(|e| e.chain == chain))
+                .ok_or(Error::BatchAccountNotFound)?;
+            let account = entry.account()?;
+            let material = lycoris_core::derive::derive_private_key(&wallet.secret, chain)?;
+            let private_key = material.export()?;
+            let kind_label = match chain.info().kind {
+                lycoris_core::chains::ChainKind::Ed25519 => "ed25519 种子",
+                lycoris_core::chains::ChainKind::Cryptonote => "monero spend key",
+                _ => "原始私钥",
+            };
+            return Ok(AccountDetailView {
+                chain,
+                chain_name: account.name.clone(),
+                symbol: account.symbol.clone(),
+                id: Some(entry.id.clone()),
+                label: entry
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| format!("{} 钥匙", chain.info().name)),
+                address: account.address.clone(),
+                address_format: account.address_format.clone(),
+                path: account.path.clone(),
+                derivation: account.derivation.clone(),
+                hash_algorithm: account.hash_algorithm.clone(),
+                public_key: account.public_key.clone(),
+                private_key_format: match chain {
+                    ChainId::Bitcoin | ChainId::Litecoin => "WIF".to_string(),
+                    ChainId::Solana => "Base58 seed".to_string(),
+                    ChainId::Monero => "Hex (spend)".to_string(),
+                    _ => "Hex (0x…)".to_string(),
+                },
+                private_key,
+                source_kind: "聚合导入".to_string(),
+                source_preview: format!("{}({})", chain.info().name, account.address),
+                steps: vec![
+                    "取该条目导入的原始私钥字节".to_string(),
+                    format!("字节即该链 {kind_label}(无任何派生)"),
+                ],
+                formula: "imported key → address".to_string(),
+                warning:
+                    "任何持有该私钥的人都能控制此地址的全部资产。请勿截图、勿粘贴到网页，用完请清理剪贴板。"
+                        .to_string(),
+            });
+        }
 
         let spec = id.and_then(|id| {
             wallet
@@ -570,6 +759,58 @@ impl AppState {
                 ],
                 format!("BIP-32({})", account.path),
             ),
+            (lycoris_core::derive::WalletSecret::PrivateKey { .. }, Some(spec)) => {
+                match spec.strategy {
+                    lycoris_core::derive::BatchStrategy::Iterated => (
+                        "基础私钥",
+                        "导入的原始私钥（base）".to_string(),
+                        vec![
+                            "取导入的原始私钥 base".to_string(),
+                            format!("连续哈希 base 自己 {} 次 → digest", spec.index),
+                            "digest 即该链 32 字节私钥种子".to_string(),
+                        ],
+                        format!("{hash_name}^{}(base)", spec.index),
+                    ),
+                    _ => (
+                        "原始私钥",
+                        "导入的原始私钥（见详情弹窗）".to_string(),
+                        vec![
+                            "取导入的原始私钥".to_string(),
+                            format!("拼消息：\"{domain}\\0\" + 私钥 + \"\\0#{}\"", spec.index),
+                            format!("digest = {hash_name}(消息)"),
+                            "digest 即该链 32 字节私钥种子".to_string(),
+                        ],
+                        format!(
+                            "{hash_name}(\"{domain}\\0\" ‖ key ‖ \"\\0#{i}\")",
+                            i = spec.index
+                        ),
+                    ),
+                }
+            }
+            (lycoris_core::derive::WalletSecret::PrivateKey { .. }, None) => {
+                // 来源说明按链的曲线分槽:secp/ed25519/monero 各自直连。
+                let kind = chain.info().kind;
+                let (kind_label, curve) = match kind {
+                    lycoris_core::chains::ChainKind::Ed25519 => ("ed25519 种子", "ed25519"),
+                    lycoris_core::chains::ChainKind::Cryptonote => {
+                        ("monero spend key", "CryptoNote")
+                    }
+                    _ => ("原始私钥字节", "secp256k1"),
+                };
+                (
+                    "原始私钥",
+                    format!("钥匙环 {curve} 槽(导入时粘贴)"),
+                    vec![
+                        format!("取钥匙环 {curve} 槽的{kind_label}"),
+                        format!("字节即该链 {curve} 私钥(无路径派生)"),
+                    ],
+                    "imported key → address".to_string(),
+                )
+            }
+            // 聚合钱包在上面已经提前返回;这个分支只为穷尽性。
+            (lycoris_core::derive::WalletSecret::Aggregate { .. }, _) => {
+                unreachable!("aggregate wallets return early in account_detail")
+            }
         };
 
         Ok(AccountDetailView {
@@ -606,6 +847,13 @@ impl AppState {
         let wallet = data.active()?;
 
         let mut out = Vec::with_capacity((1 + wallet.batch_accounts.len()) * ChainId::ALL.len());
+        // 聚合钱包:每把钥匙一条,直接参与余额扇出。
+        if let WalletSecret::Aggregate { entries } = &wallet.secret {
+            for entry in entries {
+                out.push((Some(entry.id.clone()), entry.account()?));
+            }
+            return Ok(out);
+        }
         // Base account (the plain derivation) first — on every chain.
         for account in preview_derivation(&wallet.secret)?.accounts {
             out.push((None, account));
@@ -879,6 +1127,8 @@ fn view_locked(session: &Session) -> CoreResult<WalletView> {
         fingerprint: active.fingerprint.clone(),
         created_at: wallet.created_at,
         formula: active.formula.clone(),
+        key_ring: wallet.secret.key_ring().map(|ring| ring.presence()),
+        aggregate_entries: wallet.secret.aggregate_views(),
         accounts: active.accounts.clone(),
         settings: data.settings.clone(),
         contacts: data.contacts.clone(),
@@ -911,6 +1161,8 @@ pub fn default_label(secret: &WalletSecret) -> String {
     match secret.mode() {
         WalletMode::Mnemonic => "助记词钱包".to_string(),
         WalletMode::Passphrase => "口令钱包".to_string(),
+        WalletMode::PrivateKey => "私钥钱包".to_string(),
+        WalletMode::Aggregate => "聚合钱包".to_string(),
     }
 }
 

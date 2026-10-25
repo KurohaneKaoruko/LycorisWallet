@@ -127,6 +127,12 @@ body {
   height: 100%;
 }
 
+/* React 版挂载点在 body 与 #app 之间多一层 #root：不给高度会断掉
+   height:100% 链，#app 撑不开、.shell 也压不进视口（旧版无此元素，规则空挂）。 */
+#root {
+  height: 100%;
+}
+
 h1,
 h2,
 h3,
@@ -886,11 +892,26 @@ code,
   scrollbar-width: none;
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x proximity;
+  /* 不用 scroll-snap：碎片标签行上吸附没有价值，还会在拖拽松手时把位置弹回吸附点 */
 }
 
 .tabs::-webkit-scrollbar {
   display: none;
+}
+
+/* 桌面端：可横向滚动时给抓手光标（enhanceTabScroll 维护 is-scrollable） */
+.tabs.is-scrollable {
+  cursor: grab;
+}
+
+.tabs.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.tabs.is-dragging .tab {
+  transition: none;
+  pointer-events: none;
 }
 
 /* 渐隐只在真的溢出时出现：右侧还有内容才淡出右侧，滚过头再淡出左侧 */

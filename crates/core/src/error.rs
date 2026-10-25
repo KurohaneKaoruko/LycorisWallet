@@ -28,6 +28,8 @@ pub enum Error {
     InvalidMnemonic(String),
     #[error("invalid passphrase: {0}")]
     InvalidPassphrase(String),
+    #[error("invalid private key: {0}")]
+    InvalidPrivateKey(String),
     #[error("invalid address: {0}")]
     InvalidAddress(String),
     #[error("invalid amount: {0}")]
@@ -73,6 +75,7 @@ impl Error {
             Error::LastWallet => "LAST_WALLET",
             Error::InvalidMnemonic(_) => "INVALID_MNEMONIC",
             Error::InvalidPassphrase(_) => "INVALID_PASSPHRASE",
+            Error::InvalidPrivateKey(_) => "INVALID_PRIVATE_KEY",
             Error::InvalidAddress(_) => "INVALID_ADDRESS",
             Error::InvalidAmount(_) => "INVALID_AMOUNT",
             Error::UnsupportedChain(_) => "UNSUPPORTED_CHAIN",

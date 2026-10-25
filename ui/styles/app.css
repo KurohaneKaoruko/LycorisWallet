@@ -1343,14 +1343,9 @@
   }
 
   .tabs {
-    /* 横向滚动更顺滑；滚动条已在 theme.css 隐藏，两侧渐隐由 .has-left/.has-right 控制 */
+    /* 滚动条已在 theme.css 隐藏，两侧渐隐由 .has-left/.has-right 控制 */
     gap: 7px;
-    scroll-snap-type: x proximity;
     -webkit-overflow-scrolling: touch;
-  }
-
-  .tabs .tab {
-    scroll-snap-align: start;
   }
 
   /* 总览资产行：窄屏改两行布局，余额右对齐 */

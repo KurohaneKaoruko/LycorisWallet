@@ -4,6 +4,7 @@
 import { useEffect } from "react";
 
 import { api, isMock, walletFull } from "../api";
+import { applyTheme } from "../boot";
 import type { WalletView } from "../types";
 import { SessionProvider, useSession } from "./session";
 import { Rail, Titlebar, useSessionTimers } from "./chrome";
@@ -46,6 +47,11 @@ function AuthenticatedShell() {
   const { wallet, view, refreshPortfolio } = useSession();
   useSessionTimers(Boolean(wallet));
 
+  // 旧版在每次 setWallet 后 applyTheme()：主题跟随钱包设置（解锁后/保存后都走这里）。
+  useEffect(() => {
+    applyTheme(wallet?.settings?.theme ?? "system");
+  }, [wallet?.settings?.theme]);
+
   // Portfolio refresh on entering the dashboard; mirrors the old effect.
   useEffect(() => {
     if (view === "dashboard") void refreshPortfolio();
@@ -56,7 +62,7 @@ function AuthenticatedShell() {
   return (
     <div id="app" data-view={view} className={fullBleed ? "view-asset" : undefined}>
       <Titlebar walletVisible />
-      <div className="body">
+      <div className="shell">
         <Rail />
         <main className="stage" id="stage">
           <CurrentView />

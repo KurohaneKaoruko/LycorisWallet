@@ -1,23 +1,677 @@
 /** Boot + lock + onboarding: the pre-unlock flow, ported from
- *  ui/js/views/unlock.js and ui/js/views/onboarding.js. The full onboarding
- *  wizard (create/import/passphrase) is the largest single view; this first
- *  pass covers create-with-generated-mnemonic and unlock, keeping the DOM
- *  shape compatible with the existing stylesheet. */
+ *  ui/js/views/unlock.js and ui/js/views/onboarding.js. The full wizard covers
+ *  mode selection (mnemonic / passphrase), verification, import and the
+ *  password step, keeping the DOM shape compatible with the stylesheet. */
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { api, isMock } from "../api";
+import { copyText } from "../clipboard";
 import { useSession } from "./session";
 import { useDialogs, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
-import { copyText } from "../clipboard";
+import type { DerivationPreview, WalletView } from "../types";
 
+const STEPS = ["选择模式", "生成密钥", "设置密码"];
+
+const BRAND_SUB = "本地优先的多链钱包 · 密钥与签名永远留在你的设备上";
+
+function StepBar({ step }: { step: number }) {
+  return (
+    <div className="steps">
+      {STEPS.map((label, index) => (
+        <Fragment key={label}>
+          <div className="step" data-state={index < step ? "done" : index === step ? "active" : "todo"}>
+            <span className="idx">{index < step ? "✓" : index + 1}</span>
+            <span>{label}</span>
+          </div>
+          {index < STEPS.length - 1 ? <span className="sep" /> : null}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+function BrandHead({ title, sub }: { title: string; sub: string }) {
+  return (
+    <div className="brand-head">
+      <img className="mark" src="/favicon-flower.svg" alt="" draggable={false} />
+      <h1>{title}</h1>
+      <p>{sub}</p>
+    </div>
+  );
+}
+
+/** 实时派生预览块（口令/导入共用）：骨架 → 错误 → 指纹 + 每链地址。 */
+function PreviewBlock({
+  preview,
+  previewing,
+  error,
+}: {
+  preview: DerivationPreview | null;
+  previewing: boolean;
+  error: string;
+}) {
+  if (!preview && !previewing && !error) return null;
+  if (previewing) {
+    return (
+      <div className="stack-sm">
+        <div className="skeleton" style={{ height: 64 }} />
+        <div className="skeleton" style={{ height: 64 }} />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="note note-warn">
+        <Icon name="warn" />
+        <div>{error}</div>
+      </div>
+    );
+  }
+  if (!preview) return null;
+  return (
+    <div className="stack-sm">
+      <div className="row-between">
+        <span className="field-label">实时派生预览</span>
+        <span className="fingerprint muted">{preview.fingerprint}</span>
+      </div>
+      <div className="preview-grid">
+        {preview.accounts.map((account) => (
+          <div key={account.chain} className="preview-account">
+            <div className="head">
+              <span className="dot" style={{ ["--accent" as string]: account.accent }} />
+              {account.name}
+              <span className="muted">· {account.symbol}</span>
+            </div>
+            <div className="addr">{account.address}</div>
+            <div className="algo">
+              {account.hashAlgorithm} · {account.addressFormat}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="hint">{preview.formula}</p>
+    </div>
+  );
+}
+
+/** 密码强度计（与旧版 strengthOf 同阈值）。 */
+function strengthOf(password: string): { level: number; label: string; hint: string } {
+  if (!password) return { level: 0, label: "空", hint: "至少 8 个字符" };
+  let score = 0;
+  if (password.length >= 8) score += 1;
+  if (password.length >= 12) score += 1;
+  if (password.length >= 16) score += 1;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+  if (/\d/.test(password)) score += 1;
+  if (/[^\w\s]/.test(password)) score += 1;
+  if (score <= 2) return { level: 1, label: "偏弱", hint: "建议加长到 12 位以上并混合大小写与符号" };
+  if (score <= 4) return { level: 2, label: "中等", hint: "再长一些会更安全" };
+  return { level: 3, label: "较强", hint: "很好，请妥善保管" };
+}
+
+type Mode = "mnemonic" | "mnemonic-import" | "passphrase";
+
+/** 引导向导：选择模式 → 生成/导入/口令 → 设置密码。移植自 ui/js/views/onboarding.js。 */
+export function OnboardingView() {
+  const { setWallet, go } = useSession();
+  const toast = useToast();
+
+  const [step, setStep] = useState(0);
+  const [mode, setMode] = useState<Mode | null>(null);
+  const [mnemonic, setMnemonic] = useState("");
+  const [wordCount, setWordCount] = useState(12);
+  const [revealed, setRevealed] = useState(false);
+  const [verify, setVerify] = useState<number[] | null>(null);
+  const [verifyAnswers, setVerifyAnswers] = useState<Record<number, string>>({});
+  const [verifyError, setVerifyError] = useState("");
+  const [importText, setImportText] = useState("");
+  const [importPreview, setImportPreview] = useState<DerivationPreview | null>(null);
+  const [importPreviewing, setImportPreviewing] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [phrase, setPhrase] = useState("");
+  const [derivation, setDerivation] = useState<"isolated" | "strict">("isolated");
+  const [phrasePreview, setPhrasePreview] = useState<DerivationPreview | null>(null);
+  const [phrasePreviewing, setPhrasePreviewing] = useState(false);
+  const [phraseError, setPhraseError] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [hint, setHint] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const words = useMemo(() => (mnemonic ? mnemonic.split(" ") : []), [mnemonic]);
+
+  const regenerate = async (count = wordCount) => {
+    try {
+      const next = await api.generateMnemonic(count);
+      setMnemonic(next);
+      setVerify(null);
+      setVerifyAnswers({});
+      setVerifyError("");
+      setRevealed(false);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
+
+  /* 口令预览：输入防抖 380ms 后自动询价，与旧版一致。 */
+  useEffect(() => {
+    if (step !== 1 || mode !== "passphrase") return;
+    if (!phrase.trim()) {
+      setPhrasePreview(null);
+      setPhraseError("");
+      setPhrasePreviewing(false);
+      return;
+    }
+    setPhrasePreviewing(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        setPhrasePreview(await api.previewDerivation({ mode: "passphrase", phrase, derivation }));
+        setPhraseError("");
+      } catch (e) {
+        setPhrasePreview(null);
+        setPhraseError((e as Error).message);
+      } finally {
+        setPhrasePreviewing(false);
+      }
+    }, 380);
+    return () => window.clearTimeout(timer);
+  }, [phrase, derivation, step, mode]);
+
+  /* 导入预览：同样防抖。 */
+  useEffect(() => {
+    if (step !== 1 || mode !== "mnemonic-import") return;
+    const list = importText.trim().split(/\s+/).filter(Boolean);
+    if (list.length === 0) {
+      setImportPreview(null);
+      setImportError("");
+      setImportPreviewing(false);
+      return;
+    }
+    setImportPreviewing(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        setImportPreview(await api.previewDerivation({ mode: "mnemonic", mnemonic: importText.trim() }));
+        setImportError("");
+      } catch (e) {
+        setImportPreview(null);
+        setImportError((e as Error).message);
+      } finally {
+        setImportPreviewing(false);
+      }
+    }, 380);
+    return () => window.clearTimeout(timer);
+  }, [importText, step, mode]);
+
+  const makeVerify = () => {
+    const positions = new Set<number>();
+    const total = words.length;
+    while (positions.size < Math.min(3, total)) {
+      positions.add(1 + Math.floor(Math.random() * total));
+    }
+    setVerify([...positions].sort((a, b) => a - b));
+    setVerifyError("");
+    setVerifyAnswers({});
+  };
+
+  const checkVerify = () => {
+    if (!verify) return;
+    const wrong = verify.filter((position) => (verifyAnswers[position] ?? "") !== words[position - 1]);
+    if (wrong.length > 0) {
+      setVerifyError(`第 ${wrong.join("、")} 个单词不正确，请对照抄写内容`);
+      return;
+    }
+    setVerifyError("");
+    setStep(2);
+  };
+
+  const create = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const secret =
+        mode === "passphrase"
+          ? { mode: "passphrase" as const, phrase, derivation }
+          : mode === "mnemonic-import"
+            ? { mode: "mnemonic" as const, mnemonic: importText.trim() }
+            : { mode: "mnemonic" as const, mnemonic };
+      const wallet = await api.createVault({
+        password,
+        hint: hint.trim() || null,
+        label: null,
+        secret,
+      });
+      setWallet(wallet);
+      toast("钱包已创建并加密保存", "success");
+      go("dashboard");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* ------------------------------------------------------------ step 0: 模式 */
+  if (step === 0) {
+    return (
+      <section className="onboarding">
+        <div className="onboarding-inner">
+          <BrandHead title="Lycoris Wallet" sub={BRAND_SUB} />
+          <StepBar step={0} />
+          <div className="mode-cards">
+            <button
+              className="mode-card"
+              type="button"
+              onClick={() => {
+                setMode("mnemonic");
+                setStep(1);
+                void regenerate();
+              }}
+            >
+              <span className="tag">BIP-39 · BIP-32 · SLIP-0010</span>
+              <h3>助记词钱包</h3>
+              <p>
+                用 12 或 24 个单词的标准助记词管理全部链。地址按各链通用的派生路径生成，可以与主流钱包互相导入导出。
+              </p>
+              <div className="foot">适合长期使用 · 助记词可以抄写在纸上离线保存</div>
+            </button>
+            <button
+              className="mode-card"
+              type="button"
+              onClick={() => {
+                setMode("passphrase");
+                setStep(1);
+              }}
+            >
+              <span className="tag">H_chain(phrase) → private key</span>
+              <h3>口令钱包</h3>
+              <p>
+                输入任意一句话，直接用它所在链的原生哈希算法派生私钥：比特币用
+                SHA-256、莱特币用 scrypt、EVM 用 Keccak-256、Solana 用 SHA-256。
+              </p>
+              <div className="foot">一句话管所有链 · 口令一旦忘记无法找回</div>
+            </button>
+          </div>
+          <div className="note note-warn" style={{ marginTop: 18 }}>
+            <Icon name="warn" />
+            <div>口令钱包把安全性完全交给这句话：太短或太常见的口令会被暴力猜测。请使用足够长、只有你记得的句子。</div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  /* ------------------------------------------------------------ step 1: 密钥 */
+  if (step === 1 && (mode === "mnemonic" || mode === null)) {
+    const verifyReady = words.length > 0;
+    return (
+      <section className="onboarding">
+        <div className="onboarding-inner">
+          <BrandHead title="Lycoris Wallet" sub={BRAND_SUB} />
+          <StepBar step={1} />
+          <div className="card card-pad stack">
+            <div className="row-between">
+              <div>
+                <h2>助记词</h2>
+                <p className="hint">按顺序抄写到纸上。任何拿到这些单词的人都可以拿走全部资产。</p>
+              </div>
+              <div className="seg" role="group" aria-label="助记词长度">
+                {[12, 24].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    data-words={count}
+                    aria-pressed={wordCount === count}
+                    onClick={() => {
+                      setWordCount(count);
+                      void regenerate(count);
+                    }}
+                  >
+                    {count} 词
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className={`mnemonic-grid${revealed ? "" : " mnemonic-blur"}`}>
+              {words.map((word, index) => (
+                <div key={index} className="mnemonic-word">
+                  <span className="idx">{index + 1}</span>
+                  <span>{word}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setRevealed(!revealed)}>
+                <Icon name={revealed ? "eyeOff" : "eye"} />
+                {revealed ? "隐藏" : "显示"}
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={async () => {
+                  const ok = await copyText(mnemonic);
+                  toast(ok ? "助记词已复制（记得清理剪贴板）" : "复制失败", ok ? "success" : "error");
+                }}
+              >
+                <Icon name="copy" />
+                复制
+              </button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void regenerate()}>
+                <Icon name="refresh" />
+                重新生成
+              </button>
+            </div>
+
+            <div id="verify-block">
+              {verify ? (
+                <>
+                  <div className="divider" />
+                  <div className="stack-sm">
+                    <span className="field-label">校验一下：请补全下面几个单词</span>
+                    {verify.map((position) => (
+                      <div key={position} className="verify-row">
+                        <span className="ask">第 {position} 个</span>
+                        <input
+                          className="input"
+                          data-verify={position}
+                          placeholder="输入单词"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={verifyAnswers[position] ?? ""}
+                          onChange={(event) => {
+                            setVerifyAnswers({
+                              ...verifyAnswers,
+                              [position]: event.target.value.trim().toLowerCase(),
+                            });
+                            setVerifyError("");
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") checkVerify();
+                          }}
+                        />
+                      </div>
+                    ))}
+                    {verifyError ? <p className="error-text">{verifyError}</p> : null}
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" type="button" onClick={() => setMode("mnemonic-import")}>
+                改用已有助记词
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={!verifyReady}
+                onClick={() => {
+                  if (!verify) {
+                    makeVerify();
+                    return;
+                  }
+                  checkVerify();
+                }}
+              >
+                {verify ? "下一步" : "核对并继续"}
+              </button>
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 14 }}>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setStep(0)}>
+              <Icon name="chevronLeft" />
+              返回
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  /* -- 导入助记词 -- */
+  if (step === 1 && mode === "mnemonic-import") {
+    return (
+      <section className="onboarding">
+        <div className="onboarding-inner">
+          <BrandHead title="Lycoris Wallet" sub={BRAND_SUB} />
+          <StepBar step={1} />
+          <div className="card card-pad stack">
+            <div>
+              <h2>导入助记词</h2>
+              <p className="hint">支持 12 / 24 个英文单词（BIP-39）。请输入完整助记词，单词之间用空格分隔。</p>
+            </div>
+            <div className="field">
+              <label htmlFor="import-words">助记词</label>
+              <textarea
+                className="textarea"
+                id="import-words"
+                placeholder="例如 abandon abandon … about"
+                spellCheck={false}
+                autoComplete="off"
+                value={importText}
+                onChange={(event) => setImportText(event.target.value)}
+              />
+            </div>
+            <div id="import-preview">
+              <PreviewBlock preview={importPreview} previewing={importPreviewing} error={importError} />
+            </div>
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" type="button" onClick={() => setMode("mnemonic")}>
+                <Icon name="chevronLeft" />
+                返回
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => {
+                  if (!importPreview) {
+                    toast("请先输入有效的助记词", "error");
+                    return;
+                  }
+                  setStep(2);
+                }}
+              >
+                下一步
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  /* -- 口令钱包 -- */
+  if (step === 1 && mode === "passphrase") {
+    return (
+      <section className="onboarding">
+        <div className="onboarding-inner">
+          <BrandHead title="Lycoris Wallet" sub={BRAND_SUB} />
+          <StepBar step={1} />
+          <div className="card card-pad stack">
+            <div>
+              <h2>口令</h2>
+              <p className="hint">
+                这句话会被每条链的原生哈希算法处理，直接得到该链的私钥。同一个口令在隔离模式下每条链得到不同私钥。
+              </p>
+            </div>
+            <div className="field">
+              <label htmlFor="phrase">你的口令</label>
+              <textarea
+                className="textarea"
+                id="phrase"
+                placeholder="例如：a quiet garden at dusk, 2019 年的那场雨"
+                autoComplete="off"
+                spellCheck={false}
+                value={phrase}
+                onChange={(event) => setPhrase(event.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <span className="field-label">派生方式</span>
+              <div className="seg" role="group">
+                <button
+                  type="button"
+                  data-derivation="isolated"
+                  aria-pressed={derivation === "isolated"}
+                  onClick={() => setDerivation("isolated")}
+                >
+                  隔离（推荐）
+                </button>
+                <button
+                  type="button"
+                  data-derivation="strict"
+                  aria-pressed={derivation === "strict"}
+                  onClick={() => setDerivation("strict")}
+                >
+                  严格 H(phrase)
+                </button>
+              </div>
+              <p className="hint" id="derivation-hint">
+                {derivation === "isolated"
+                  ? '消息 = "lycoris/v1/<链名>\\0" + 口令，每条链的私钥都不同。'
+                  : "直接哈希口令本身。Ethereum / Ethereum Classic / BNB Chain / Polygon 使用同一算法，会得到同一把私钥。"}
+              </p>
+            </div>
+
+            <div id="passphrase-preview">
+              <PreviewBlock preview={phrasePreview} previewing={phrasePreviewing} error={phraseError} />
+            </div>
+
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost" type="button" onClick={() => setStep(0)}>
+                <Icon name="chevronLeft" />
+                返回
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={!phrase.trim()}
+                onClick={() => setStep(2)}
+              >
+                下一步
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  /* ------------------------------------------------------------ step 2: 密码 */
+  const strength = strengthOf(password);
+  const colors = ["var(--hair-strong)", "var(--danger)", "var(--warn)", "var(--ok)"];
+  const mismatch = confirmPassword.length > 0 && confirmPassword !== password;
+  const ready = password.length >= 8 && password === confirmPassword && !busy;
+  return (
+    <section className="onboarding">
+      <div className="onboarding-inner">
+        <BrandHead title="Lycoris Wallet" sub={BRAND_SUB} />
+        <StepBar step={2} />
+        <div className="card card-pad stack">
+          <div>
+            <h2>设置本地密码</h2>
+            <p className="hint">
+              密码只用于加密本机的钱包文件（Argon2id + XChaCha20-Poly1305）。它不会被上传，也无法找回。
+            </p>
+          </div>
+
+          <div className="field">
+            <label htmlFor="password">密码</label>
+            <input
+              className="input"
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              placeholder="至少 8 个字符"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <div className="row" style={{ gap: 10, alignItems: "center", marginTop: 8 }}>
+              <div className="row" style={{ gap: 4, flex: 1 }}>
+                {[1, 2, 3].map((index) => (
+                  <span
+                    key={index}
+                    style={{
+                      flex: 1,
+                      height: 4,
+                      borderRadius: 2,
+                      background: strength.level >= index ? colors[strength.level] : "var(--hair)",
+                    }}
+                  />
+                ))}
+              </div>
+              <span className="hint" style={{ minWidth: 70, textAlign: "right" }}>
+                {strength.label}
+              </span>
+            </div>
+            <p className="hint">{strength.hint}</p>
+          </div>
+
+          <div className="field">
+            <label htmlFor="confirm">确认密码</label>
+            <input
+              className="input"
+              id="confirm"
+              type="password"
+              autoComplete="new-password"
+              placeholder="再次输入"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              aria-invalid={mismatch || undefined}
+            />
+            {mismatch ? <p className="error-text">两次输入不一致</p> : null}
+          </div>
+
+          <div className="field">
+            <label htmlFor="hint">密码提示（可选）</label>
+            <input
+              className="input"
+              id="hint"
+              placeholder="例如：生日 + 老家门牌"
+              maxLength={80}
+              value={hint}
+              onChange={(event) => setHint(event.target.value)}
+            />
+            <p className="hint">提示会以明文保存在钱包文件里，请勿写入真正的密码。</p>
+          </div>
+
+          {error ? (
+            <div className="note note-danger">
+              <Icon name="warn" />
+              <div>{error}</div>
+            </div>
+          ) : null}
+
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn btn-ghost" type="button" onClick={() => setStep(1)}>
+              <Icon name="chevronLeft" />
+              返回
+            </button>
+            <button className="btn btn-primary" type="button" disabled={!ready} onClick={() => void create()}>
+              创建钱包
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** 锁屏：密码提示、错误次数冷却倒计时、忘记密码走 resetVault。
+ *  移植自 ui/js/views/unlock.js。 */
 export function UnlockView() {
   const { status, setWallet, refreshStatus, go } = useSession();
   const toast = useToast();
   const { confirm } = useDialogs();
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [countdown, setCountdown] = useState(0);
   const [busy, setBusy] = useState(false);
   const info = status;
 
@@ -25,20 +679,28 @@ export function UnlockView() {
     void refreshStatus();
   }, [refreshStatus]);
 
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = window.setInterval(() => setCountdown((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [countdown]);
+
   const submit = async () => {
-    if (!password || busy) return;
+    if (!password || busy || countdown > 0) return;
     setBusy(true);
     setError("");
     try {
       const wallet = await api.unlockVault(password);
       setWallet(wallet);
-      // 解锁成功：进入总览（否则 Router 的 unlock 分支会继续拦住）。
       go("dashboard");
       toast("已解锁", "success");
     } catch (e) {
       const err = e as { code?: string; message: string };
       setError(err.message || "解锁失败");
-      if (err.code === "LOCKED_COOLDOWN") void refreshStatus();
+      if (err.code === "TOO_MANY_ATTEMPTS") {
+        const match = /(\d+)\s*秒/.exec(err.message) ?? /(\d+)/.exec(err.message);
+        setCountdown(match ? Number(match[1]) : 30);
+      }
     } finally {
       setBusy(false);
     }
@@ -55,15 +717,17 @@ export function UnlockView() {
     });
     if (!ok) return;
     try {
-      await api.deleteVault(password || "__confirm__");
-      toast("钱包文件已删除", "success");
+      await api.resetVault();
+      toast("本机钱包文件已删除", "info");
+      setWallet(null as unknown as WalletView);
       await refreshStatus();
+      go("onboarding");
     } catch (e) {
-      // Wrong password path: ask again via the confirm dialog flow.
       toast((e as Error).message || "删除失败", "error");
     }
   };
 
+  const locked = countdown > 0;
   return (
     <section className="onboarding">
       <div className="onboarding-inner" style={{ maxWidth: 440 }}>
@@ -83,6 +747,7 @@ export function UnlockView() {
               autoComplete="current-password"
               placeholder="输入密码"
               value={password}
+              disabled={locked}
               onChange={(event) => {
                 setPassword(event.target.value);
                 setError("");
@@ -101,156 +766,19 @@ export function UnlockView() {
               </div>
             </div>
           ) : null}
-          {error ? <p className="error-text">{error}</p> : null}
-          <button className="btn btn-primary btn-block" type="button" disabled={busy} onClick={() => void submit()}>
-            {busy ? "解锁中…" : "解锁"}
+          {countdown > 0 ? (
+            <p className="error-text">尝试次数过多，请等待 {countdown} 秒</p>
+          ) : error ? (
+            <p className="error-text">{error}</p>
+          ) : null}
+          <button className="btn btn-primary btn-block" type="button" disabled={busy || locked} onClick={() => void submit()}>
+            解锁
           </button>
           <p className="hint">
             密码只用于解密本机钱包文件，忘记密码无法找回，只能删除钱包后重新导入助记词或重建口令钱包。
           </p>
           <button className="btn btn-ghost btn-block" type="button" onClick={() => void forgot()}>
             忘记密码？删除本机钱包文件
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/** Onboarding wizard. First pass: create vault with a generated mnemonic and
- *  optional passphrase wallets; import flow lands with the settings rewrite. */
-export function OnboardingView() {
-  const { setWallet } = useSession();
-  const toast = useToast();
-  const [step, setStep] = useState<"intro" | "words">("intro");
-  const [words, setWords] = useState<string[]>([]);
-  const [password, setPassword] = useState("");
-  const [hint, setHint] = useState("");
-  const [label, setLabel] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const start = async () => {
-    setBusy(true);
-    try {
-      const mnemonic = await api.generateMnemonic(12);
-      setWords(mnemonic.trim().split(/\s+/));
-      setStep("words");
-    } catch (e) {
-      toast((e as Error).message, "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const create = async () => {
-    if (password.length < 8) {
-      toast("密码至少 8 位", "error");
-      return;
-    }
-    setBusy(true);
-    try {
-      const wallet = await api.createVault({
-        password,
-        hint: hint || null,
-        label: label || null,
-        secret: { mode: "mnemonic", mnemonic: words.join(" ") },
-      });
-      setWallet(wallet);
-      toast("钱包已创建", "success");
-    } catch (e) {
-      toast((e as Error).message, "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (step === "intro") {
-    return (
-      <section className="onboarding">
-        <div className="onboarding-inner" style={{ maxWidth: 520 }}>
-          <div className="brand-head">
-            <img className="mark" src="/favicon-flower.svg" alt="" draggable={false} />
-            <h1>Lycoris Wallet</h1>
-            <p>本地优先的多链钱包 · 密钥从不离开本机</p>
-          </div>
-          <div className="card card-pad stack">
-            <div className="note">
-              <Icon name="shield" />
-              <div>钱包以加密文件保存在本机；密码丢失无法找回，助记词是唯一的恢复手段。</div>
-            </div>
-            <button className="btn btn-primary btn-block" type="button" disabled={busy} onClick={() => void start()}>
-              {busy ? "生成中…" : "创建新钱包（生成助记词）"}
-            </button>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="onboarding">
-      <div className="onboarding-inner" style={{ maxWidth: 560 }}>
-        <div className="brand-head">
-          <img className="mark" src="/favicon-flower.svg" alt="" draggable={false} />
-          <h1>备份助记词</h1>
-          <p>按顺序抄写在纸上，任何人拿到这 12 个词就能拿走全部资产</p>
-        </div>
-        <div className="card card-pad stack">
-          <div className="mnemonic-grid">
-            {words.map((word, index) => (
-              <div key={index} className="mnemonic-chip mono">
-                <span className="idx">{index + 1}</span>
-                {word}
-              </div>
-            ))}
-          </div>
-          <button
-            className="btn btn-ghost"
-            type="button"
-            onClick={async () => {
-              const ok = await copyText(words.join(" "));
-              toast(ok ? "已复制助记词" : "复制失败", ok ? "success" : "error");
-            }}
-          >
-            <Icon name="copy" /> 复制助记词
-          </button>
-          <div className="field">
-            <label htmlFor="setup-password">设置密码（至少 8 位）</label>
-            <input
-              className="input"
-              id="setup-password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="解锁钱包用"
-            />
-          </div>
-          <div className="row" style={{ gap: 12 }}>
-            <div className="field" style={{ flex: 1 }}>
-              <label htmlFor="setup-label">钱包名称（可选）</label>
-              <input
-                className="input"
-                id="setup-label"
-                type="text"
-                value={label}
-                onChange={(event) => setLabel(event.target.value)}
-                placeholder="默认「钱包 1」"
-              />
-            </div>
-            <div className="field" style={{ flex: 1 }}>
-              <label htmlFor="setup-hint">密码提示（可选）</label>
-              <input
-                className="input"
-                id="setup-hint"
-                type="text"
-                value={hint}
-                onChange={(event) => setHint(event.target.value)}
-                placeholder="显示在锁屏上"
-              />
-            </div>
-          </div>
-          <button className="btn btn-primary btn-block" type="button" disabled={busy} onClick={() => void create()}>
-            {busy ? "创建中…" : "我已备份，创建钱包"}
           </button>
         </div>
       </div>

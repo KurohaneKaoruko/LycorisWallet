@@ -14,7 +14,7 @@ import { render as renderSettings } from "./views/settings.js?v=23";
 import { render as renderUnlock } from "./views/unlock.js?v=23";
 import { render as renderWallets } from "./views/wallets.js?v=23";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const PORTFOLIO_TTL = 60; // seconds
 const TOUCH_INTERVAL = 20_000; // ms between session touches
 const AUTO_REFRESH_INTERVAL = 120_000; // ms

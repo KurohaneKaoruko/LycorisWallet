@@ -2,7 +2,8 @@ use crate::derive::{BatchAccountSpec, WalletSecret};
 use crate::error::{Error, Result};
 use crate::models::{ActivityItem, Contact, Settings};
 
-type CoreResult<T> = Result<T>;use argon2::{Algorithm, Argon2, Params, Version};
+type CoreResult<T> = Result<T>;
+use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use rand::rngs::OsRng;
@@ -244,11 +245,7 @@ impl VaultData {
     }
 
     /// Rename a derived account of the active wallet.
-    pub fn rename_batch_account(
-        &mut self,
-        id: &str,
-        label: &str,
-    ) -> CoreResult<BatchAccountSpec> {
+    pub fn rename_batch_account(&mut self, id: &str, label: &str) -> CoreResult<BatchAccountSpec> {
         let trimmed = label.trim();
         if trimmed.is_empty() {
             return Err(Error::Message("账户名称不能为空".into()));

@@ -1,6 +1,6 @@
 /** Shared UI primitives: icons, toasts, modals, password prompts. */
 
-import { copyText, escapeHtml } from "./format.js?v=23";
+import { copyText, escapeHtml } from "./format.js?v=24";
 
 const ICONS = {
   dashboard:

@@ -3,9 +3,9 @@
  * 所有钱包共用本机密码与地址簿；交易记录各自独立。切换钱包不需要重新
  * 输入密码，因为会话里已经解开了整个文件。 */
 
-import { api } from "../api.js?v=23";
-import { escapeHtml, formatDateTime } from "../format.js?v=23";
-import { askPassword, confirmDialog, debounce, icon, openModal, setBusy, toast } from "../ui.js?v=23";
+import { api } from "../api.js?v=24";
+import { escapeHtml, formatDateTime } from "../format.js?v=24";
+import { askPassword, confirmDialog, debounce, icon, openModal, setBusy, toast } from "../ui.js?v=24";
 
 export function render(ctx) {
   return {

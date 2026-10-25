@@ -2,9 +2,9 @@
  * 基础账户与所有派生账户下的地址。点击地址行即切换选中；在这里添加
  * 派生、查看地址详情，再从具体地址进入收款或转账。 */
 
-import { api } from "../api.js?v=23";
-import { escapeHtml, formatFiat, groupDigits, shortAddress } from "../format.js?v=23";
-import { askPassword, bindCopy, icon, openModal, setBusy, toast } from "../ui.js?v=23";
+import { api } from "../api.js?v=24";
+import { escapeHtml, formatFiat, groupDigits, shortAddress } from "../format.js?v=24";
+import { askPassword, bindCopy, icon, openModal, setBusy, toast } from "../ui.js?v=24";
 
 const STRATEGY_LABELS = {
   path: { title: "路径派生", desc: "BIP-32 地址索引递增（助记词）" },

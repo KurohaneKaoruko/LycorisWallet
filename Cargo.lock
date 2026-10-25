@@ -2457,7 +2457,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "lycoris-cli"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "lycoris-core",
@@ -2467,7 +2467,7 @@ dependencies = [
 
 [[package]]
 name = "lycoris-core"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -2499,7 +2499,7 @@ dependencies = [
 
 [[package]]
 name = "lycoris-wallet"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "hex",
@@ -2517,7 +2517,7 @@ dependencies = [
 
 [[package]]
 name = "lycoris-wasm"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "getrandom 0.2.17",
  "lycoris-core",

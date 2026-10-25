@@ -4,7 +4,7 @@
 
 import { api } from "../api.js?v=24";
 import { escapeHtml, formatFiat, groupDigits, shortAddress } from "../format.js?v=24";
-import { askPassword, bindCopy, icon, openModal, setBusy, toast } from "../ui.js?v=24";
+import { askPassword, bindCopy, icon, openModal, setBusy, toast } from "../ui.js?v=25";
 
 const STRATEGY_LABELS = {
   path: { title: "路径派生", desc: "BIP-32 地址索引递增（助记词）" },
@@ -12,10 +12,13 @@ const STRATEGY_LABELS = {
   iterated: { title: "迭代哈希", desc: "基于基础私钥连续哈希 N 次" },
 };
 
-/** 派生策略按钱包模式过滤：助记词才有路径派生，口令钱包只有哈希类。 */
+/** 派生策略按钱包模式过滤：助记词走 BIP-32 路径（+迭代哈希）；
+ * 加盐派生以口令为哈希输入，属于口令钱包专属，助记词不提供。 */
 function strategiesFor(wallet) {
   const all = Object.entries(STRATEGY_LABELS);
-  if (!wallet || wallet.mode === "mnemonic") return all;
+  if (!wallet || wallet.mode === "mnemonic") {
+    return all.filter(([key]) => key !== "salted");
+  }
   return all.filter(([key]) => key !== "path");
 }
 

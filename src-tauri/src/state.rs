@@ -335,14 +335,12 @@ impl AppState {
             .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))
     }
 
-    /// One chain's addresses across the wallet's accounts: the base
-    /// derivation first, then every pinned derived account. Cheap even for
-    /// large batches because the chain derivation shares the seed expansion.
+    /// One chain's addresses: the base derivation plus every derived account
+    /// pinned to *this chain*. Accounts on other chains do not appear here.
     pub fn chain_addresses(&self, chain: ChainId) -> CoreResult<Vec<ChainAddressView>> {
         let session = self.session();
         let data = session.data.as_ref().ok_or(Error::Locked)?;
         let wallet = data.active()?;
-        let mut out = Vec::with_capacity(1 + wallet.batch_accounts.len());
 
         let base = preview_derivation(&wallet.secret)?;
         let account = base
@@ -350,6 +348,7 @@ impl AppState {
             .iter()
             .find(|a| a.chain == chain)
             .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+        let mut out = Vec::with_capacity(1 + wallet.batch_accounts.len());
         out.push(ChainAddressView {
             id: None,
             label: "基础账户".into(),
@@ -358,46 +357,30 @@ impl AppState {
             active: wallet.active_batch.is_none(),
         });
 
-        if !wallet.batch_accounts.is_empty() {
-            let specs = &wallet.batch_accounts;
-            let mut groups: std::collections::BTreeMap<
-                lycoris_core::derive::BatchStrategy,
-                Vec<u32>,
-            > = std::collections::BTreeMap::new();
-            for spec in specs {
-                groups.entry(spec.strategy).or_default().push(spec.index);
-            }
-            let mut derived: std::collections::HashMap<String, (String, String)> =
-                std::collections::HashMap::new();
-            for (strategy, indices) in groups {
-                let accounts = lycoris_core::derive::derive_chain_accounts_batch(
-                    &wallet.secret,
-                    strategy,
-                    &indices,
-                    chain,
-                )?;
-                let ids: Vec<&str> = specs
-                    .iter()
-                    .filter(|s| s.strategy == strategy)
-                    .map(|s| s.id.as_str())
-                    .collect();
-                for (id, account) in ids.into_iter().zip(accounts) {
-                    derived.insert(id.to_string(), (account.address, account.path));
-                }
-            }
-            for spec in specs {
-                let (address, path) = derived
-                    .get(&spec.id)
-                    .cloned()
-                    .unwrap_or_else(|| (String::new(), String::new()));
-                out.push(ChainAddressView {
-                    id: Some(spec.id.clone()),
-                    label: spec.display_label(),
-                    address,
-                    path,
-                    active: wallet.active_batch.as_deref() == Some(spec.id.as_str()),
-                });
-            }
+        let specs: Vec<&lycoris_core::derive::BatchAccountSpec> = wallet
+            .batch_accounts
+            .iter()
+            .filter(|spec| spec.chain == chain)
+            .collect();
+        if specs.is_empty() {
+            return Ok(out);
+        }
+
+        let indices: Vec<u32> = specs.iter().map(|spec| spec.index).collect();
+        let derived_list: Vec<lycoris_core::derive::Account> = indices
+            .iter()
+            .map(|index| {
+                lycoris_core::derive::derive_chain_account(&wallet.secret, specs[0].strategy, chain, *index)
+            })
+            .collect::<CoreResult<_>>()?;
+        for (spec, derived) in specs.iter().zip(derived_list) {
+            out.push(ChainAddressView {
+                id: Some(spec.id.clone()),
+                label: spec.display_label(),
+                address: derived.address.clone(),
+                path: derived.path.clone(),
+                active: wallet.active_batch.as_deref() == Some(spec.id.as_str()),
+            });
         }
         Ok(out)
     }
@@ -431,15 +414,10 @@ impl AppState {
 
         // Public info comes from the same derivation the address list uses.
         let account = if let Some(spec) = &spec {
-            lycoris_core::derive::derive_chain_accounts_batch(
-                &wallet.secret,
-                spec.strategy,
-                &[spec.index],
-                chain,
-            )?
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::Message("派生结果为空".into()))?
+            if spec.chain != chain {
+                return Err(Error::UnsupportedChain(chain.to_string()));
+            }
+            lycoris_core::derive::derive_chain_account(&wallet.secret, spec.strategy, chain, spec.index)?
         } else {
             preview_derivation(&wallet.secret)?
                 .accounts
@@ -478,11 +456,10 @@ impl AppState {
                 let preview = redact(phrase);
                 match spec.strategy {
                     lycoris_core::derive::BatchStrategy::Iterated => (
-                        "口令",
-                        preview,
+                        "基础私钥",
+                        "基础账户私钥（base）".to_string(),
                         vec![
-                            format!("取口令（NFKD 规范化）：{}", redact(phrase)),
-                            format!("计算基础私钥 base = {hash_name}(口令)"),
+                            format!("取基础账户私钥 base（= {hash_name}(口令)）"),
                             format!("连续哈希 base 自己 {} 次 → digest", spec.index),
                             "digest 即该链 32 字节私钥种子".to_string(),
                         ],
@@ -553,10 +530,9 @@ impl AppState {
                         format!("{hash_name}(\"{domain}\\0\" ‖ 助记词 ‖ \"\\0#{i}\")", i = spec.index),
                     ),
                     lycoris_core::derive::BatchStrategy::Iterated => (
-                        "助记词",
-                        "BIP-39 助记词（见 设置 → 导出助记词）".to_string(),
+                        "基础私钥",
+                        "基础账户私钥（base）".to_string(),
                         vec![
-                            "助记词 → PBKDF2-HMAC-SHA512 → 512 位种子".to_string(),
                             format!("沿基础路径 {} 派生基础私钥 base", {
                                 let info = chain.info();
                                 info.derivation_path
@@ -605,47 +581,28 @@ impl AppState {
     }
 
     /// Every account of the active wallet: the base derivation plus each
-    /// pinned derived account. This is what the portfolio aggregates so the
-    /// dashboard total covers all derived addresses.
+    /// pinned derived account (only on its own chain). This is what the
+    /// portfolio aggregates so the dashboard total covers all derived
+    /// addresses.
     pub fn all_accounts(&self) -> CoreResult<Vec<(Option<String>, Account)>> {
         let session = self.session();
         let data = session.data.as_ref().ok_or(Error::Locked)?;
         let wallet = data.active()?;
 
-        let mut groups: std::collections::BTreeMap<
-            lycoris_core::derive::BatchStrategy,
-            Vec<u32>,
-        > = std::collections::BTreeMap::new();
-        for spec in &wallet.batch_accounts {
-            groups
-                .entry(spec.strategy)
-                .or_default()
-                .push(spec.index);
-        }
-
         let mut out = Vec::with_capacity((1 + wallet.batch_accounts.len()) * ChainId::ALL.len());
-        // Base account (the plain derivation) first.
+        // Base account (the plain derivation) first — on every chain.
         for account in preview_derivation(&wallet.secret)?.accounts {
             out.push((None, account));
         }
-        for (strategy, indices) in groups {
-            for chain in ChainId::ALL {
-                let accounts = lycoris_core::derive::derive_chain_accounts_batch(
-                    &wallet.secret,
-                    strategy,
-                    &indices,
-                    chain,
-                )?;
-                let ids: Vec<&str> = wallet
-                    .batch_accounts
-                    .iter()
-                    .filter(|s| s.strategy == strategy)
-                    .map(|s| s.id.as_str())
-                    .collect();
-                for (id, account) in ids.iter().zip(accounts) {
-                    out.push((Some((*id).to_string()), account));
-                }
-            }
+        // Each derived account contributes exactly one address, on its chain.
+        for spec in &wallet.batch_accounts {
+            let account = lycoris_core::derive::derive_chain_account(
+                &wallet.secret,
+                spec.strategy,
+                spec.chain,
+                spec.index,
+            )?;
+            out.push((Some(spec.id.clone()), account));
         }
         Ok(out)
     }
@@ -669,10 +626,11 @@ impl AppState {
         self.wallet()
     }
 
-    /// Derive `request.count` accounts with `request.strategy` and pin them to
-    /// the **active wallet** — the wallet keeps one secret and gains a list of
-    /// derived accounts it can switch between. Idempotent per account id.
-    /// The last added account becomes the selected one.
+    /// Derive `request.count` accounts on `request.chain` with
+    /// `request.strategy` and pin them to the **active wallet** — the wallet
+    /// keeps one secret and gains a list of derived accounts it can switch
+    /// between. Idempotent per account id. The last added account becomes the
+    /// selected one.
     pub fn add_batch_accounts(
         &self,
         request: &lycoris_core::derive::BatchRequest,
@@ -697,10 +655,16 @@ impl AppState {
         let specs: Vec<lycoris_core::derive::BatchAccountSpec> = batch
             .iter()
             .enumerate()
-            .map(|(offset, accounts)| {
+            .map(|(offset, account)| {
                 let index = start + offset as u32;
-                let mut spec = lycoris_core::derive::BatchAccountSpec::new(request.strategy, index);
-                spec.fingerprint = lycoris_core::derive::derive_fingerprint(accounts);
+                let mut spec = lycoris_core::derive::BatchAccountSpec::new(
+                    request.strategy,
+                    request.chain,
+                    index,
+                );
+                spec.fingerprint = lycoris_core::derive::derive_fingerprint(std::slice::from_ref(
+                    account,
+                ));
                 // Label: 用户命名 > 「钱包名 #序号」(与钱包列表可区分)
                 spec.label = base_label
                     .clone()
@@ -886,6 +850,7 @@ fn view_locked(session: &Session) -> CoreResult<WalletView> {
         .map(|spec| lycoris_core::models::DerivedAccountView {
             id: spec.id.clone(),
             strategy: spec.strategy,
+            chain: spec.chain,
             index: spec.index,
             label: spec.display_label(),
             // Older vaults stored lowercase fingerprints; normalise on read.

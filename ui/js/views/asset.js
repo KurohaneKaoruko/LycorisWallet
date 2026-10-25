@@ -169,9 +169,9 @@ export function render(ctx) {
           )}</div></div>`;
         });
 
-      /* 添加派生地址（针对这条链所属的钱包，一次添加后全部链生效） */
+      /* 添加派生地址：只作用于当前资产页的这一条链 */
       root.querySelector("#addr-add-derived")?.addEventListener("click", () => {
-        addDerivedFlow(ctx);
+        addDerivedFlow(ctx, name);
       });
     },
   };
@@ -282,7 +282,7 @@ async function manageFlow(ctx, id, refresh) {
     `<h2>派生账户「${escapeHtml(account.label)}」</h2>
      <p class="hint" style="margin:6px 0 12px">${escapeHtml(
        strategyTitle(account.strategy),
-     )} · 序号 ${account.index}${account.fingerprint ? ` · 指纹 ${escapeHtml(account.fingerprint)}` : ""}</p>
+     )} · 序号 ${account.index} · 仅作用于该币种${account.fingerprint ? ` · 指纹 ${escapeHtml(account.fingerprint)}` : ""}</p>
      <div class="field" style="margin-bottom:4px">
        <label for="manage-label">名称</label>
        <input class="input" id="manage-label" type="text" maxlength="40" value="${escapeHtml(account.label)}" />
@@ -341,8 +341,9 @@ function strategyTitle(strategy) {
   return STRATEGY_LABELS[strategy]?.title ?? strategy;
 }
 
-/** 在资产页内直接添加派生账户的小弹窗（复用钱包管理页的派生策略）。 */
-function addDerivedFlow(ctx) {
+/** 在资产页内直接添加派生账户的小弹窗；只添加当前链（chainName 用于展示）。 */
+function addDerivedFlow(ctx, chainName) {
+  const chain = ctx.state.params.chain;
   const isMnemonic = !ctx.state.wallet || ctx.state.wallet.mode === "mnemonic";
   const local = {
     strategy: isMnemonic ? "path" : "salted",
@@ -364,8 +365,8 @@ function addDerivedFlow(ctx) {
 
   function markup(local) {
     return `<h2>添加派生地址</h2>
-      <p class="hint" style="margin:6px 0 12px">为当前钱包追加派生账户；只记录「派生方式 + 序号」，不保存额外密钥。</p>
-      <div class="field">
+      <p class="hint" style="margin:6px 0 12px">为当前钱包追加 <strong>${escapeHtml(chainName)}</strong> 派生地址；只记录「派生方式 + 序号」，不保存额外密钥。其他币种不受影响，仍使用基础地址。</p>
+      <div class="field" style="margin-bottom:16px">
         <span class="field-label">派生方式</span>
         <div class="seg seg-col" role="group">
           ${strategiesFor(ctx.state.wallet)
@@ -431,7 +432,12 @@ function addDerivedFlow(ctx) {
       setBusy(button, true, "派生中…");
       try {
         const view = await api.addWalletsBatch({
-          batch: { strategy: local.strategy, count: local.count, start: local.start },
+          batch: {
+            strategy: local.strategy,
+            chain,
+            count: local.count,
+            start: local.start,
+          },
           name: null,
         });
         ctx.setWallet(view);

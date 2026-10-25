@@ -2,13 +2,13 @@
  *  rail / mobile tab bar, and the auto-lock + session touch timers.
  *  Ported from ui/js/main.js renderRail/syncChrome/timers. */
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import { api, isMock } from "../api";
 import { useSession, type ViewId } from "./session";
 import { Icon } from "../ui/Icon";
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 const TOUCH_INTERVAL = 20_000; // ms between session touches
 const AUTO_REFRESH_INTERVAL = 120_000; // ms
 
@@ -94,54 +94,98 @@ export function Titlebar({ walletVisible }: { walletVisible: boolean }) {
 export function Rail() {
   const { view, go } = useSession();
   const compact = useCompact();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   if (compact) {
-    const tabs: Array<{ id: ViewId; label: string; icon: string }> = [
-      { id: "dashboard", label: "总览", icon: "dashboard" },
-      { id: "receive", label: "收款", icon: "receive" },
-      { id: "send", label: "转账", icon: "send" },
-      { id: "activity", label: "记录", icon: "activity" },
-      { id: "wallets", label: "钱包", icon: "wallet" },
-    ];
+    // 手机底部标签栏：常用四项 + 「更多」抽屉（与旧版一致）。
+    const primary = ["dashboard", "receive", "send", "activity"];
+    const all = RAIL_GROUPS.flatMap((group) => group.items);
+    const primaryItems = all.filter((item) => primary.includes(item.id));
+    const moreItems = all.filter((item) => !primary.includes(item.id));
     return (
-      <nav className="tabbar" aria-label="页面导航">
-        {tabs.map((tab) => (
+      <nav className="rail" aria-label="页面导航">
+        {primaryItems.map((item) => (
           <button
-            key={tab.id}
-            className={`tab-item${view === tab.id ? " active" : ""}`}
+            key={item.id}
+            className="rail-item"
             type="button"
-            onClick={() => go(tab.id)}
+            data-view={item.id}
+            onClick={() => go(item.id)}
           >
-            <Icon name={tab.icon} />
-            <span>{tab.label}</span>
+            <Icon name={item.icon} />
+            <span>{item.label}</span>
           </button>
         ))}
+        <button
+          className="rail-item"
+          type="button"
+          data-more
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen(true)}
+        >
+          <Icon name="menu" />
+          <span>更多</span>
+        </button>
+        {moreOpen ? (
+          <div className="modal-backdrop" onClick={() => setMoreOpen(false)}>
+            <div
+              className="modal"
+              role="dialog"
+              aria-modal="true"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h2>更多</h2>
+              <div className="stack-sm" style={{ marginTop: 12 }}>
+                {moreItems.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`more-item${view === item.id ? " is-current" : ""}`}
+                    type="button"
+                    data-view={item.id}
+                    onClick={() => {
+                      setMoreOpen(false);
+                      go(item.id);
+                    }}
+                  >
+                    <Icon name={item.icon} />
+                    <span>{item.label}</span>
+                    <Icon name="chevronRight" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </nav>
     );
   }
 
   return (
-    <aside className="rail">
-      <nav className="rail-nav">
-        {RAIL_GROUPS.map((group) => (
-          <div key={group.label} className="rail-group">
-            <div className="rail-label">{group.label}</div>
-            {group.items.map((item) => (
-              <button
-                key={item.id}
-                className={`rail-item${view === item.id ? " active" : ""}`}
-                type="button"
-                onClick={() => go(item.id)}
-              >
-                <Icon name={item.icon} />
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </div>
-        ))}
-      </nav>
-      <div className="rail-foot">Lycoris Wallet v{VERSION}</div>
-    </aside>
+    <nav className="rail">
+      {RAIL_GROUPS.map((group) => (
+        <Fragment key={group.label}>
+          <div className="rail-group">{group.label}</div>
+          {group.items.map((item) => (
+            <button
+              key={item.id}
+              className="rail-item"
+              type="button"
+              data-view={item.id}
+              aria-current={view === item.id ? "true" : "false"}
+              onClick={() => go(item.id)}
+            >
+              <Icon name={item.icon} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </Fragment>
+      ))}
+      <div className="rail-foot">
+        Lycoris Wallet v{VERSION}
+        <br />
+        {isMock ? "演示模式 · 数据不离开本机" : "密钥永远留在本机"}
+      </div>
+    </nav>
   );
 }
 

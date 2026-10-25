@@ -370,7 +370,12 @@ impl AppState {
         let derived_list: Vec<lycoris_core::derive::Account> = indices
             .iter()
             .map(|index| {
-                lycoris_core::derive::derive_chain_account(&wallet.secret, specs[0].strategy, chain, *index)
+                lycoris_core::derive::derive_chain_account(
+                    &wallet.secret,
+                    specs[0].strategy,
+                    chain,
+                    *index,
+                )
             })
             .collect::<CoreResult<_>>()?;
         for (spec, derived) in specs.iter().zip(derived_list) {
@@ -417,7 +422,12 @@ impl AppState {
             if spec.chain != chain {
                 return Err(Error::UnsupportedChain(chain.to_string()));
             }
-            lycoris_core::derive::derive_chain_account(&wallet.secret, spec.strategy, chain, spec.index)?
+            lycoris_core::derive::derive_chain_account(
+                &wallet.secret,
+                spec.strategy,
+                chain,
+                spec.index,
+            )?
         } else {
             preview_derivation(&wallet.secret)?
                 .accounts
@@ -440,8 +450,8 @@ impl AppState {
         };
 
         // 来源与计算步骤：让用户能说清这把私钥「从哪来、怎么算」。
-        let isolated = wallet.secret.derivation_mode()
-            == Some(lycoris_core::derive::DerivationMode::Isolated);
+        let isolated =
+            wallet.secret.derivation_mode() == Some(lycoris_core::derive::DerivationMode::Isolated);
         let domain = format!("lycoris/v1/{}", chain.as_str());
         let hash_name = match chain {
             ChainId::Litecoin | ChainId::Dogecoin => "scrypt",
@@ -449,10 +459,7 @@ impl AppState {
             _ => "SHA-256",
         };
         let (source_kind, source_preview, steps, formula) = match (&wallet.secret, &spec) {
-            (
-                lycoris_core::derive::WalletSecret::Passphrase { phrase, .. },
-                Some(spec),
-            ) => {
+            (lycoris_core::derive::WalletSecret::Passphrase { phrase, .. }, Some(spec)) => {
                 let preview = redact(phrase);
                 match spec.strategy {
                     lycoris_core::derive::BatchStrategy::Iterated => (
@@ -480,7 +487,10 @@ impl AppState {
                             "digest 即该链 32 字节私钥种子".to_string(),
                         ],
                         if isolated {
-                            format!("{hash_name}(\"{domain}\\0\" ‖ 口令 ‖ \"\\0#{i}\")", i = spec.index)
+                            format!(
+                                "{hash_name}(\"{domain}\\0\" ‖ 口令 ‖ \"\\0#{i}\")",
+                                i = spec.index
+                            )
                         } else {
                             format!("{hash_name}(口令 ‖ \"\\0#{i}\")", i = spec.index)
                         },
@@ -523,11 +533,17 @@ impl AppState {
                         "BIP-39 助记词（见 设置 → 导出助记词）".to_string(),
                         vec![
                             "取助记词原文（12/24 个单词）".to_string(),
-                            format!("拼消息：\"{domain}\\0\" + 助记词 + \"\\0#{i}\"", i = spec.index),
+                            format!(
+                                "拼消息：\"{domain}\\0\" + 助记词 + \"\\0#{i}\"",
+                                i = spec.index
+                            ),
                             format!("digest = {hash_name}(消息)"),
                             "digest 即该链 32 字节私钥种子（离开标准 BIP-32 树）".to_string(),
                         ],
-                        format!("{hash_name}(\"{domain}\\0\" ‖ 助记词 ‖ \"\\0#{i}\")", i = spec.index),
+                        format!(
+                            "{hash_name}(\"{domain}\\0\" ‖ 助记词 ‖ \"\\0#{i}\")",
+                            i = spec.index
+                        ),
                     ),
                     lycoris_core::derive::BatchStrategy::Iterated => (
                         "基础私钥",
@@ -662,13 +678,10 @@ impl AppState {
                     request.chain,
                     index,
                 );
-                spec.fingerprint = lycoris_core::derive::derive_fingerprint(std::slice::from_ref(
-                    account,
-                ));
+                spec.fingerprint =
+                    lycoris_core::derive::derive_fingerprint(std::slice::from_ref(account));
                 // Label: 用户命名 > 「钱包名 #序号」(与钱包列表可区分)
-                spec.label = base_label
-                    .clone()
-                    .map(|label| format!("{label} #{index}"));
+                spec.label = base_label.clone().map(|label| format!("{label} #{index}"));
                 let _ = &existing;
                 spec
             })

@@ -52,7 +52,12 @@ pub fn chain_hash(phrase: &str, chain: ChainId, isolated: bool) -> Result<[u8; 3
 /// The same chain-native hash, but the account index is mixed into the hashed
 /// message (`…\0#<index>`). Every account gets an independent key while the
 /// formula stays a one-line salted hash.
-pub fn chain_hash_salted(phrase: &str, chain: ChainId, isolated: bool, index: u32) -> Result<[u8; 32]> {
+pub fn chain_hash_salted(
+    phrase: &str,
+    chain: ChainId,
+    isolated: bool,
+    index: u32,
+) -> Result<[u8; 32]> {
     let mut message = derivation_message(phrase, chain, isolated)?;
     message.extend_from_slice(format!("\0#{}", index).as_bytes());
     hash_message(&message, chain)

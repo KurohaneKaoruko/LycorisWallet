@@ -229,7 +229,10 @@ pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
                 amounts.insert(account.chain, (amount, None));
             }
             Err(message) => {
-                warnings.push(format!("{} 余额获取失败：{message}", account.chain.info().name));
+                warnings.push(format!(
+                    "{} 余额获取失败：{message}",
+                    account.chain.info().name
+                ));
                 amounts.insert(account.chain, (0, Some(message)));
             }
         }

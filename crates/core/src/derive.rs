@@ -192,7 +192,9 @@ pub struct DerivationPreview {
 }
 
 /// How multiple accounts are spread out from one secret.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum BatchStrategy {
     /// Mnemonic wallets: bump the last BIP-32 address index
@@ -686,7 +688,14 @@ fn mnemonic_account_at_index(seed: &[u8; 64], chain: ChainId, index: u32) -> Res
                 ChainKind::Evm => "BIP-32 / BIP-44",
                 ChainKind::Ed25519 | ChainKind::Cryptonote => unreachable!(),
             };
-            account_from_secp(chain, &derived.key, &path, algorithm, algorithm, "地址索引递增")
+            account_from_secp(
+                chain,
+                &derived.key,
+                &path,
+                algorithm,
+                algorithm,
+                "地址索引递增",
+            )
         }
         ChainKind::Ed25519 => {
             let path = replace_last_index(base, index);
@@ -754,7 +763,14 @@ fn account_from_digest(
         ),
         ChainKind::Cryptonote => {
             let keys = crate::cryptonote::MoneroKeys::from_spend_seed(&digest);
-            account_from_monero(chain, &keys, path, derivation_label, info.hash.label(), hash_detail)
+            account_from_monero(
+                chain,
+                &keys,
+                path,
+                derivation_label,
+                info.hash.label(),
+                hash_detail,
+            )
         }
     }
 }
@@ -790,9 +806,10 @@ fn mnemonic_iterated_account(seed: &[u8; 64], chain: ChainId, index: u32) -> Res
 /// the chain is anchored to the wallet's base key, not to the bare words.
 fn mnemonic_iterated_digest(seed: &[u8; 64], chain: ChainId, index: u32) -> Result<[u8; 32]> {
     let base = match chain.info().kind {
-        ChainKind::Utxo | ChainKind::Evm => {
-            bip32::derive_path(seed, chain.info().derivation_path)?.key.to_bytes().into()
-        }
+        ChainKind::Utxo | ChainKind::Evm => bip32::derive_path(seed, chain.info().derivation_path)?
+            .key
+            .to_bytes()
+            .into(),
         ChainKind::Ed25519 => slip10::derive_path(seed, chain.info().derivation_path)?.key,
         ChainKind::Cryptonote => {
             // Anchor to the base account's actual spend key, the same value
@@ -829,7 +846,11 @@ fn passphrase_account_at_index(
         BatchStrategy::Path | BatchStrategy::Salted => (
             crate::hash::chain_hash_salted(phrase, chain, isolated, index)?,
             format!("salted · #{}", index),
-            if isolated { "H_chain(phrase, #i)" } else { "H(phrase, #i)" },
+            if isolated {
+                "H_chain(phrase, #i)"
+            } else {
+                "H(phrase, #i)"
+            },
             "加盐哈希 · 32 byte digest",
         ),
         BatchStrategy::Iterated => (
@@ -856,7 +877,9 @@ pub fn derive_accounts_batch(
     // The iterated chain is anchored at the base key: index 0 would repeat the
     // base account exactly, so it is not a valid starting point.
     if request.strategy == BatchStrategy::Iterated && request.start == 0 {
-        return Err(Error::Message("迭代哈希从序号 1 开始（0 号即基础账户）".into()));
+        return Err(Error::Message(
+            "迭代哈希从序号 1 开始（0 号即基础账户）".into(),
+        ));
     }
     let end = request.start.saturating_add(request.count).min(max);
     if end - request.start < request.count {
@@ -996,7 +1019,8 @@ pub fn derive_chain_private_key_for_spec(
                     })
                 }
                 (_, Some(BatchStrategy::Salted)) => {
-                    let digest = crate::hash::chain_hash_salted(&mnemonic.to_string(), chain, true, index)?;
+                    let digest =
+                        crate::hash::chain_hash_salted(&mnemonic.to_string(), chain, true, index)?;
                     Ok(digest_to_key(chain, digest))
                 }
                 (_, Some(BatchStrategy::Iterated)) => {
@@ -1039,9 +1063,7 @@ fn digest_to_key(chain: ChainId, digest: [u8; 32]) -> PrivateKeyMaterial {
         },
         ChainKind::Cryptonote => PrivateKeyMaterial {
             chain,
-            inner: PrivateKeyInner::Monero(crate::cryptonote::MoneroKeys::from_spend_seed(
-                &digest,
-            )),
+            inner: PrivateKeyInner::Monero(crate::cryptonote::MoneroKeys::from_spend_seed(&digest)),
         },
     }
 }
@@ -1052,7 +1074,11 @@ fn digest_to_key(chain: ChainId, digest: [u8; 32]) -> PrivateKeyMaterial {
 fn replace_last_index(path: &str, index: u32) -> String {
     match path.rsplit_once('/') {
         Some((head, last)) => {
-            let marker = if last.ends_with(['\'', 'h']) { &last[last.len() - 1..] } else { "" };
+            let marker = if last.ends_with(['\'', 'h']) {
+                &last[last.len() - 1..]
+            } else {
+                ""
+            };
             format!("{head}/{index}{marker}")
         }
         None => path.to_string(),
@@ -1192,13 +1218,21 @@ mod tests {
             .into_iter()
             .find(|a| a.chain == ChainId::Ethereum)
             .unwrap();
-        let eth = accounts.into_iter().find(|a| a.chain == ChainId::Ethereum).unwrap();
-        assert_eq!(eth.address, eth_base.address, "non-target chains stay on base");
+        let eth = accounts
+            .into_iter()
+            .find(|a| a.chain == ChainId::Ethereum)
+            .unwrap();
+        assert_eq!(
+            eth.address, eth_base.address,
+            "non-target chains stay on base"
+        );
     }
 
     #[test]
     fn batch_salted_is_deterministic_and_index_disjoint() {
-        let secret = WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated).unwrap();
+        let secret =
+            WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated)
+                .unwrap();
         let batch = derive_accounts_batch(
             &secret,
             &BatchRequest {
@@ -1230,7 +1264,9 @@ mod tests {
 
     #[test]
     fn batch_iterated_is_anchored_to_base_key() {
-        let secret = WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated).unwrap();
+        let secret =
+            WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated)
+                .unwrap();
         let plain = derive_accounts(&secret)
             .unwrap()
             .into_iter()
@@ -1248,7 +1284,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert_ne!(plain.address, batch[0].address, "H(base) must differ from base");
+        assert_ne!(
+            plain.address, batch[0].address,
+            "H(base) must differ from base"
+        );
         // And index 0 is rejected outright — it would repeat the base.
         assert!(derive_accounts_batch(
             &secret,
@@ -1315,9 +1354,15 @@ mod tests {
     #[test]
     fn replace_last_index_swaps_only_the_final_component() {
         assert_eq!(replace_last_index("m/84'/0'/0'/0/0", 7), "m/84'/0'/0'/0/7");
-        assert_eq!(replace_last_index("m/44'/60'/0'/0/0", 12), "m/44'/60'/0'/0/12");
+        assert_eq!(
+            replace_last_index("m/44'/60'/0'/0/0", 12),
+            "m/44'/60'/0'/0/12"
+        );
         // Hardened final components keep their marker.
-        assert_eq!(replace_last_index("m/44'/501'/0'/0'", 2), "m/44'/501'/0'/2'");
+        assert_eq!(
+            replace_last_index("m/44'/501'/0'/0'", 2),
+            "m/44'/501'/0'/2'"
+        );
     }
 
     #[test]

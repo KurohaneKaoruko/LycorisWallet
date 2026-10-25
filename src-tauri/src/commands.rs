@@ -6,6 +6,7 @@ use crate::portfolio::{self, QuoteRequest, SendRequest};
 use crate::state::{default_label, fresh_mnemonic};
 use crate::window;
 use lycoris_core::chains::ChainId;
+use lycoris_core::derive::KeySlotKind;
 use lycoris_core::derive::{DerivationMode, DerivationPreview, WalletSecret};
 use lycoris_core::models::{
     Contact, Portfolio, SendQuote, SendResult, Settings, VaultStatus, WalletView,
@@ -26,6 +27,16 @@ pub enum SecretRequest {
         #[serde(default)]
         derivation: DerivationMode,
     },
+    #[serde(rename_all = "camelCase")]
+    PrivateKey { key: String },
+    /// 聚合钱包:第一把私钥(链 + 原始钥匙 + 可选备注)。
+    #[serde(rename_all = "camelCase")]
+    Aggregate {
+        chain: ChainId,
+        key: String,
+        #[serde(default)]
+        label: Option<String>,
+    },
 }
 
 impl SecretRequest {
@@ -36,6 +47,10 @@ impl SecretRequest {
             }
             SecretRequest::Passphrase { phrase, derivation } => {
                 Ok(WalletSecret::new_passphrase(phrase.trim(), derivation)?)
+            }
+            SecretRequest::PrivateKey { key } => Ok(WalletSecret::new_private_key(key.trim())?),
+            SecretRequest::Aggregate { chain, key, label } => {
+                Ok(WalletSecret::new_aggregate(chain, key.trim(), label)?)
             }
         }
     }
@@ -464,6 +479,70 @@ pub fn touch_session(state: State<'_, crate::state::AppState>) {
 #[tauri::command]
 pub fn window_minimize(window: tauri::Window) -> ApiResult<()> {
     window::minimize(&window)
+}
+
+/// 钥匙环补加/替换(私钥钱包专属)。密码确认;成功后返回重派生的钱包视图。
+#[tauri::command]
+pub fn update_key_slot(
+    state: State<'_, crate::state::AppState>,
+    slot: KeySlotKind,
+    key: String,
+    password: String,
+) -> ApiResult<WalletView> {
+    state
+        .update_key_slot(slot, key.trim(), &password)
+        .map_err(ApiError::from)
+}
+
+/// 钥匙环摘除(私钥钱包专属)。至少保留一个槽。
+#[tauri::command]
+pub fn remove_key_slot(
+    state: State<'_, crate::state::AppState>,
+    slot: KeySlotKind,
+    password: String,
+) -> ApiResult<WalletView> {
+    state
+        .remove_key_slot(slot, &password)
+        .map_err(ApiError::from)
+}
+
+/// 聚合钱包补加一把私钥(链 + 原始钥匙 + 可选备注)。
+#[tauri::command]
+pub fn add_aggregate_key(
+    state: State<'_, crate::state::AppState>,
+    chain: ChainId,
+    key: String,
+    label: Option<String>,
+    password: String,
+) -> ApiResult<WalletView> {
+    state
+        .add_aggregate_key(chain, key.trim(), label, &password)
+        .map_err(ApiError::from)
+}
+
+/// 聚合钱包摘除一把私钥。
+#[tauri::command]
+pub fn remove_aggregate_key(
+    state: State<'_, crate::state::AppState>,
+    id: String,
+    password: String,
+) -> ApiResult<WalletView> {
+    state
+        .remove_aggregate_key(&id, &password)
+        .map_err(ApiError::from)
+}
+
+/// 聚合钱包重命名一把私钥的备注。
+#[tauri::command]
+pub fn rename_aggregate_key(
+    state: State<'_, crate::state::AppState>,
+    id: String,
+    label: String,
+    password: String,
+) -> ApiResult<WalletView> {
+    state
+        .rename_aggregate_key(&id, label.trim(), &password)
+        .map_err(ApiError::from)
 }
 
 #[tauri::command]

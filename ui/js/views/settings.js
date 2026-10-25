@@ -2,7 +2,7 @@
 
 import { api, walletFull } from "../api.js?v=24";
 import { copyText, escapeHtml, formatDateTime } from "../format.js?v=24";
-import { askPassword, bindCopy, confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=24";
+import { askPassword, bindCopy, confirmDialog, enhanceTabScroll, icon, openModal, setBusy, toast } from "../ui.js?v=25";
 
 const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 60];
 
@@ -567,6 +567,7 @@ async function exportKeys(ctx) {
             .forEach((item) => item.setAttribute("aria-selected", String(item === button)));
           void load(active);
         });
+        enhanceTabScroll(tabs);
         void load(active);
       },
     },

@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 
 import { api } from "../api";
 import { useSession } from "../shell/session";
-import { CopyField, Modal, useToast } from "../ui/overlay";
+import { CopyField, Modal, useTabScroll, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
 import { formatDateTime, groupDigits, shortAddress } from "../format";
 import type { ActivityItem } from "../types";
@@ -152,6 +152,7 @@ function DetailDialog({ item, onClose }: { item: ActivityItem; onClose: () => vo
 
 export function ActivityView() {
   const { wallet, go } = useSession();
+  const chainsRef = useTabScroll<HTMLDivElement>();
   const [chain, setChain] = useState<string>("all");
   const [dir, setDir] = useState<string>("all");
   const [query, setQuery] = useState("");
@@ -201,13 +202,25 @@ export function ActivityView() {
   if (all.length === 0) {
     return (
       <section className="view">
-        <div className="empty">
-          <Icon name="activity" />
-          <h2>还没有交易记录</h2>
-          <p>转账成功后会自动记录在这里；记录只保存在本机。</p>
-          <button className="btn btn-primary" type="button" onClick={() => go("send")}>
-            <Icon name="send" /> 去转账
+        <div className="page-head">
+          <div>
+            <h1>交易记录</h1>
+            <div className="sub">目前只记录本机发起的交易；链上状态请以区块浏览器为准。</div>
+          </div>
+          <button className="btn" type="button" onClick={() => go("send")}>
+            <Icon name="send" />
+            去转账
           </button>
+        </div>
+        <div className="card card-pad">
+          <div className="empty">
+            <div className="mark">
+              <Icon name="activity" />
+            </div>
+            还没有交易记录。
+            <br />
+            在本机发起的每一笔转账都会自动记录在这里。
+          </div>
         </div>
       </section>
     );
@@ -215,59 +228,68 @@ export function ActivityView() {
 
   return (
     <section className="view">
-      <div className="section-title">
-        <h2>交易记录</h2>
-        <span className="hint">{all.length} 条 · 只保存在本机</span>
+      <div className="page-head">
+        <div>
+          <h1>交易记录</h1>
+          <div className="sub">目前只记录本机发起的交易；链上状态请以区块浏览器为准。</div>
+        </div>
+        <button className="btn" type="button" onClick={() => go("send")}>
+          <Icon name="send" />
+          去转账
+        </button>
       </div>
-      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-        <div className="seg" role="tablist" id="activity-chains">
-          <button type="button" data-chain="all" aria-selected={chain === "all"} onClick={() => setChain("all")}>
-            全部
-          </button>
-          {chains.map(([id, count]) => (
-            <button
-              key={id}
-              type="button"
-              data-chain={id}
-              aria-selected={chain === id}
-              onClick={() => setChain(id)}
-            >
-              {id} {count}
+
+      <div className="card card-pad">
+        <div className="row-between" style={{ flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
+          <div className="tabs" role="tablist" id="activity-chains" ref={chainsRef}>
+            <button className="tab" type="button" data-chain="all" aria-selected={chain === "all"} onClick={() => setChain("all")}>
+              全部
             </button>
-          ))}
+            {chains.map(([id, count]) => (
+              <button
+                key={id}
+                className="tab"
+                type="button"
+                data-chain={id}
+                aria-selected={chain === id}
+                onClick={() => setChain(id)}
+              >
+                <span className="dot" />
+                {id} {count}
+              </button>
+            ))}
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <div className="seg" role="group" id="activity-dir" aria-label="方向">
+              <button type="button" data-dir="all" aria-pressed={dir === "all"} onClick={() => setDir("all")}>
+                全部
+              </button>
+              <button type="button" data-dir="send" aria-pressed={dir === "send"} onClick={() => setDir("send")}>
+                发送
+              </button>
+              <button type="button" data-dir="receive" aria-pressed={dir === "receive"} onClick={() => setDir("receive")}>
+                接收
+              </button>
+            </div>
+            <input
+              className="input"
+              id="activity-search"
+              placeholder="搜索地址或交易哈希"
+              autoComplete="off"
+              spellCheck={false}
+              style={{ width: 210 }}
+              value={query}
+              onChange={(event) => setQuery(event.target.value.trim())}
+            />
+          </div>
         </div>
-        <div className="seg" role="group" id="activity-dir">
-          <button type="button" data-dir="all" aria-pressed={dir === "all"} onClick={() => setDir("all")}>
-            全部
-          </button>
-          <button type="button" data-dir="send" aria-pressed={dir === "send"} onClick={() => setDir("send")}>
-            发送
-          </button>
-          <button type="button" data-dir="receive" aria-pressed={dir === "receive"} onClick={() => setDir("receive")}>
-            接收
-          </button>
-        </div>
-        <input
-          className="input"
-          id="activity-search"
-          type="search"
-          placeholder="搜索哈希 / 地址 / 币种"
-          style={{ flex: 1, minWidth: 180 }}
-          value={query}
-          onChange={(event) => setQuery(event.target.value.trim())}
-        />
-      </div>
-      <div className="card card-pad" style={{ marginTop: 14 }}>
         <div id="activity-list">
           {matches.length === 0 ? (
-            <div className="empty">
-              <Icon name="search" />
-              <p>没有匹配的记录</p>
-            </div>
+            <div className="empty">没有符合筛选条件的记录。</div>
           ) : (
             groups.map((group) => (
               <div key={group.key}>
-                <div className="day-label muted small">{group.label}</div>
+                <div className="day-label">{group.label}</div>
                 {group.items.map((item) => (
                   <ActivityRow key={item.id} item={item} onOpen={() => setDetail(item)} />
                 ))}

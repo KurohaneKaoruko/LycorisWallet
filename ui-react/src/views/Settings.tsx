@@ -9,6 +9,7 @@ import { useSession } from "../shell/session";
 import { Modal, useDialogs, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
 import { copyText } from "../clipboard";
+import { formatDateTime } from "../format";
 import type { ChainId, Settings as SettingsModel } from "../types";
 const CHAIN_LABELS: Record<ChainId, string> = {
   bitcoin: "Bitcoin",
@@ -23,12 +24,26 @@ const CHAIN_LABELS: Record<ChainId, string> = {
   monero: "Monero",
 };
 
+const ACCENTS: Partial<Record<ChainId, string>> = {
+  bitcoin: "#f7931a",
+  litecoin: "#a6a9aa",
+  dogecoin: "#c3a634",
+  bitcoincash: "#8dc351",
+  ethereum: "#627eea",
+  "ethereum-classic": "#328332",
+  bsc: "#f0b90b",
+  polygon: "#8247e5",
+  solana: "#9945ff",
+  monero: "#ff6600",
+};
+
 export function SettingsView() {
-  const { wallet, setWallet, refreshStatus } = useSession();
+  const { wallet, setWallet, go, lockNow } = useSession();
   const toast = useToast();
-  const { confirm, askPassword } = useDialogs();
+  const { askPassword } = useDialogs();
   const [revealed, setRevealed] = useState<string[] | null>(null);
   const [pwOpen, setPwOpen] = useState(false);
+  const [blockchairDraft, setBlockchairDraft] = useState<string>("");
 
   if (!wallet) return null;
   const s = wallet.settings;
@@ -38,8 +53,10 @@ export function SettingsView() {
     try {
       // 链开关需要全量视图;其余设置在过滤后的视图上保存即可。
       const full = patch.visibleChains !== undefined ? await walletFull() : wallet;
-      const view = await api.saveSettings({ ...full.settings, ...patch });
-      setWallet(view);
+      // 后端（与 mock 一致）只返回合并后的 settings,不返回整个钱包视图;
+      // 旧版把返回值合并进当前 wallet。直接整体替换会把 accounts 丢掉。
+      const next = await api.saveSettings({ ...full.settings, ...patch });
+      setWallet({ ...wallet, settings: next });
     } catch (e) {
       toast((e as Error).message, "error");
     }
@@ -61,6 +78,29 @@ export function SettingsView() {
   };
 
   const moneroAccount = wallet.accounts.find((account) => account.chain === "monero");
+  void moneroAccount;
+
+  const deleteVault = async () => {
+    const password = await askPassword({
+      title: "删除钱包文件",
+      description: "整个加密文件将被删除，包括所有钱包、记录与设置。助记词备份是唯一恢复手段。",
+      confirmText: "删除",
+    });
+    if (!password) return;
+    const ok = await confirmDialogCompat();
+    if (!ok) return;
+    try {
+      await api.deleteVault(password);
+      window.location.reload();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
+
+  // 危险操作二确认（对齐旧版 confirmDialog 用法）。
+  const confirmDialogCompat = async () => {
+    return window.confirm("真的要删除整个钱包文件吗？此操作无法撤销。");
+  };
 
   return (
     <section className="view">
@@ -71,238 +111,240 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="card card-pad stack">
-        <div className="section-title">
-          <h3>显示</h3>
+      <div className="settings-grid">
+        {/* 钱包卡 */}
+        <div className="card card-pad stack-sm">
+          <div className="section-title">
+            <h2>钱包</h2>
+            <span className="chip">{wallet.mode === "passphrase" ? `口令 · ${wallet.derivation === "strict" ? "严格" : "宽松"}` : "助记词 · BIP-39"}</span>
+          </div>
+          <div className="kv"><span className="kv-key">名称</span><span className="kv-value">{wallet.label}</span></div>
+          <div className="kv"><span className="kv-key">指纹</span><span className="kv-value fingerprint">{wallet.fingerprint}</span></div>
+          <div className="kv"><span className="kv-key">创建时间</span><span className="kv-value">{formatDateTime(wallet.createdAt)}</span></div>
+          <div className="kv"><span className="kv-key">派生方式</span><span className="kv-value">{wallet.accounts[0]?.derivation ?? "—"}</span></div>
+          <div className="row" style={{ flexWrap: "wrap", marginTop: 4 }}>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setPwOpen(true)}>
+              <Icon name="edit" />
+              修改密码
+            </button>
+            {wallet.mode === "mnemonic" ? (
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void revealWords()}>
+                <Icon name="shield" />
+                备份助记词
+              </button>
+            ) : null}
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => go("wallets")}>
+              <Icon name="key" />
+              导出私钥
+            </button>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => go("wallets")}>
+              <Icon name="wallet" />
+              钱包管理（{wallet.wallets.length} 个）
+            </button>
+          </div>
+          <p className="hint">
+            {wallet.mode === "mnemonic"
+              ? "助记词是恢复资产的唯一凭证，请离线抄写并妥善保存。"
+              : "口令钱包没有助记词，忘记口令等于永久丢失。"}
+          </p>
         </div>
-        <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
-          <div className="field" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="settings-fiat">法币</label>
-            <select
-              className="select"
-              id="settings-fiat"
-              value={s.fiat}
-              onChange={(event) => void save({ fiat: event.target.value as SettingsModel["fiat"] })}
-            >
-              <option value="usd">USD ($)</option>
-              <option value="cny">CNY (¥)</option>
-            </select>
+
+        {/* 显示的链 */}
+        <div className="card card-pad">
+          <div className="section-title"><h2>显示的链</h2></div>
+          <div className="setting-row" style={{ borderBottom: "1px dashed var(--hair)" }}>
+            <div className="text">
+              <div className="name">显示过滤</div>
+              <div className="desc">关闭只隐藏界面入口；地址与密钥仍然覆盖全部 {allChains.length} 条链。</div>
+            </div>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => void save({ visibleChains: [] })}>
+              全部显示
+            </button>
           </div>
-          <div className="field" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="settings-theme">主题</label>
-            <select
-              className="select"
-              id="settings-theme"
-              value={s.theme}
-              onChange={(event) => void save({ theme: event.target.value as SettingsModel["theme"] })}
-            >
-              <option value="system">跟随系统</option>
-              <option value="light">浅色</option>
-              <option value="dark">深色</option>
-            </select>
+          <div className="chain-toggle-list">
+            {allChains.map((chain) => {
+              const on = s.visibleChains.length === 0 || s.visibleChains.includes(chain);
+              return (
+                <div className="chain-toggle-row" key={chain}>
+                  <span className="asset-mark" style={{ ["--accent" as string]: ACCENTS[chain] ?? "#888" }}>
+                    {CHAIN_LABELS[chain].slice(0, 2)}
+                  </span>
+                  <div className="text" style={{ flex: 1, minWidth: 0 }}>
+                    <div className="name">
+                      {CHAIN_LABELS[chain]} <span className="muted small">{chain}</span>
+                    </div>
+                  </div>
+                  <button
+                    className="switch"
+                    type="button"
+                    role="switch"
+                    aria-checked={on}
+                    aria-label={`显示 ${CHAIN_LABELS[chain]}`}
+                    onClick={() => {
+                      const current = s.visibleChains.length === 0 ? [...allChains] : [...s.visibleChains];
+                      const next = on ? current.filter((c) => c !== chain) : [...current, chain];
+                      void save({ visibleChains: next.length === allChains.length ? [] : (next as ChainId[]) });
+                    }}
+                  />
+                </div>
+              );
+            })}
           </div>
-          <div className="field" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="settings-lock">自动锁定（分钟）</label>
+        </div>
+
+        {/* 外观与反馈 */}
+        <div className="card card-pad">
+          <div className="section-title"><h2>外观与反馈</h2></div>
+          <div className="setting-row">
+            <div className="text"><div className="name">法币计价</div><div className="desc">资产估值展示时使用的法币。</div></div>
+            <div className="seg">
+              <button type="button" data-fiat="usd" aria-pressed={s.fiat === "usd"} onClick={() => void save({ fiat: "usd" })}>USD</button>
+              <button type="button" data-fiat="cny" aria-pressed={s.fiat === "cny"} onClick={() => void save({ fiat: "cny" })}>CNY</button>
+            </div>
+          </div>
+          <div className="setting-row">
+            <div className="text"><div className="name">主题</div><div className="desc">浅色、深色或跟随系统昼夜。</div></div>
+            <div className="seg">
+              <button type="button" data-choice="system" aria-pressed={s.theme === "system"} onClick={() => void save({ theme: "system" })}>跟随系统</button>
+              <button type="button" data-choice="light" aria-pressed={s.theme === "light"} onClick={() => void save({ theme: "light" })}>浅色</button>
+              <button type="button" data-choice="dark" aria-pressed={s.theme === "dark"} onClick={() => void save({ theme: "dark" })}>深色</button>
+            </div>
+          </div>
+          <div className="setting-row">
+            <div className="text"><div className="name">隐藏余额</div><div className="desc">总览页面模糊显示数字，适合在公共场合查看。</div></div>
+            <button className="switch" type="button" role="switch" aria-checked={s.hideBalances} aria-label="隐藏余额" onClick={() => void save({ hideBalances: !s.hideBalances })} />
+          </div>
+          <div className="setting-row">
+            <div className="text"><div className="name">价格服务</div><div className="desc">在线获取法币估值；生成法币；关闭后只显示数量。</div></div>
+            <button className="switch" type="button" role="switch" aria-checked={s.priceService} aria-label="价格服务" onClick={() => void save({ priceService: !s.priceService })} />
+          </div>
+        </div>
+
+        {/* 网络 */}
+        <div className="card card-pad">
+          <div className="section-title"><h2>网络</h2></div>
+          <div className="setting-row">
+            <div className="text">
+              <div className="name">Blockchair API Key</div>
+              <div className="desc">Dogecoin 与 Bitcoin Cash 的余额、报价和广播经 Blockchair；无需密钥也可用，但限额下数据可能不全。</div>
+            </div>
+            <span className="chip">{s.blockchairApiKey ? `${s.blockchairApiKey.slice(0, 4)}????${s.blockchairApiKey.slice(-4)}` : "未设置"}</span>
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <input
               className="input"
-              id="settings-lock"
+              id="blockchair-key"
+              type="password"
+              placeholder="粘贴 API Key"
+              autoComplete="off"
+              style={{ flex: 1, minWidth: 200 }}
+              value={blockchairDraft}
+              onChange={(event) => setBlockchairDraft(event.target.value)}
+            />
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => void save({ blockchairApiKey: blockchairDraft.trim() })}>
+              <Icon name="check" />
+              保存
+            </button>
+            {s.blockchairApiKey ? (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => {
+                  setBlockchairDraft("");
+                  void save({ blockchairApiKey: "" });
+                }}
+              >
+                <Icon name="trash" />
+                清除
+              </button>
+            ) : null}
+          </div>
+          <div className="setting-row" style={{ marginTop: 20 }}>
+            <div className="text">
+              <div className="name">Monero 钱包 RPC</div>
+              <div className="desc">XMR 转账经由 monero-wallet-rpc 完成 RingCT 签名。钱包文件放在它的 --wallet-dir 里；恢复高度首次查询时按此高度扫描（0 表示从创世块开始）。</div>
+            </div>
+            <span className="chip">未连接</span>
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <input className="input" placeholder="http://127.0.0.1:18083/json_rpc" autoComplete="off" style={{ flex: 2, minWidth: 240 }} value={s.moneroRpcUrl} onChange={(event) => void save({ moneroRpcUrl: event.target.value })} />
+            <input className="input" placeholder="RPC 用户名（可选）" autoComplete="off" style={{ flex: 1, minWidth: 140 }} value={s.moneroRpcUser} onChange={(event) => void save({ moneroRpcUser: event.target.value })} />
+            <input className="input" type="password" placeholder="RPC 密码（可选）" autoComplete="new-password" style={{ flex: 1, minWidth: 140 }} value={s.moneroRpcPassword} onChange={(event) => void save({ moneroRpcPassword: event.target.value })} />
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <input
+              className="input"
               type="number"
-              min={1}
-              max={120}
-              value={s.autoLockMinutes}
+              min={0}
+              step={1}
+              placeholder="恢复高度（0 = 从头扫描）"
+              style={{ flex: 1, minWidth: 220 }}
+              value={s.moneroRestoreHeight}
               onChange={(event) => {
                 const value = Number(event.target.value);
-                if (Number.isFinite(value)) void save({ autoLockMinutes: Math.max(1, Math.min(120, Math.floor(value))) });
+                if (Number.isFinite(value)) void save({ moneroRestoreHeight: Math.max(0, Math.floor(value)) });
               }}
             />
-          </div>
-        </div>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={s.hideBalances}
-            onChange={(event) => void save({ hideBalances: event.target.checked })}
-          />
-          隐藏余额（截图友好）
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={s.priceService}
-            onChange={(event) => void save({ priceService: event.target.checked })}
-          />
-          启用行情服务（CoinGecko）
-        </label>
-
-        <div className="section-title" style={{ marginTop: 10 }}>
-          <h3>显示的链</h3>
-          <span className="hint">只影响 UI 展示；派生与密钥始终覆盖全部链</span>
-        </div>
-        <div className="chain-toggles">
-          {allChains.map((chain) => {
-            const visible = s.visibleChains.length === 0 || s.visibleChains.includes(chain);
-            return (
-              <label className="check" key={chain}>
-                <input
-                  type="checkbox"
-                  checked={visible}
-                  onChange={(event) => {
-                    const current = s.visibleChains.length === 0 ? [...allChains] : [...s.visibleChains];
-                    const next = event.target.checked
-                      ? allChains.filter((c) => current.includes(c) || c === chain)
-                      : current.filter((c) => c !== chain);
-                    void save({
-                      visibleChains:
-                        next.length === allChains.length ? [] : (next as ChainId[]),
-                    });
-                  }}
-                />
-                {CHAIN_LABELS[chain]}
-              </label>
-            );
-          })}
-        </div>
-
-        <div className="section-title" style={{ marginTop: 10 }}>
-          <h3>安全</h3>
-        </div>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <button className="btn" type="button" onClick={() => setPwOpen(true)}>
-            <Icon name="key" />
-            修改密码
-          </button>
-          {wallet.mode === "mnemonic" ? (
-            <button className="btn" type="button" onClick={() => void revealWords()}>
-              <Icon name="eye" />
-              导出助记词
+            <button className="btn btn-ghost btn-sm" type="button">
+              <Icon name="check" />
+              保存
             </button>
-          ) : null}
-          <button
-            className="btn"
-            type="button"
-            onClick={async () => {
-              const password = await askPassword({
-                title: "导出基础私钥",
-                description: "请选择币种对应的私钥格式。验证密码后显示。",
-                confirmText: "下一步",
-              });
-              if (!password) return;
-              toast("请到资产页的具体地址查看与导出私钥", "info");
-            }}
-          >
-            <Icon name="key" />
-            导出基础私钥
-          </button>
-        </div>
-
-        <div className="section-title" style={{ marginTop: 10 }}>
-          <h3>Monero</h3>
-          <span className="hint">转账需要本机 monero-wallet-rpc；余额查询不依赖它</span>
-        </div>
-        <div className="field">
-          <label htmlFor="settings-xmr-rpc">RPC 地址</label>
-          <input
-            className="input mono"
-            id="settings-xmr-rpc"
-            value={s.moneroRpcUrl}
-            onChange={(event) => void save({ moneroRpcUrl: event.target.value })}
-          />
-        </div>
-        <div className="row" style={{ gap: 12 }}>
-          <div className="field" style={{ flex: 1 }}>
-            <label htmlFor="settings-xmr-user">RPC 用户名（可选）</label>
-            <input
-              className="input"
-              id="settings-xmr-user"
-              value={s.moneroRpcUser}
-              onChange={(event) => void save({ moneroRpcUser: event.target.value })}
-            />
-          </div>
-          <div className="field" style={{ flex: 1 }}>
-            <label htmlFor="settings-xmr-pass">RPC 密码（可选）</label>
-            <input
-              className="input"
-              id="settings-xmr-pass"
-              type="password"
-              value={s.moneroRpcPassword}
-              onChange={(event) => void save({ moneroRpcPassword: event.target.value })}
-            />
+            <button className="btn btn-ghost btn-sm" type="button">
+              <Icon name="activity" />
+              测试连接
+            </button>
           </div>
         </div>
-        <div className="field">
-          <label htmlFor="settings-xmr-height">扫描起始高度（0 = 全链扫描）</label>
-          <input
-            className="input"
-            id="settings-xmr-height"
-            type="number"
-            min={0}
-            value={s.moneroRestoreHeight}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isFinite(value)) void save({ moneroRestoreHeight: Math.max(0, Math.floor(value)) });
-            }}
-          />
-        </div>
-        {moneroAccount ? (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={async () => {
-              const ok = await copyText(moneroAccount.address);
-              toast(ok ? "XMR 地址已复制" : "复制失败", ok ? "success" : "error");
-            }}
-          >
-            <Icon name="copy" />
-            复制 XMR 地址
-          </button>
-        ) : null}
 
-        <div className="section-title" style={{ marginTop: 10 }}>
-          <h3>行情数据</h3>
-        </div>
-        <div className="field">
-          <label htmlFor="settings-blockchair">Blockchair API Key（DOGE/BCH 需要）</label>
-          <input
-            className="input mono"
-            id="settings-blockchair"
-            value={s.blockchairApiKey}
-            onChange={(event) => void save({ blockchairApiKey: event.target.value })}
-          />
+        {/* 安全 */}
+        <div className="card card-pad">
+          <div className="section-title"><h2>安全</h2></div>
+          <div className="setting-row">
+            <div className="text"><div className="name">自动锁定</div><div className="desc">超过设定时间后自动锁定，密钥立即从内存清除。</div></div>
+            <select
+              className="select"
+              style={{ width: "auto" }}
+              value={s.autoLockMinutes}
+              onChange={(event) => void save({ autoLockMinutes: Number(event.target.value) })}
+            >
+              {[1, 5, 10, 15, 30, 60].map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {minutes} 分钟{minutes === 5 ? "（默认）" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="setting-row">
+            <div className="text"><div className="name">修改密码</div><div className="desc">用于加密本机钱包文件；助记词本身不受影响。</div></div>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setPwOpen(true)}>
+              <Icon name="lock" />
+              修改密码
+            </button>
+          </div>
+          <div className="setting-row">
+            <div className="text"><div className="name">立即锁定</div><div className="desc">结束当前会话并回到解锁界面。</div></div>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => void lockNow()}>
+              <Icon name="lock" />
+              立即锁定
+            </button>
+          </div>
         </div>
 
-        <div className="section-title" style={{ marginTop: 10 }}>
-          <h3>危险区</h3>
-        </div>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <button
-            className="btn btn-danger"
-            type="button"
-            onClick={async () => {
-              const password = await askPassword({
-                title: "删除钱包文件",
-                description: "整个加密文件将被删除，包括所有钱包、记录与设置。助记词备份是唯一恢复手段。",
-                confirmText: "删除",
-              });
-              if (!password) return;
-              const ok = await confirm({
-                title: "最后确认",
-                body: "<p>真的要删除整个钱包文件吗？此操作无法撤销。</p>",
-                confirmText: "永久删除",
-                danger: true,
-              });
-              if (!ok) return;
-              try {
-                await api.deleteVault(password);
-                await refreshStatus();
-                toast("钱包文件已删除", "success");
-              } catch (e) {
-                toast((e as Error).message, "error");
-              }
-            }}
-          >
-            <Icon name="trash" />
-            删除钱包文件
-          </button>
+        {/* 危险区 */}
+        <div className="card card-pad">
+          <div className="section-title"><h2>危险区</h2></div>
+          <div className="note note-danger">
+            <Icon name="warn" />
+            <div>
+              删除会移除本机钱包文件，其中可能包含多个钱包与记录。<strong>请确认你已备份助记词（如有），否则资产将无法恢复。</strong>
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 14 }}>
+            <button className="btn btn-danger" type="button" onClick={() => void deleteVault()}>
+              <Icon name="trash" />
+              删除钱包文件
+            </button>
+          </div>
         </div>
       </div>
 

@@ -3,7 +3,7 @@
 
 import { api } from "../api.js?v=24";
 import { copyText, escapeHtml, groupDigits, normalizeAmountInput, shortAddress } from "../format.js?v=24";
-import { confirmDialog, debounce, enhanceTabScroll, icon, openModal, setBusy, toast } from "../ui.js?v=24";
+import { confirmDialog, debounce, enhanceTabScroll, icon, openModal, setBusy, toast } from "../ui.js?v=25";
 
 export function render(ctx, params = {}) {
   const wallet = ctx.state.wallet;

@@ -3,7 +3,7 @@
 
 import { api } from "../api.js?v=24";
 import { escapeHtml } from "../format.js?v=24";
-import { confirmDialog, icon, setBusy, toast } from "../ui.js?v=24";
+import { confirmDialog, icon, setBusy, toast } from "../ui.js?v=25";
 
 export function render(ctx) {
   const status = ctx.state.status ?? {};

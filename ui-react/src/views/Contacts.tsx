@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 
 import { api } from "../api";
 import { useSession } from "../shell/session";
-import { Modal, useDialogs, useToast } from "../ui/overlay";
+import { Modal, useDialogs, useTabScroll, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
 import { copyText } from "../clipboard";
 import type { ChainId, Contact } from "../types";
@@ -132,6 +132,7 @@ export function ContactsView() {
   const { wallet, setWallet, go } = useSession();
   const toast = useToast();
   const { confirm } = useDialogs();
+  const tabsRef = useTabScroll<HTMLDivElement>();
   const [chainTab, setChainTab] = useState("all");
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<Draft | null>(null);
@@ -204,7 +205,7 @@ export function ContactsView() {
 
       <div className="card card-pad">
         <div className="row-between" style={{ flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
-          <div className="tabs" id="contact-tabs">
+          <div className="tabs" id="contact-tabs" ref={tabsRef}>
             <button
               className="tab"
               type="button"

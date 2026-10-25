@@ -1,7 +1,7 @@
 /** Wallet management: the vault's wallet list, switching, rename, derived
  *  account overview and batch creation. Ported from ui/js/views/wallets.js. */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "../api";
 import { useSession } from "../shell/session";
@@ -15,9 +15,13 @@ const STRATEGY_LABELS: Record<string, { title: string; desc: string }> = {
   iterated: { title: "迭代哈希", desc: "基于基础私钥连续哈希 N 次" },
 };
 
+/** 派生策略按钱包模式过滤：助记词走 BIP-32 路径（+迭代哈希）；
+ * 加盐派生以口令为哈希输入，属于口令钱包专属，助记词不提供。 */
 function strategiesFor(wallet: WalletView | null) {
   const all = Object.entries(STRATEGY_LABELS);
-  if (!wallet || wallet.mode === "mnemonic") return all;
+  if (!wallet || wallet.mode === "mnemonic") {
+    return all.filter(([key]) => key !== "salted");
+  }
   return all.filter(([key]) => key !== "path");
 }
 
@@ -189,6 +193,7 @@ export function WalletsView() {
   const { askPassword } = useDialogs();
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
   const [adding, setAdding] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   if (!wallet) return null;
 
@@ -235,13 +240,25 @@ export function WalletsView() {
           <h1>钱包管理</h1>
           <div className="sub">一个加密文件保管多个钱包，共享联系人与设置，交易历史各自独立。</div>
         </div>
-        <button className="btn btn-primary" type="button" onClick={() => setAdding(true)}>
-          <Icon name="layers" />
-          批量派生
-        </button>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn btn-primary" type="button" onClick={() => setCreating(true)}>
+            <Icon name="plus" />
+            新建钱包
+          </button>
+          <button className="btn" type="button" onClick={() => setAdding(true)}>
+            <Icon name="layers" />
+            批量派生
+          </button>
+        </div>
       </div>
 
       <div className="card card-pad">
+        <div className="section-title">
+          <h2>全部钱包</h2>
+          <span className="hint">
+            共 {wallet.wallets.length} 个 · 每个钱包有独立的账户、资产与记录
+          </span>
+        </div>
         <div className="wallet-list">
           {wallet.wallets.map((item) => (
             <div key={item.id} className={`wallet-row${item.active ? " is-active" : ""}`}>
@@ -280,27 +297,9 @@ export function WalletsView() {
           ))}
         </div>
 
-        <div className="section-title" style={{ marginTop: 18 }}>
-          <h3>当前钱包的派生账户</h3>
-          <span className="hint">{wallet.batchAccounts.length} 个 · 单链模型：每个账户只作用于一个币种</span>
-        </div>
-        {wallet.batchAccounts.length === 0 ? (
-          <p className="hint">还没有派生账户。到任意资产页可按币种添加。</p>
-        ) : (
-          <div className="stack-sm">
-            {wallet.batchAccounts.map((account) => (
-              <div className="kv" key={account.id}>
-                <span className="kv-key">
-                  {account.label}
-                  {account.active ? <span className="chip chip-ok">当前</span> : null}
-                </span>
-                <span className="kv-value mono">
-                  {account.strategy} · {account.chain} · #{account.index}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+        <p className="hint" style={{ marginTop: 12 }}>
+          所有钱包共享同一个本机密码。派生账户只保存「配方公式 + 序号」，不占空间；只要记住创建/导入时的密码，随时能在全新设备上完整恢复。账户切换入口在「资产」页中。
+        </p>
       </div>
 
       {renaming ? (
@@ -325,7 +324,195 @@ export function WalletsView() {
           </div>
         </Modal>
       ) : null}
+      {creating ? (
+        <AddWalletDialog
+          onClose={() => setCreating(false)}
+          onDone={(view) => {
+            setCreating(false);
+            setWallet(view);
+          }}
+        />
+      ) : null}
       {adding ? <BatchDialog wallet={wallet} onClose={() => setAdding(false)} onDone={setWallet} /> : null}
     </section>
+  );
+}
+
+/** 新建钱包弹窗：口令（哈希派生）或助记词（BIP-39），实时派生预览。
+ *  移植自 ui/js/views/wallets.js addFlow。 */
+function AddWalletDialog({
+  onClose,
+  onDone,
+}: {
+  onClose: () => void;
+  onDone: (view: WalletView) => void;
+}) {
+  const toast = useToast();
+  const [mode, setMode] = useState<"passphrase" | "mnemonic">("passphrase");
+  const [phrase, setPhrase] = useState("");
+  const [derivation, setDerivation] = useState<"isolated" | "strict">("isolated");
+  const [mnemonic, setMnemonic] = useState("");
+  const [name, setName] = useState("");
+  const [preview, setPreview] = useState<DerivationPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  /* 实时派生预览：380ms 防抖（与旧版一致）。 */
+  useEffect(() => {
+    const value = mode === "passphrase" ? phrase : mnemonic;
+    if (!value.trim()) {
+      setPreview(null);
+      setPreviewError("");
+      setPreviewing(false);
+      return;
+    }
+    setPreviewing(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        setPreview(
+          await api.previewDerivation(
+            mode === "passphrase"
+              ? { mode: "passphrase", phrase, derivation }
+              : { mode: "mnemonic", mnemonic: mnemonic.trim() },
+          ),
+        );
+        setPreviewError("");
+      } catch (e) {
+        setPreview(null);
+        setPreviewError((e as Error).message);
+      } finally {
+        setPreviewing(false);
+      }
+    }, 380);
+    return () => window.clearTimeout(timer);
+  }, [mode, phrase, derivation, mnemonic]);
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const view = await api.addWallet({
+        name: name.trim() || null,
+        secret:
+          mode === "passphrase"
+            ? { mode: "passphrase" as const, phrase, derivation }
+            : { mode: "mnemonic" as const, mnemonic: mnemonic.trim() },
+      });
+      onDone(view);
+      toast(`已创建并切换到「${view.label}」`, "success");
+    } catch (e) {
+      setBusy(false);
+      toast((e as Error).message, "error");
+    }
+  };
+
+  const inputFilled = mode === "passphrase" ? Boolean(phrase.trim()) : Boolean(mnemonic.trim());
+
+  return (
+    <Modal title="新建钱包" onClose={onClose}>
+      <p className="hint" style={{ marginTop: -6, marginBottom: 12 }}>
+        在当前保险库里添加一个钱包，并立即切换过去；其他钱包不受影响。
+      </p>
+
+      <div className="seg" role="group" aria-label="钱包类型" style={{ marginBottom: 14 }}>
+        <button type="button" data-mode="passphrase" aria-pressed={mode === "passphrase"} onClick={() => setMode("passphrase")}>
+          口令（哈希派生）
+        </button>
+        <button type="button" data-mode="mnemonic" aria-pressed={mode === "mnemonic"} onClick={() => setMode("mnemonic")}>
+          助记词（BIP-39）
+        </button>
+      </div>
+
+      {mode === "passphrase" ? (
+        <>
+          <div className="field">
+            <label htmlFor="wallet-phrase">口令</label>
+            <textarea
+              className="textarea"
+              id="wallet-phrase"
+              placeholder="例如：a quiet garden at dusk"
+              autoComplete="off"
+              spellCheck={false}
+              value={phrase}
+              onChange={(event) => setPhrase(event.target.value)}
+            />
+          </div>
+          <div className="field">
+            <span className="field-label">派生方式</span>
+            <div className="seg" role="group">
+              <button
+                type="button"
+                data-derivation="isolated"
+                aria-pressed={derivation === "isolated"}
+                onClick={() => setDerivation("isolated")}
+              >
+                隔离（推荐）
+              </button>
+              <button
+                type="button"
+                data-derivation="strict"
+                aria-pressed={derivation === "strict"}
+                onClick={() => setDerivation("strict")}
+              >
+                严格 H(phrase)
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="field">
+          <label htmlFor="wallet-mnemonic">助记词</label>
+          <textarea
+            className="textarea"
+            id="wallet-mnemonic"
+            placeholder="粘贴已有的 12 / 24 个英文单词"
+            spellCheck={false}
+            autoComplete="off"
+            value={mnemonic}
+            onChange={(event) => setMnemonic(event.target.value)}
+          />
+        </div>
+      )}
+
+      <div className="field">
+        <label htmlFor="wallet-name">名称（可选）</label>
+        <input
+          className="input"
+          id="wallet-name"
+          placeholder={mode === "passphrase" ? "口令钱包" : "助记词钱包"}
+          maxLength={40}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+
+      {preview || previewing || previewError ? (
+        <div className="stack-sm" style={{ margin: "10px 0" }}>
+          {previewing ? (
+            <div className="skeleton" style={{ height: 64 }} />
+          ) : previewError ? (
+            <div className="note note-warn">
+              <Icon name="warn" />
+              <div>{previewError}</div>
+            </div>
+          ) : preview ? (
+            <p className="hint">
+              指纹 <span className="fingerprint">{preview.fingerprint}</span> ·{" "}
+              {preview.formula}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="modal-foot">
+        <button className="btn btn-ghost" type="button" onClick={onClose}>
+          取消
+        </button>
+        <button className="btn btn-primary" type="button" disabled={!inputFilled || busy} onClick={() => void save()}>
+          {busy ? "添加中…" : "创建钱包"}
+        </button>
+      </div>
+    </Modal>
   );
 }

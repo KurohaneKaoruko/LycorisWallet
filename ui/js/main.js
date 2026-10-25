@@ -2,19 +2,19 @@
 
 import { api, hasTauri, isMock, listen } from "./api.js?v=24";
 import { escapeHtml } from "./format.js?v=24";
-import { icon, openModal, toast } from "./ui.js?v=24";
-import { render as renderActivity } from "./views/activity.js?v=24";
-import { render as renderAsset } from "./views/asset.js?v=24";
-import { render as renderContacts } from "./views/contacts.js?v=24";
+import { icon, openModal, toast } from "./ui.js?v=25";
+import { render as renderActivity } from "./views/activity.js?v=25";
+import { render as renderAsset } from "./views/asset.js?v=25";
+import { render as renderContacts } from "./views/contacts.js?v=25";
 import { render as renderDashboard } from "./views/dashboard.js?v=24";
 import { render as renderOnboarding } from "./views/onboarding.js?v=24";
 import { render as renderReceive } from "./views/receive.js?v=24";
 import { render as renderSend } from "./views/send.js?v=24";
-import { render as renderSettings } from "./views/settings.js?v=24";
+import { render as renderSettings } from "./views/settings.js?v=25";
 import { render as renderUnlock } from "./views/unlock.js?v=24";
-import { render as renderWallets } from "./views/wallets.js?v=24";
+import { render as renderWallets } from "./views/wallets.js?v=25";
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 const PORTFOLIO_TTL = 60; // seconds
 const TOUCH_INTERVAL = 20_000; // ms between session touches
 const AUTO_REFRESH_INTERVAL = 120_000; // ms

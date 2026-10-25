@@ -18,10 +18,13 @@ const STRATEGY_LABELS: Record<string, { title: string; desc: string }> = {
   iterated: { title: "迭代哈希", desc: "基于基础私钥连续哈希 N 次" },
 };
 
-/** 派生策略按钱包模式过滤：助记词才有路径派生，口令钱包只有哈希类。 */
+/** 派生策略按钱包模式过滤：助记词走 BIP-32 路径（+迭代哈希）；
+ * 加盐派生以口令为哈希输入，属于口令钱包专属，助记词不提供。 */
 function strategiesFor(wallet: WalletView | null): Array<[string, { title: string; desc: string }]> {
   const all = Object.entries(STRATEGY_LABELS);
-  if (!wallet || wallet.mode === "mnemonic") return all;
+  if (!wallet || wallet.mode === "mnemonic") {
+    return all.filter(([key]) => key !== "salted");
+  }
   return all.filter(([key]) => key !== "path");
 }
 

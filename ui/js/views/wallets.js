@@ -5,7 +5,7 @@
 
 import { api } from "../api.js?v=24";
 import { escapeHtml, formatDateTime } from "../format.js?v=24";
-import { askPassword, confirmDialog, debounce, icon, openModal, setBusy, toast } from "../ui.js?v=24";
+import { askPassword, confirmDialog, debounce, icon, openModal, setBusy, toast } from "../ui.js?v=25";
 
 export function render(ctx) {
   return {
@@ -454,12 +454,23 @@ const STRATEGY_LABELS = {
   iterated: { title: "迭代哈希", desc: "链哈希对自身迭代 N 次，序号即次数" },
 };
 
+/** 派生策略按钱包模式过滤：助记词走 BIP-32 路径（+迭代哈希）；
+ * 加盐派生以口令为哈希输入，属于口令钱包专属，助记词不提供。 */
+function strategiesFor(wallet) {
+  const all = Object.entries(STRATEGY_LABELS);
+  if (!wallet || wallet.mode === "mnemonic") {
+    return all.filter(([key]) => key !== "salted");
+  }
+  return all.filter(([key]) => key !== "path");
+}
+
 /** Pin more derived accounts onto the current wallet. */
 function batchFlow(ctx, onDone) {
   const wallet = ctx.state.wallet;
   if (!wallet) return;
+  const strategies = strategiesFor(wallet);
   const local = {
-    strategy: "salted",
+    strategy: strategies[0][0],
     count: 5,
     start: 1,
     labelPrefix: "",
@@ -492,7 +503,7 @@ function batchFormMarkup(local, wallet) {
     <div class="field">
       <span class="field-label">派生方式</span>
       <div class="seg seg-col" role="group">
-        ${Object.entries(STRATEGY_LABELS)
+        ${strategiesFor(wallet)
           .map(
             ([key, meta]) =>
               `<button type="button" data-strategy="${key}" aria-pressed="${local.strategy === key}">

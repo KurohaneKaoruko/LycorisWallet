@@ -239,11 +239,12 @@ impl BatchStrategy {
     }
 
     /// Which strategies the UI should offer for a wallet mode. Mnemonic
-    /// wallets walk the BIP-32 tree; passphrase wallets have no mnemonic and
-    /// therefore no path to walk (`Path` there is a salted-hash alias).
+    /// wallets walk the BIP-32 tree; salted derivation mixes the *passphrase*
+    /// into the hash input, so it belongs to passphrase wallets only.
+    /// Iterated hashes work on top of any base key.
     pub fn available_for(mode: WalletMode) -> &'static [BatchStrategy] {
         match mode {
-            WalletMode::Mnemonic => &[Self::Path, Self::Salted, Self::Iterated],
+            WalletMode::Mnemonic => &[Self::Path, Self::Iterated],
             WalletMode::Passphrase => &[Self::Salted, Self::Iterated],
         }
     }

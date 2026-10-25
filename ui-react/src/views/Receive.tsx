@@ -8,6 +8,7 @@ import { useSession } from "../shell/session";
 import { useTabScroll, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
 import { copyText } from "../clipboard";
+import { groupDigits, shortAddress } from "../format";
 import type { Account, ChainId } from "../types";
 
 
@@ -23,7 +24,7 @@ function qrPalette() {
 }
 
 export function ReceiveView() {
-  const { wallet, params, go } = useSession();
+  const { wallet, portfolio, params, go } = useSession();
   const toast = useToast();
   const tabsRef = useTabScroll<HTMLDivElement>();
   const [chainId, setChainId] = useState<ChainId>(
@@ -47,6 +48,20 @@ export function ReceiveView() {
     return () => {
       cancelled = true;
     };
+  }, [account?.address]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* 主题切换后重画二维码（颜色烤在 SVG 里），与旧版 lycoris:theme 一致。 */
+  useEffect(() => {
+    if (!account) return;
+    const onTheme = () => {
+      const palette = qrPalette();
+      api
+        .qrSvg(account.address, palette.dark, palette.light)
+        .then((svg) => setQr(svg))
+        .catch(() => {});
+    };
+    document.addEventListener("lycoris:theme", onTheme);
+    return () => document.removeEventListener("lycoris:theme", onTheme);
   }, [account?.address]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!wallet || !account) {
@@ -141,9 +156,9 @@ export function ReceiveView() {
               type="button"
               onClick={async () => {
                 try {
-                  await api.openExternal(account.address ? `explorer:${account.chain}` : "");
-                } catch {
-                  // Explorer links are best-effort in the demo.
+                  await api.openExternal(explorerUrlFor(chainId, account.address, account.explorerUrl));
+                } catch (e) {
+                  toast((e as Error).message, "error");
                 }
               }}
             >
@@ -151,34 +166,77 @@ export function ReceiveView() {
               <span>在浏览器中查看</span>
             </button>
           </div>
+          <button
+            className="btn btn-ghost btn-block"
+            type="button"
+            onClick={async () => {
+              const ok = await copyText(`${chainId}:${account.address}`);
+              toast(ok ? "已复制「网络:地址」" : "复制失败", ok ? "success" : "error");
+            }}
+          >
+            <Icon name="qr" />
+            复制地址 + 金额
+          </button>
 
           <div className="card card-pad">
+            <div className="section-title"><h2>地址信息</h2></div>
             <div className="kv">
-              <span className="kv-key">钱包</span>
-              <span className="kv-value">{wallet.label}</span>
+              <span className="kv-key">派生方式</span>
+              <span className="kv-value">{account.derivation}</span>
             </div>
             <div className="kv">
               <span className="kv-key">派生路径</span>
               <span className="kv-value mono">{account.path}</span>
             </div>
             <div className="kv">
-              <span className="kv-key">地址格式</span>
-              <span className="kv-value">{account.addressFormat}</span>
+              <span className="kv-key">哈希算法</span>
+              <span className="kv-value">
+                {account.hashAlgorithm}
+                <br />
+                <span className="hint">{account.hashDetail}</span>
+              </span>
             </div>
             <div className="kv">
-              <span className="kv-key">哈希算法</span>
-              <span className="kv-value">{account.hashAlgorithm}</span>
+              <span className="kv-key">公钥</span>
+              <span className="kv-value mono">{shortAddress(account.publicKey, 18, 10)}</span>
             </div>
-            <p className="hint" style={{ marginTop: 12 }}>
-              地址由当前选中账户派生；如需使用派生地址收款，请先到资产页切换账户。
-            </p>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => go("asset", { chain: chainId })}>
-              前往 {account.name} 资产页
-              <Icon name="chevronRight" />
-            </button>
+            <div className="kv">
+              <span className="kv-key">当前余额</span>
+              <span className="kv-value">
+                {(() => {
+                  const asset = portfolio?.assets.find((item) => item.chain === account.chain);
+                  return asset ? `${groupDigits(asset.amount)} ${asset.symbol}` : "—";
+                })()}
+              </span>
+            </div>
           </div>
         </div>
       </div>
+
+      <div className="note note-warn" style={{ marginTop: 16 }}>
+        <Icon name="warn" />
+        <div>只接受 {account.name} 网络上的资产。向其他网络的地址转入可能永久丢失。</div>
+      </div>
     </section>
   );
+}
+
+/** 浏览器地址页（与旧版 receive.js explorerUrlFor 一致）。 */
+function explorerUrlFor(chain: ChainId, address: string, accountExplorer?: string): string {
+  const table: Record<string, string> = {
+    bitcoin: "https://mempool.space/address/",
+    litecoin: "https://litecoinspace.org/address/",
+    dogecoin: "https://blockchair.com/dogecoin/address/",
+    bitcoincash: "https://blockchair.com/bitcoin-cash/address/",
+    ethereum: "https://etherscan.io/address/",
+    "ethereum-classic": "https://blockscout.com/etc/mainnet/address/",
+    bsc: "https://bscscan.com/address/",
+    polygon: "https://polygonscan.com/address/",
+    solana: "https://solscan.io/account/",
+    monero: "https://xmrchain.net/search?value=",
+  };
+  const base = accountExplorer?.startsWith("http") ? accountExplorer : table[chain] ?? table.bitcoin;
+  // xmrchain search is a query URL; every other explorer is a path prefix.
+  if (chain === "monero") return `${base}${address}`;
+  return `${base.endsWith("/") ? base : `${base}/`}${address}`;
 }

@@ -71,8 +71,13 @@ export interface Account {
   path: string;
   derivation: string;
   hashAlgorithm: string;
+  /** 该链哈希算法的说明文案（Rust Account.hashDetail）。 */
+  hashDetail: string;
   publicKey: string;
   addressFormat: string;
+  /** 该链交易浏览器前缀（Rust Account.explorerUrl）。 */
+  explorerUrl: string;
+  sendSupported: boolean;
 }
 
 export interface WalletSummary {

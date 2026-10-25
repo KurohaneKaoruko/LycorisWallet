@@ -199,12 +199,13 @@ pub fn preview_batch(
     let accounts = lycoris_core::derive::derive_accounts_batch(&secret, &batch)?;
     Ok(accounts
         .iter()
-        .map(|accounts| {
-            let fingerprint = lycoris_core::derive::derive_fingerprint(accounts);
+        .map(|account| {
+            let fingerprint =
+                lycoris_core::derive::derive_fingerprint(std::slice::from_ref(account));
             lycoris_core::derive::DerivationPreview {
                 mode: secret.mode(),
                 derivation: secret.derivation_mode(),
-                accounts: accounts.clone(),
+                accounts: vec![account.clone()],
                 fingerprint,
                 formula: String::new(),
             }

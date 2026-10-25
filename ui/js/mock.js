@@ -384,12 +384,20 @@ function walletView() {
   const selectedSpec = (wallet.batchAccounts ?? []).find(
     (spec) => spec.id === wallet.activeBatch,
   );
-  // Demo mode cannot re-derive for real; perturb the seed so each account
-  // shows different addresses. The desktop app uses the real derivation.
-  const secret = selectedSpec
-    ? perturbSecret(wallet.secret, selectedSpec.index)
-    : wallet.secret;
-  const accounts = accountsFor(secret);
+  // Demo mode cannot re-derive for real; perturb the seed so the derived
+  // account shows a different address. The perturbation applies only to the
+  // spec's own chain — other chains keep the base derivation.
+  let accounts;
+  if (selectedSpec) {
+    const derived = perturbSecret(wallet.secret, selectedSpec.index);
+    accounts = accountsFor(wallet.secret).map((account) =>
+      account.chain === selectedSpec.chain
+        ? accountsFor(derived).find((a) => a.chain === selectedSpec.chain)
+        : account,
+    );
+  } else {
+    accounts = accountsFor(wallet.secret);
+  }
   const preview = corePreview(wallet.secret);
   const isMnemonic = wallet.secret.mode === "mnemonic";
   const activeFingerprint = selectedSpec
@@ -432,6 +440,7 @@ function walletView() {
     batchAccounts: (wallet.batchAccounts ?? []).map((spec) => ({
       id: spec.id,
       strategy: spec.strategy,
+      chain: spec.chain,
       index: spec.index,
       label: spec.label || `#${spec.index}`,
       fingerprint: (spec.fingerprint ?? "").toUpperCase(),
@@ -819,22 +828,34 @@ export async function mockCall(command, args = {}) {
       const count = Math.min(Math.max(Number(batch?.count ?? 1), 1), 3);
       const start = Math.max(Number(batch?.start ?? 0), 0);
       const strategy = batch?.strategy ?? "salted";
+      const chain = batch?.chain;
+      if (!chain || !CHAINS.some((item) => item.id === chain)) {
+        throw { code: "INVALID_BATCH", message: "缺少有效的币种（chain）" };
+      }
       const previews = [];
       for (let offset = 0; offset < count; offset += 1) {
         const index = start + offset;
-        // The mock perturbs the secret so different indices look different.
+        // The mock perturbs the secret so different indices look different;
+        // the preview only covers the requested chain.
         const branched = perturbSecret(wallet.secret, index);
-        const preview = corePreview(branched) ?? (() => {
-          const accounts = accountsFor(branched);
-          return {
-            mode: wallet.secret.mode,
-            derivation:
-              wallet.secret.mode === "mnemonic" ? null : wallet.secret.derivation ?? "isolated",
-            accounts,
-            fingerprint: fingerprintOf(accounts),
-            formula: "",
-          };
-        })();
+        const chainAccount = accountsFor(branched).find((a) => a.chain === chain);
+        const preview = corePreview(branched)
+          ? {
+              mode: wallet.secret.mode,
+              derivation:
+                wallet.secret.mode === "mnemonic" ? null : wallet.secret.derivation ?? "isolated",
+              accounts: [chainAccount],
+              fingerprint: fingerprintOf([chainAccount]),
+              formula: "",
+            }
+          : {
+              mode: wallet.secret.mode,
+              derivation:
+                wallet.secret.mode === "mnemonic" ? null : wallet.secret.derivation ?? "isolated",
+              accounts: [chainAccount],
+              fingerprint: fingerprintOf([chainAccount]),
+              formula: "",
+            };
         previews.push({ ...preview, formula: `批量派生 · ${strategy} · #${index}` });
       }
       return previews;
@@ -859,18 +880,26 @@ export async function mockCall(command, args = {}) {
       if (batch.strategy === "iterated" && start < 1) {
         throw { code: "INVALID_BATCH", message: "迭代哈希从序号 1 开始（0 号即基础账户）" };
       }
+      const chain = batch.chain;
+      if (!chain || !CHAINS.some((item) => item.id === chain)) {
+        throw { code: "INVALID_BATCH", message: "缺少有效的币种（chain）" };
+      }
       wallet.batchAccounts ??= [];
       for (let offset = 0; offset < count; offset += 1) {
         const index = start + offset;
-        const id = `${batch.strategy}:${index}`;
+        const id = `${batch.strategy}:${chain}:${index}`;
         if (wallet.batchAccounts.some((spec) => spec.id === id)) continue;
-        const demoAccounts = accountsFor(perturbSecret(wallet.secret, index));
+        // 单链派生:指纹只取该链账户,与其他链无关。
+        const demoAccount = accountsFor(perturbSecret(wallet.secret, index)).find(
+          (account) => account.chain === chain,
+        );
         wallet.batchAccounts.push({
           id,
           strategy: batch.strategy,
+          chain,
           index,
           label: request.name ? `${request.name} #${index}` : `#${index}`,
-          fingerprint: fingerprintOf(demoAccounts).toUpperCase(),
+          fingerprint: fingerprintOf([demoAccount]).toUpperCase(),
         });
       }
       if (wallet.batchAccounts.length > 0) {
@@ -908,7 +937,9 @@ export async function mockCall(command, args = {}) {
           active: !wallet.activeBatch,
         },
       ];
+      // 只列出属于该链的派生账户;其他链的派生不出现在这里。
       for (const spec of wallet.batchAccounts ?? []) {
+        if (spec.chain !== chain) continue;
         const account = accountsFor(perturbSecret(wallet.secret, spec.index)).find(
           (a) => a.chain === chain,
         );
@@ -934,6 +965,11 @@ export async function mockCall(command, args = {}) {
         ? (wallet.batchAccounts ?? []).find((item) => item.id === args.id)
         : null;
       if (args.id && !spec) throw { code: "BATCH_ACCOUNT_NOT_FOUND", message: "找不到该派生账户" };
+      // 派生账户只属于一条链,跨链查询直接拒绝。
+      if (spec && spec.chain !== chain) {
+        throw { code: "UNSUPPORTED_CHAIN", message: "该派生账户不属于此币种" };
+      }
+      // 单链派生:只有目标链用扰动密钥,其他链保持基础派生。
       const secret = spec ? perturbSecret(wallet.secret, spec.index) : wallet.secret;
       const account = accountsFor(secret).find((a) => a.chain === chain);
       let value;
@@ -970,6 +1006,7 @@ export async function mockCall(command, args = {}) {
       const preview = isMnemonic
         ? "BIP-39 助记词（见 设置 → 导出助记词）"
         : trimmed;
+      const basePreview = "基础账户私钥（base）";
       const domain = `lycoris/v1/${chain}`;
       const hashName =
         chain === "litecoin" || chain === "dogecoin"
@@ -981,6 +1018,7 @@ export async function mockCall(command, args = {}) {
       const index = spec?.index ?? 0;
       const strategyKey = spec?.strategy ?? "base";
       let sourceKind;
+      let sourcePreview = preview;
       let steps;
       let formula;
       if (isMnemonic) {
@@ -994,8 +1032,9 @@ export async function mockCall(command, args = {}) {
           ];
           formula = `${hashName}("${domain}\\0" ‖ 助记词 ‖ "\\0#${index}")`;
         } else if (spec && strategyKey === "iterated") {
+          sourceKind = "基础私钥";
+          sourcePreview = basePreview;
           steps = [
-            "助记词 → PBKDF2-HMAC-SHA512 → 512 位种子",
             `沿基础路径 ${account.path} 派生基础私钥 base`,
             `连续哈希 base 自己 ${index} 次 → digest`,
             "digest 即该链 32 字节私钥种子",
@@ -1019,10 +1058,10 @@ export async function mockCall(command, args = {}) {
         ];
         formula = isolated ? `${hashName}("${domain}\\0" ‖ 口令)` : `${hashName}(口令)`;
       } else if (strategyKey === "iterated") {
-        sourceKind = "口令";
+        sourceKind = "基础私钥";
+        sourcePreview = basePreview;
         steps = [
-          `取口令（NFKD 规范化）：${redact(trimmed)}`,
-          `计算基础私钥 base = ${hashName}(口令)`,
+          `基础账户私钥 base = ${hashName}(口令)`,
           `连续哈希 base 自己 ${index} 次 → digest`,
           "digest 即该链 32 字节私钥种子",
         ];
@@ -1055,7 +1094,7 @@ export async function mockCall(command, args = {}) {
         privateKeyFormat: format,
         privateKey: value,
         sourceKind,
-        sourcePreview: preview,
+        sourcePreview,
         steps,
         formula,
         warning: core

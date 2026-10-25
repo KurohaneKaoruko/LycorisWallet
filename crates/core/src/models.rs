@@ -145,6 +145,8 @@ pub struct WalletSummary {
 pub struct DerivedAccountView {
     pub id: String,
     pub strategy: crate::derive::BatchStrategy,
+    /// The single chain this account adds an address on.
+    pub chain: ChainId,
     pub index: u32,
     pub label: String,
     pub fingerprint: String,

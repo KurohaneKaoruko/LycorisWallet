@@ -264,6 +264,8 @@ impl BatchStrategy {
 pub struct BatchRequest {
     #[serde(default)]
     pub strategy: BatchStrategy,
+    /// The chain to derive on. One request adds addresses on one chain only.
+    pub chain: ChainId,
     /// Number of accounts, 1..=strategy.max_count().
     pub count: u32,
     /// First account index (0-based). Defaults to 0.
@@ -278,9 +280,12 @@ pub struct BatchRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchAccountSpec {
-    /// Stable identifier (`"{strategy}:{index}"`) used for switching.
+    /// Stable identifier (`"{strategy}:{chain}:{index}"`) used for switching.
     pub id: String,
     pub strategy: BatchStrategy,
+    /// The single chain this account belongs to. A derived account adds one
+    /// address on one chain; other chains keep using the base derivation.
+    pub chain: ChainId,
     pub index: u32,
     #[serde(default)]
     pub label: Option<String>,
@@ -289,10 +294,11 @@ pub struct BatchAccountSpec {
 }
 
 impl BatchAccountSpec {
-    pub fn new(strategy: BatchStrategy, index: u32) -> Self {
+    pub fn new(strategy: BatchStrategy, chain: ChainId, index: u32) -> Self {
         Self {
-            id: format!("{}:{}", strategy_id(strategy), index),
+            id: format!("{}:{}:{}", strategy_id(strategy), chain.as_str(), index),
             strategy,
+            chain,
             index,
             label: None,
             fingerprint: String::new(),
@@ -836,56 +842,12 @@ fn passphrase_account_at_index(
     account_from_digest(chain, digest, &path, label, detail)
 }
 
-/// Derive the full per-chain account list for batch account `index`.
-///
-/// Every strategy yields one address per chain so a batch account has exactly
-/// the same shape as a single wallet. `Path` for passphrase wallets is an
-/// alias of `Salted` because a bare phrase has no BIP-32 tree to walk.
-fn derive_single_account_batch(
-    secret: &WalletSecret,
-    strategy: BatchStrategy,
-    index: u32,
-) -> Result<Vec<Account>> {
-    match secret {
-        WalletSecret::Mnemonic { .. } => match strategy {
-            BatchStrategy::Path => {
-                let seed = secret.mnemonic()?.to_seed("");
-                ChainId::ALL
-                    .iter()
-                    .map(|chain| mnemonic_account_at_index(&seed, *chain, index))
-                    .collect()
-            }
-            BatchStrategy::Salted => {
-                let mnemonic = secret.mnemonic()?.to_string();
-                ChainId::ALL
-                    .iter()
-                    .map(|chain| mnemonic_salted_account(&mnemonic, *chain, index))
-                    .collect()
-            }
-            BatchStrategy::Iterated => {
-                let seed = secret.mnemonic()?.to_seed("");
-                ChainId::ALL
-                    .iter()
-                    .map(|chain| mnemonic_iterated_account(&seed, *chain, index))
-                    .collect()
-            }
-        },
-        WalletSecret::Passphrase { phrase, derivation } => {
-            let isolated = *derivation == DerivationMode::Isolated;
-            ChainId::ALL
-                .iter()
-                .map(|chain| passphrase_account_at_index(phrase, *chain, isolated, strategy, index))
-                .collect()
-        }
-    }
-}
-
-/// Derive `request.count` batch accounts starting at `request.start`. The
-/// returned vector has one entry per account, each covering every chain.
+/// Derive `request.count` batch accounts starting at `request.start` for the
+/// single chain in the request. The returned vector has one entry per account.
 pub fn derive_accounts_batch(
     secret: &WalletSecret,
     request: &BatchRequest,
-) -> Result<Vec<Vec<Account>>> {
+) -> Result<Vec<Account>> {
     secret.validate()?;
     let max = request.strategy.max_count();
     if request.count == 0 || request.count > max {
@@ -901,62 +863,57 @@ pub fn derive_accounts_batch(
         return Err(Error::Message(format!("起始序号 + 数量不能超过 {max}")));
     }
     (request.start..end)
-        .map(|index| derive_single_account_batch(secret, request.strategy, index))
+        .map(|index| derive_chain_account(secret, request.strategy, request.chain, index))
         .collect()
 }
 
-/// Derive one chain's account for every index in `indices`, sharing the
-/// expensive seed expansion (mnemonic) across the whole batch. Used by the
-/// portfolio aggregation and the per-asset address list.
-pub fn derive_chain_accounts_batch(
+/// Derive one chain's account for one derived-account index. This is the only
+/// derivation a stored spec needs: a derived account adds one address on one
+/// chain, leaving every other chain on the base derivation.
+pub fn derive_chain_account(
     secret: &WalletSecret,
     strategy: BatchStrategy,
-    indices: &[u32],
     chain: ChainId,
-) -> Result<Vec<Account>> {
+    index: u32,
+) -> Result<Account> {
     match secret {
         WalletSecret::Mnemonic { .. } => match strategy {
             BatchStrategy::Path => {
                 let seed = secret.mnemonic()?.to_seed("");
-                indices
-                    .iter()
-                    .map(|index| mnemonic_account_at_index(&seed, chain, *index))
-                    .collect()
+                mnemonic_account_at_index(&seed, chain, index)
             }
             BatchStrategy::Salted => {
                 let mnemonic = secret.mnemonic()?.to_string();
-                indices
-                    .iter()
-                    .map(|index| mnemonic_salted_account(&mnemonic, chain, *index))
-                    .collect()
+                mnemonic_salted_account(&mnemonic, chain, index)
             }
             BatchStrategy::Iterated => {
                 let seed = secret.mnemonic()?.to_seed("");
-                indices
-                    .iter()
-                    .map(|index| mnemonic_iterated_account(&seed, chain, *index))
-                    .collect()
+                mnemonic_iterated_account(&seed, chain, index)
             }
         },
         WalletSecret::Passphrase { phrase, derivation } => {
             let isolated = *derivation == DerivationMode::Isolated;
-            indices
-                .iter()
-                .map(|index| passphrase_account_at_index(phrase, chain, isolated, strategy, *index))
-                .collect()
+            passphrase_account_at_index(phrase, chain, isolated, strategy, index)
         }
     }
 }
 
 /// Derive the full per-chain account list for one stored
 /// [`BatchAccountSpec`].
-/// This is the runtime entry the session uses to materialise a wallet's
-/// selected derived account.
+/// A spec covers a single chain, so the result is the base derivation with
+/// that one chain replaced by the derived account.
 pub fn derive_accounts_for_spec(
     secret: &WalletSecret,
     spec: &BatchAccountSpec,
 ) -> Result<Vec<Account>> {
-    derive_single_account_batch(secret, spec.strategy, spec.index)
+    let mut accounts = derive_accounts(secret)?;
+    if let Some(slot) = accounts
+        .iter_mut()
+        .find(|account| account.chain == spec.chain)
+    {
+        *slot = derive_chain_account(secret, spec.strategy, spec.chain, spec.index)?;
+    }
+    Ok(accounts)
 }
 
 /// Derive one chain's private key for a stored [`BatchAccountSpec`] (or the
@@ -1203,34 +1160,40 @@ mod tests {
         let secret = WalletSecret::new_mnemonic(mnemonic).unwrap();
         let batch = derive_accounts_batch(
             &secret,
-            &BatchRequest { strategy: BatchStrategy::Path, count: 2, start: 0 },
+            &BatchRequest {
+                strategy: BatchStrategy::Path,
+                chain: ChainId::Bitcoin,
+                count: 2,
+                start: 0,
+            },
         )
         .unwrap();
         assert_eq!(batch.len(), 2);
-        // Account #0 must equal the plain derivation.
-        let plain = derive_accounts(&secret).unwrap();
-        for (plain_acc, batch_acc) in plain.iter().zip(&batch[0]) {
-            assert_eq!(plain_acc.address, batch_acc.address, "index 0 == plain for {}", plain_acc.chain);
-        }
-        // Account #1 must differ everywhere except Monero (single-account).
-        for (plain_acc, batch_acc) in plain.iter().zip(&batch[1]) {
-            if plain_acc.chain == ChainId::Monero {
-                assert_eq!(plain_acc.address, batch_acc.address);
-                // Monero repeats the base account (no address-index
-                // convention), so its path intentionally stays unchanged.
-                continue;
-            }
-            assert_ne!(
-                plain_acc.address, batch_acc.address,
-                "index 1 must differ for {}",
-                plain_acc.chain
-            );
-            assert!(
-                batch_acc.path.ends_with("/1") || batch_acc.path.ends_with("/1'"),
-                "path should end in /1 or /1', got {}",
-                batch_acc.path
-            );
-        }
+        // Account #0 must equal the plain derivation on that chain.
+        let plain = derive_accounts(&secret)
+            .unwrap()
+            .into_iter()
+            .find(|a| a.chain == ChainId::Bitcoin)
+            .unwrap();
+        assert_eq!(plain.address, batch[0].address);
+        // Account #1 must differ and bump the address index.
+        assert_ne!(plain.address, batch[1].address);
+        assert!(
+            batch[1].path.ends_with("/1") || batch[1].path.ends_with("/1'"),
+            "path should end in /1 or /1', got {}",
+            batch[1].path
+        );
+        // Other chains are untouched by a single-chain batch: their base
+        // derivation has no "/1" variant because no spec was created for them.
+        let spec = BatchAccountSpec::new(BatchStrategy::Path, ChainId::Bitcoin, 1);
+        let accounts = derive_accounts_for_spec(&secret, &spec).unwrap();
+        let eth_base = derive_accounts(&secret)
+            .unwrap()
+            .into_iter()
+            .find(|a| a.chain == ChainId::Ethereum)
+            .unwrap();
+        let eth = accounts.into_iter().find(|a| a.chain == ChainId::Ethereum).unwrap();
+        assert_eq!(eth.address, eth_base.address, "non-target chains stay on base");
     }
 
     #[test]
@@ -1238,54 +1201,63 @@ mod tests {
         let secret = WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated).unwrap();
         let batch = derive_accounts_batch(
             &secret,
-            &BatchRequest { strategy: BatchStrategy::Salted, count: 3, start: 0 },
+            &BatchRequest {
+                strategy: BatchStrategy::Salted,
+                chain: ChainId::Bitcoin,
+                count: 3,
+                start: 0,
+            },
         )
         .unwrap();
         let again = derive_accounts_batch(
             &secret,
-            &BatchRequest { strategy: BatchStrategy::Salted, count: 3, start: 0 },
+            &BatchRequest {
+                strategy: BatchStrategy::Salted,
+                chain: ChainId::Bitcoin,
+                count: 3,
+                start: 0,
+            },
         )
         .unwrap();
         for (a, b) in batch.iter().zip(&again) {
-            for (x, y) in a.iter().zip(b) {
-                assert_eq!(x.address, y.address);
-            }
+            assert_eq!(a.address, b.address);
         }
-        // All three accounts differ on every chain.
-        for chain in ChainId::ALL {
-            let addrs: Vec<_> = batch
-                .iter()
-                .map(|accounts| accounts.iter().find(|a| a.chain == chain).unwrap().address.clone())
-                .collect();
-            assert_eq!(addrs.len(), 3);
-            assert_ne!(addrs[0], addrs[1]);
-            assert_ne!(addrs[1], addrs[2]);
-            assert_ne!(addrs[0], addrs[2]);
-        }
+        // All three accounts differ.
+        assert_ne!(batch[0].address, batch[1].address);
+        assert_ne!(batch[1].address, batch[2].address);
+        assert_ne!(batch[0].address, batch[2].address);
     }
 
     #[test]
     fn batch_iterated_is_anchored_to_base_key() {
         let secret = WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated).unwrap();
-        let plain = derive_accounts(&secret).unwrap();
+        let plain = derive_accounts(&secret)
+            .unwrap()
+            .into_iter()
+            .find(|a| a.chain == ChainId::Bitcoin)
+            .unwrap();
         // Index 1 must already differ from the base account: the chain starts
         // at the base key and hashes it once more.
         let batch = derive_accounts_batch(
             &secret,
-            &BatchRequest { strategy: BatchStrategy::Iterated, count: 2, start: 1 },
+            &BatchRequest {
+                strategy: BatchStrategy::Iterated,
+                chain: ChainId::Bitcoin,
+                count: 2,
+                start: 1,
+            },
         )
         .unwrap();
-        for (plain_acc, batch_acc) in plain.iter().zip(&batch[0]) {
-            assert_ne!(
-                plain_acc.address, batch_acc.address,
-                "H(base) must differ from base for {}",
-                plain_acc.chain
-            );
-        }
+        assert_ne!(plain.address, batch[0].address, "H(base) must differ from base");
         // And index 0 is rejected outright — it would repeat the base.
         assert!(derive_accounts_batch(
             &secret,
-            &BatchRequest { strategy: BatchStrategy::Iterated, count: 1, start: 0 },
+            &BatchRequest {
+                strategy: BatchStrategy::Iterated,
+                chain: ChainId::Bitcoin,
+                count: 1,
+                start: 0,
+            },
         )
         .is_err());
     }
@@ -1295,27 +1267,47 @@ mod tests {
         let secret = WalletSecret::new_passphrase("seed phrase", DerivationMode::Isolated).unwrap();
         let batch = derive_accounts_batch(
             &secret,
-            &BatchRequest { strategy: BatchStrategy::Salted, count: 2, start: 5 },
+            &BatchRequest {
+                strategy: BatchStrategy::Salted,
+                chain: ChainId::Bitcoin,
+                count: 2,
+                start: 5,
+            },
         )
         .unwrap();
         assert_eq!(batch.len(), 2);
-        assert!(batch[0][0].path.ends_with("#5"), "got {}", batch[0][0].path);
-        assert!(batch[1][0].path.ends_with("#6"), "got {}", batch[1][0].path);
+        assert!(batch[0].path.ends_with("#5"), "got {}", batch[0].path);
+        assert!(batch[1].path.ends_with("#6"), "got {}", batch[1].path);
 
         // Out-of-range requests are rejected.
         assert!(derive_accounts_batch(
             &secret,
-            &BatchRequest { strategy: BatchStrategy::Salted, count: 0, start: 0 }
+            &BatchRequest {
+                strategy: BatchStrategy::Salted,
+                chain: ChainId::Bitcoin,
+                count: 0,
+                start: 0,
+            }
         )
         .is_err());
         assert!(derive_accounts_batch(
             &secret,
-            &BatchRequest { strategy: BatchStrategy::Salted, count: 101, start: 0 }
+            &BatchRequest {
+                strategy: BatchStrategy::Salted,
+                chain: ChainId::Bitcoin,
+                count: 101,
+                start: 0,
+            }
         )
         .is_err());
         assert!(derive_accounts_batch(
             &secret,
-            &BatchRequest { strategy: BatchStrategy::Iterated, count: 2, start: 49 }
+            &BatchRequest {
+                strategy: BatchStrategy::Iterated,
+                chain: ChainId::Bitcoin,
+                count: 2,
+                start: 49,
+            }
         )
         .is_err());
     }

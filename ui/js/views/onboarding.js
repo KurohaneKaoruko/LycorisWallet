@@ -3,7 +3,7 @@
 
 import { api } from "../api.js?v=24";
 import { escapeHtml, shortAddress, copyText } from "../format.js?v=24";
-import { bindCopy, debounce, icon, setBusy, toast } from "../ui.js?v=24";
+import { bindCopy, debounce, icon, setBusy, toast } from "../ui.js?v=25";
 
 const STEPS = ["选择模式", "生成密钥", "设置密码"];
 

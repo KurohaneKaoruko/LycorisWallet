@@ -2,7 +2,7 @@
 
 import { api } from "../api.js?v=24";
 import { copyText, escapeHtml } from "../format.js?v=24";
-import { confirmDialog, icon, openModal, setBusy, toast } from "../ui.js?v=24";
+import { confirmDialog, enhanceTabScroll, icon, openModal, setBusy, toast } from "../ui.js?v=25";
 
 export function render(ctx) {
   const local = { chain: "all", query: "" };
@@ -240,6 +240,8 @@ export function render(ctx) {
       });
 
       root.querySelector('[data-action="add"]')?.addEventListener("click", () => openEditor(null));
+
+      enhanceTabScroll(tabs);
     },
   };
 }

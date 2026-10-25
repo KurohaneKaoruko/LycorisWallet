@@ -9,8 +9,11 @@ export type ThemeName = "system" | "light" | "dark";
 export function applyTheme(theme: ThemeName): void {
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   const resolved = theme === "system" ? (media.matches ? "dark" : "light") : theme;
+  const changed = document.documentElement.dataset.theme !== resolved;
   document.documentElement.dataset.theme = resolved;
   (document.documentElement as HTMLElement & { currentTheme?: ThemeName }).currentTheme = theme;
+  // 二维码颜色是烤进 SVG 的，主题变了要通知页面重画（旧版 lycoris:theme）。
+  if (changed) document.dispatchEvent(new CustomEvent("lycoris:theme"));
 }
 
 // Follow system theme changes while in "system" mode.
@@ -20,6 +23,9 @@ window
     const root = document.documentElement as HTMLElement & { currentTheme?: ThemeName };
     if (!root.currentTheme || root.currentTheme === "system") applyTheme("system");
   });
+
+// 启动即应用一次（解锁前的界面也要有主题）；解锁后由 App 的 effect 按钱包设置覆盖。
+applyTheme("system");
 
 // Demo mode: make it obvious in the console as well as the chip in the UI.
 if (isMock) {

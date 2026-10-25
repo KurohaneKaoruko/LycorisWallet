@@ -140,7 +140,7 @@ export const api = {
   sendTransaction: (request: unknown) => call("send_transaction", { request }) as Promise<SendResult>,
   saveContact: (contact: Partial<Contact>) => call("save_contact", { contact }) as Promise<Contact[]>,
   deleteContact: (id: string) => call("delete_contact", { id }) as Promise<Contact[]>,
-  saveSettings: (settings: Settings) => call("save_settings", { settings }) as Promise<WalletView>,
+  saveSettings: (settings: Settings) => call("save_settings", { settings }) as Promise<Settings>,
   moneroStatus: () => call("monero_status") as Promise<Record<string, unknown>>,
   qrSvg: (text: string, dark = "#1a1c1e", light = "#ffffff") =>
     call("qr_svg", { text, dark, light }) as Promise<string>,

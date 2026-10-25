@@ -2,7 +2,7 @@
 
 import { api } from "../api.js?v=24";
 import { copyText, escapeHtml, groupDigits, shortAddress } from "../format.js?v=24";
-import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=24";
+import { bindCopy, enhanceTabScroll, icon, toast } from "../ui.js?v=25";
 
 /* 二维码配色：始终是「浅底深码」。
    深色主题下用反色（浅码深底）会让部分扫码器读不出来，

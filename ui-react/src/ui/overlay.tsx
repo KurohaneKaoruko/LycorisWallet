@@ -329,7 +329,9 @@ export function BusyButton({
   );
 }
 
-/** Hidden-overflow hint for horizontally scrollable chip rows. */
+/** Hidden-overflow hint for horizontally scrollable chip rows, plus the
+ *  desktop affordances the old enhanceTabScroll grew: vertical wheel →
+ *  horizontal scroll (releasing at the edges) and click-drag panning. */
 export function useTabScroll<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   useEffect(() => {
@@ -340,13 +342,85 @@ export function useTabScroll<T extends HTMLElement>() {
       const left = container.scrollLeft;
       container.classList.toggle("has-left", left > 4);
       container.classList.toggle("has-right", overflow > 4 && left < overflow - 4);
+      // 可滚动时给抓手光标，让桌面端知道这一行可以拖
+      container.classList.toggle("is-scrollable", overflow > 4);
     };
+
+    /* 桌面端滚轮：行内横向溢出时把纵向滚轮转成横向滚动；滚到一头后放行，
+       让页面继续正常滚动。触控板的横向手势（deltaX 主导）交给原生处理。 */
+    const onWheel = (event: WheelEvent) => {
+      if (container.scrollWidth <= container.clientWidth + 1) return;
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      const max = container.scrollWidth - container.clientWidth;
+      const atStart = container.scrollLeft <= 0;
+      const atEnd = container.scrollLeft >= max - 1;
+      if ((event.deltaY < 0 && atStart) || (event.deltaY > 0 && atEnd)) return;
+      event.preventDefault();
+      container.scrollLeft += event.deltaY;
+      update(); // 直接同步，不依赖 scroll 事件（后台标签页可能被节流）
+    };
+
+    /* 鼠标按住拖拽：位移超过阈值才算拖，松开后抑制那一次误点击。 */
+    let dragging = false;
+    let dragged = false;
+    let startX = 0;
+    let startLeft = 0;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      if (container.scrollWidth <= container.clientWidth + 1) return;
+      dragging = true;
+      dragged = false;
+      startX = event.clientX;
+      startLeft = container.scrollLeft;
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (!dragging) return;
+      const delta = event.clientX - startX;
+      if (!dragged && Math.abs(delta) > 5) {
+        dragged = true;
+        container.classList.add("is-dragging");
+      }
+      if (dragged) {
+        container.scrollLeft = startLeft - delta;
+        update(); // 直接同步，不依赖 scroll 事件（后台标签页可能被节流）
+      }
+    };
+    const endDrag = () => {
+      dragging = false;
+      // 延迟清状态：click 在 pointerup 之后触发，需要让抑制器先看到 dragged。
+      if (dragged) {
+        window.setTimeout(() => {
+          dragged = false;
+          container.classList.remove("is-dragging");
+        }, 0);
+      } else {
+        container.classList.remove("is-dragging");
+      }
+    };
+    const onClickCapture = (event: MouseEvent) => {
+      if (!dragged) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
     container.addEventListener("scroll", update, { passive: true });
+    container.addEventListener("wheel", onWheel, { passive: false });
+    container.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerup", endDrag, { passive: true });
+    container.addEventListener("click", onClickCapture, true);
     const observer = new ResizeObserver(update);
     observer.observe(container);
+    window.addEventListener("resize", update, { passive: true });
     update();
     return () => {
       container.removeEventListener("scroll", update);
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", endDrag);
+      container.removeEventListener("click", onClickCapture, true);
+      window.removeEventListener("resize", update);
       observer.disconnect();
     };
   }, []);

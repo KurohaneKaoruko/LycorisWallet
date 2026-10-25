@@ -4,7 +4,7 @@
 
 import { api } from "../api.js?v=24";
 import { escapeHtml, formatDateTime, groupDigits, shortAddress } from "../format.js?v=24";
-import { bindCopy, copyField, debounce, icon, openModal, toast } from "../ui.js?v=24";
+import { bindCopy, copyField, debounce, enhanceTabScroll, icon, openModal, toast } from "../ui.js?v=25";
 
 const STATUS = {
   pending: { label: "待确认", cls: "badge badge-warn" },
@@ -123,6 +123,7 @@ export function render(ctx) {
           .forEach((item) => item.setAttribute("aria-selected", String(item === button)));
         paint();
       });
+      enhanceTabScroll(chains);
 
       dirs.addEventListener("click", (event) => {
         const button = event.target.closest("[data-dir]");

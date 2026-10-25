@@ -58,19 +58,7 @@ function AuthenticatedShell() {
   }, [view, refreshPortfolio]);
 
   if (!wallet) return null;
-  const fullBleed = view === "asset";
-  return (
-    <div id="app" data-view={view} className={fullBleed ? "view-asset" : undefined}>
-      <Titlebar walletVisible />
-      <div className="shell">
-        <Rail />
-        <main className="stage" id="stage">
-          <CurrentView />
-        </main>
-      </div>
-      <span hidden aria-hidden data-status={status ? "ready" : "init"} />
-    </div>
-  );
+  return <CurrentView />;
 }
 
 function Router() {
@@ -100,12 +88,35 @@ function Router() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!wallet) {
-    // Pre-unlock: the onboarding wizard (no vault yet) or the lock screen.
-    return view === "onboarding" ? <OnboardingView /> : <UnlockView />;
-  }
-  if (view === "unlock") return <UnlockView />;
-  return <AuthenticatedShell />;
+  // 旧版 #app 骨架（titlebar + shell）是静态 HTML,永远存在;引导/解锁页也渲染
+  // 在 .stage 里,syncChrome() 只按状态隐藏 rail 与锁按钮。这里保持同构:否则
+  // 预解锁状态没有窗口控制按钮(关闭/最大化),.onboarding 的 min-height 居中链也会断。
+  const preUnlock = !wallet && (view === "onboarding" || view === "unlock");
+  return (
+    <div id="app" data-view={view}>
+      <Titlebar walletVisible={!preUnlock} />
+      <div className="shell">
+        <Rail />
+        <main className="stage" id="stage">
+          {wallet ? (
+            <AuthenticatedShell />
+          ) : preUnlock ? (
+            view === "onboarding" ? (
+              <OnboardingView />
+            ) : (
+              <UnlockView />
+            )
+          ) : (
+            /* boot 探测中:与旧版 index.html 的静态 boot 屏一致 */
+            <div className="boot">
+              <div className="boot-flower" aria-hidden="true" />
+              <p>正在启动 Lycoris Wallet…</p>
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
 }
 
 export function App() {

@@ -44,7 +44,16 @@ function useCompact(): boolean {
 }
 
 export function Titlebar({ walletVisible }: { walletVisible: boolean }) {
-  const { wallet, lockNow } = useSession();
+  const { wallet, view, status, lockNow } = useSession();
+  // 旧版 syncChrome():中段文字随状态切换(钱包指纹 / 引导 / 已锁定 / 欢迎)。
+  const walletCount = wallet?.wallets?.length ?? 0;
+  const center = wallet
+    ? `${wallet.label}${walletCount > 1 ? `（共 ${walletCount} 个钱包）` : ""} · ${wallet.fingerprint}`
+    : view === "onboarding"
+      ? "创建或导入钱包"
+      : status?.exists
+        ? "钱包已锁定"
+        : "欢迎";
 
   const winControls = (
     <div className="win-controls">
@@ -73,7 +82,7 @@ export function Titlebar({ walletVisible }: { walletVisible: boolean }) {
         <span className="tb-title">Lycoris Wallet</span>
       </div>
       <div className="tb-center" data-tauri-drag-region>
-        {wallet ? `${wallet.label} · ${wallet.fingerprint}` : ""}
+        {center}
       </div>
       <div className="tb-actions">
         {isMock ? <span className="chip chip-mock">演示模式</span> : null}
@@ -92,9 +101,12 @@ export function Titlebar({ walletVisible }: { walletVisible: boolean }) {
 }
 
 export function Rail() {
-  const { view, go } = useSession();
+  const { wallet, view, go } = useSession();
   const compact = useCompact();
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // 旧版 syncChrome():未解锁时导航整条隐藏(rail.hidden = !wallet)。
+  if (!wallet) return null;
 
   if (compact) {
     // 手机底部标签栏：常用四项 + 「更多」抽屉（与旧版一致）。

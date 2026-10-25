@@ -831,6 +831,47 @@ code,
   box-shadow: var(--shadow-sm);
 }
 
+/* 可换行分段:选项多时按网格折行(等宽填满,无孤行参差)。适合短标签。 */
+.seg.seg-wrap {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+  width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.seg.seg-wrap button {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* 自然宽度换行分段:按钮按内容取宽、放不下自动折行。
+   适合「Ethereum Classic」这类长短不一的全名,不会溢出压字。 */
+.seg.seg-flow {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+/* 横排两行分段：容器横向排布,每个选项「标题 + 灰色小字」纵向堆叠。
+   按钮等宽撑满容器,避免文字长短不一导致的宽度参差。 */
+.seg.seg-split {
+  display: flex;
+  width: 100%;
+}
+
+.seg.seg-split button {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  text-align: center;
+  white-space: nowrap;
+  line-height: 1.35;
+  padding: 6px 10px;
+}
+
 /* 纵向分段：每个选项两行（标题 + 描述），用于派生方式这类带说明的选择 */
 .seg.seg-col {
   display: flex;
@@ -1108,6 +1149,11 @@ code,
   margin-bottom: 6px;
 }
 
+/* 弹窗内相邻表单字段的纵向间距(.modal 是普通块级容器,字段之间无原生间距) */
+.modal > .field + .field {
+  margin-top: 14px;
+}
+
 .modal-foot {
   display: flex;
   justify-content: flex-end;
@@ -1125,6 +1171,16 @@ code,
   from {
     opacity: 0;
     transform: translateY(12px) scale(0.99);
+  }
+}
+
+/* 底部抽屉入场:从屏幕外整块上滑(仅小屏媒体查询内引用) */
+@keyframes sheet-in {
+  from {
+    transform: translateY(105%);
+  }
+  to {
+    transform: translateY(0);
   }
 }
 

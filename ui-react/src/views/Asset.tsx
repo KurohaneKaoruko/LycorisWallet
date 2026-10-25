@@ -19,7 +19,7 @@ const STRATEGY_LABELS: Record<string, { title: string; desc: string }> = {
 };
 
 /** 派生策略按钱包模式过滤：助记词走 BIP-32 路径（+迭代哈希）；
- * 加盐派生以口令为哈希输入，属于口令钱包专属，助记词不提供。 */
+ * 加盐/迭代以口令或导入私钥为哈希输入；路径派生只属于助记词。 */
 function strategiesFor(wallet: WalletView | null): Array<[string, { title: string; desc: string }]> {
   const all = Object.entries(STRATEGY_LABELS);
   if (!wallet || wallet.mode === "mnemonic") {
@@ -554,11 +554,23 @@ export function AssetView() {
           )}
         </div>
         <div className="row" style={{ gap: 8, marginTop: 14 }}>
-          <button className="btn" type="button" id="addr-add-derived" onClick={() => setAdding(true)}>
-            <Icon name="layers" />
-            添加派生地址
-          </button>
-          <span className="hint">按需派生：只有添加了的地址才会参与余额查询与总览合计</span>
+          {wallet?.mode === "aggregate" ? (
+            <span className="hint">
+              聚合钱包没有派生概念:每把钥匙就是一个固定地址,在 设置 → 聚合钥匙 里增删
+            </span>
+          ) : wallet?.mode === "private_key" && (chainId === "solana" || chainId === "monero") ? (
+            <span className="hint">
+              私钥钱包的 Solana / Monero 由钥匙环直接管理,不支持派生地址
+            </span>
+          ) : (
+            <>
+              <button className="btn" type="button" id="addr-add-derived" onClick={() => setAdding(true)}>
+                <Icon name="layers" />
+                添加派生地址
+              </button>
+              <span className="hint">按需派生：只有添加了的地址才会参与余额查询与总览合计</span>
+            </>
+          )}
         </div>
       </div>
 

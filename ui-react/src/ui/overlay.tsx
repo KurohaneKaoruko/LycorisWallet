@@ -111,7 +111,14 @@ export function Modal({ title, description, onClose, dismissable = true, childre
       if (event.key === "Escape" && dismissable) onClose();
     };
     document.addEventListener("keydown", onKey);
-    const first = backdropRef.current?.querySelector("input, textarea, button.btn-primary");
+    /* 自动聚焦:仅限"宽屏 + 精确指针"环境。触屏聚焦输入框会立刻弹软键盘,把底部
+       抽屉顶起再落下,与上滑动画叠加,观感是"内容从中间冒出来";窄屏抽屉同理
+       (聚焦圈顶在视口下缘)。触屏/窄屏用户点输入框时再给焦点即可。 */
+    const desktopish =
+      window.matchMedia("(hover: hover) and (pointer: fine)").matches &&
+      window.matchMedia("(min-width: 761px)").matches;
+    const selector = desktopish ? "input, textarea, button.btn-primary" : "button.btn-primary";
+    const first = backdropRef.current?.querySelector(selector);
     (first as HTMLElement | null)?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, [dismissable, onClose]);

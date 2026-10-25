@@ -14,6 +14,7 @@ import type {
   ChainId,
   Contact,
   DerivationPreview,
+  KeySlotKind,
   Portfolio,
   SendQuote,
   SendResult,
@@ -116,11 +117,21 @@ export const api = {
     call("reveal_mnemonic", { password }) as Promise<string>,
   exportPrivateKey: (chain: ChainId, password: string) =>
     call("export_private_key", { chain, password }) as Promise<{ privateKey: string; format: string }>,
+  updateKeySlot: (slot: KeySlotKind, key: string, password: string) =>
+    call("update_key_slot", { slot, key, password }) as Promise<WalletView>,
+  removeKeySlot: (slot: KeySlotKind, password: string) =>
+    call("remove_key_slot", { slot, password }) as Promise<WalletView>,
   changePassword: (current: string, newPassword: string) =>
     call("change_password", { current, newPassword }) as Promise<void>,
   renameWallet: (id: string, label: string) =>
     call("rename_wallet", { id, label }) as Promise<WalletView>,
   addWallet: (request: unknown) => call("add_wallet", { request }) as Promise<WalletView>,
+  addAggregateKey: (chain: ChainId, key: string, label: string | null, password: string) =>
+    call("add_aggregate_key", { chain, key, label, password }) as Promise<WalletView>,
+  removeAggregateKey: (id: string, password: string) =>
+    call("remove_aggregate_key", { id, password }) as Promise<WalletView>,
+  renameAggregateKey: (id: string, label: string, password: string) =>
+    call("rename_aggregate_key", { id, label, password }) as Promise<WalletView>,
   previewBatch: (batch: BatchRequest) =>
     call("preview_batch", { batch }) as Promise<DerivationPreview[]>,
   addWalletsBatch: (request: { batch: BatchRequest; name: string | null }) =>

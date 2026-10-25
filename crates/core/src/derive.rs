@@ -578,7 +578,7 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                             &derived.key,
                             info.derivation_path,
                             algorithm,
-                            algorithm,
+                            info.hash.label(),
                             detail,
                         )?);
                     }
@@ -589,7 +589,7 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                             &derived.key,
                             info.derivation_path,
                             "BIP-39 / SLIP-0010",
-                            "SLIP-0010 ed25519",
+                            info.hash.label(),
                             "Hardened ed25519 derivation",
                         )?);
                     }
@@ -694,7 +694,7 @@ fn mnemonic_account_at_index(seed: &[u8; 64], chain: ChainId, index: u32) -> Res
                 &derived.key,
                 &path,
                 algorithm,
-                algorithm,
+                info.hash.label(),
                 "地址索引递增",
             )
         }
@@ -706,7 +706,7 @@ fn mnemonic_account_at_index(seed: &[u8; 64], chain: ChainId, index: u32) -> Res
                 &derived.key,
                 &path,
                 "BIP-39 / SLIP-0010",
-                "SLIP-0010 ed25519",
+                info.hash.label(),
                 "Hardened ed25519 derivation",
             )
         }
@@ -1446,6 +1446,15 @@ mod tests {
             .unwrap();
         assert_eq!(ltc.address, "ltc1qjmxnz78nmc8nq77wuxh25n2es7rzm5c2rkk4wh");
         assert_eq!(sol.address, "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk");
+        // 哈希算法必须报真实哈希(BIP-39 钱包与口令钱包同一套 label),而不是派生方式串。
+        assert_eq!(ltc.hash_algorithm, "scrypt");
+        assert_eq!(sol.hash_algorithm, "SHA-256");
+        let eth = accounts
+            .iter()
+            .find(|a| a.chain == ChainId::Ethereum)
+            .unwrap();
+        assert_eq!(eth.hash_algorithm, "Keccak-256");
+        assert_eq!(eth.derivation, "BIP-32 / BIP-44");
     }
 
     #[test]

@@ -63,6 +63,15 @@ pub fn chain_hash_salted(
     hash_message(&message, chain)
 }
 
+/// [`chain_hash_salted`] 的字节版:输入是原始密钥字节而不是可读短语
+/// (私钥导入钱包的加盐派生)。消息 = 域分隔 + 密钥 + 序号。
+pub fn chain_hash_salted_bytes(key: &[u8; 32], chain: ChainId, index: u32) -> Result<[u8; 32]> {
+    let mut message = format!("lycoris/v1/{}\0", chain.as_str()).into_bytes();
+    message.extend_from_slice(key);
+    message.extend_from_slice(format!("\0#{}", index).as_bytes());
+    hash_message(&message, chain)
+}
+
 /// Iterated hashing (the "hash chain" strategy): the chain hash is applied to
 /// the *base account's 32-byte key seed* `rounds` times. The base key is
 /// whatever the base account already has — a mnemonic-path key or a passphrase

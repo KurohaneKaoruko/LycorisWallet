@@ -210,6 +210,13 @@ pub struct WalletView {
     pub fingerprint: String,
     pub created_at: i64,
     pub formula: String,
+    /// 私钥钱包的钥匙环快照(只暴露「槽是否已填」,不含钥匙本身);
+    /// 其他模式为 `None`,序列化成 `null`。
+    #[serde(default)]
+    pub key_ring: Option<crate::derive::KeyRingPresence>,
+    /// 聚合钱包的钥匙清单(id/链/备注,不含钥匙本体);其他模式为 `None`。
+    #[serde(default)]
+    pub aggregate_entries: Option<Vec<crate::derive::AggregateEntryView>>,
     pub accounts: Vec<crate::derive::Account>,
     pub settings: Settings,
     pub contacts: Vec<Contact>,

@@ -21,6 +21,9 @@ use zeroize::Zeroize;
 pub enum WalletMode {
     Mnemonic,
     Passphrase,
+    PrivateKey,
+    /// 聚合钱包:任意数量互不相关的独立私钥,一把管一条链上的一个地址。
+    Aggregate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -47,6 +50,230 @@ pub enum WalletSecret {
         phrase: String,
         derivation: DerivationMode,
     },
+    /// 导入私钥组成的钥匙环:secp256k1 槽覆盖 8 条 UTXO/EVM 链,
+    /// ed25519 槽覆盖 Solana,CryptoNote 槽覆盖 Monero。三类槽互相独立,
+    /// 可以只导入其中一类,也可以随时在设置里补加(全能钱包)。
+    /// 反序列化兼容旧格式:字符串或 `key` 字段 → 归入 secp256k1 槽。
+    PrivateKey {
+        #[serde(alias = "key")]
+        keys: KeyRing,
+    },
+    /// 聚合钱包:大量互不相关的独立私钥的集合。每条记录 = 一把钥匙,
+    /// 只管自己那条链上的一个地址;没有派生概念,增删互不影响。
+    Aggregate {
+        entries: Vec<AggregateEntry>,
+    },
+}
+
+/// 聚合钱包的单条钥匙记录:一钥一链一址。
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateEntry {
+    /// 稳定 id:删除、导出、详情都按它定位。
+    pub id: String,
+    /// 这把钥匙属于哪条链。决定地址算法与导入格式。
+    pub chain: ChainId,
+    /// 规范化的小写 hex 私钥(按链的曲线校验过)。
+    pub key: String,
+    /// 可选备注名;缺省时界面显示「链名钥匙 #序号」。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+impl AggregateEntry {
+    /// 从这把钥匙直接推导该链账户(无派生,原始字节直连)。
+    pub fn account(&self) -> Result<Account> {
+        aggregate_entry_account(self)
+    }
+}
+
+/// 钥匙环:每类椭圆曲线一把钥匙,按槽独立增删。全部以小写 hex 存储
+/// (secp: 32 字节标量;ed25519: 32 字节种子;monero: 32 字节 spend)。
+#[derive(Clone, Default, Serialize)]
+pub struct KeyRing {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secp256k1: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ed25519: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monero: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for KeyRing {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // 新格式:三槽 map;旧格式:单把钥匙(字符串或 `key` 字段),
+        // 归入 secp256k1 槽。各槽的原文都过一遍归一化(WIF/hex)。
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Input {
+            Single(#[serde(with = "single_key")] String),
+            Map {
+                #[serde(default, with = "single_key_opt")]
+                secp256k1: Option<String>,
+                #[serde(default, with = "single_key_opt")]
+                ed25519: Option<String>,
+                #[serde(default, with = "single_key_opt")]
+                monero: Option<String>,
+            },
+        }
+        mod single_key {
+            pub fn deserialize<'de, D>(deserializer: D) -> Result<String, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let input = String::deserialize(deserializer)?;
+                super::parse_imported_private_key(&input).map_err(serde::de::Error::custom)
+            }
+        }
+        mod single_key_opt {
+            use super::parse_imported_key_slot;
+            pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let input = Option::<String>::deserialize(deserializer)?;
+                input
+                    .map(|raw| parse_imported_key_slot(&raw).map_err(serde::de::Error::custom))
+                    .transpose()
+            }
+        }
+        match Input::deserialize(deserializer)? {
+            Input::Single(key) => Ok(KeyRing {
+                secp256k1: Some(key),
+                ed25519: None,
+                monero: None,
+            }),
+            Input::Map {
+                secp256k1,
+                ed25519,
+                monero,
+            } => Ok(KeyRing {
+                secp256k1,
+                ed25519,
+                monero,
+            }),
+        }
+    }
+}
+
+/// 钥匙环单槽归一化:secp 槽收 WIF/hex;ed25519/monero 槽只收 64 位 hex
+/// (Solana 与 Monero 生态没有统一的 WIF 约定,hex 是最大公约数)。
+fn parse_imported_key_slot(input: &str) -> std::result::Result<String, String> {
+    let trimmed = input.trim();
+    if looks_like_wif(trimmed) {
+        if let Some(key) = parse_wif(trimmed) {
+            return Ok(key);
+        }
+        return Err("WIF 校验失败(base58check):请检查是否复制完整".into());
+    }
+    parse_hex_key(trimmed)
+}
+
+/// 钥匙环的「槽是否已填」快照:给 UI 的钥匙环管理页用,绝不含钥匙本体。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyRingPresence {
+    pub secp256k1: bool,
+    pub ed25519: bool,
+    pub monero: bool,
+}
+
+impl KeyRing {
+    pub fn presence(&self) -> KeyRingPresence {
+        KeyRingPresence {
+            secp256k1: self.secp256k1.is_some(),
+            ed25519: self.ed25519.is_some(),
+            monero: self.monero.is_some(),
+        }
+    }
+}
+
+/// 聚合钱包条目的「目录」视图:id/链/备注,绝不含钥匙本体。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateEntryView {
+    pub id: String,
+    pub chain: crate::chains::ChainId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+impl WalletSecret {
+    /// 聚合钱包的钥匙目录(其他模式为 `None`)。
+    pub fn aggregate_views(&self) -> Option<Vec<AggregateEntryView>> {
+        match self {
+            Self::Aggregate { entries } => Some(
+                entries
+                    .iter()
+                    .map(|entry| AggregateEntryView {
+                        id: entry.id.clone(),
+                        chain: entry.chain,
+                        label: entry.label.clone(),
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+}
+
+/// 钥匙环的槽类别(命令层 → 存储层的中性枚举)。前端字符串用 snake_case。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeySlotKind {
+    Secp256k1,
+    Ed25519,
+    Monero,
+}
+
+/// 命令层入口的槽钥匙归一化:secp 槽收 WIF/hex,ed25519/monero 槽收 hex;
+/// 全部拒绝零钥。
+pub fn normalize_key_slot(slot: KeySlotKind, input: &str) -> std::result::Result<String, String> {
+    let normalized = match slot {
+        KeySlotKind::Secp256k1 => parse_imported_private_key(input)?,
+        KeySlotKind::Ed25519 | KeySlotKind::Monero => parse_hex_key(input)?,
+    };
+    if normalized == hex::encode([0u8; 32]) {
+        return Err("零私钥非法".into());
+    }
+    Ok(normalized)
+}
+
+/// 判断输入是否形如 WIF(48-52 位 base58 字符,不含 0OIl)。
+fn looks_like_wif(trimmed: &str) -> bool {
+    trimmed.len() >= 48
+        && trimmed.len() <= 52
+        && trimmed
+            .chars()
+            .all(|c| !c.is_whitespace() && !"0OIl".contains(c) && c.is_ascii_alphanumeric())
+}
+
+/// base58check 解码 WIF → 小写 hex(32 字节)。
+fn parse_wif(trimmed: &str) -> Option<String> {
+    let decoded = bs58::decode(trimmed).with_check(None).into_vec().ok()?;
+    // 33 字节 = version+key;34 字节 = version+key+压缩标记。
+    if (decoded.len() == 33 || decoded.len() == 34) && decoded[1..33].iter().any(|b| *b != 0) {
+        Some(hex::encode(&decoded[1..33]))
+    } else {
+        None
+    }
+}
+
+/// 64 位 hex(可带 0x)→ 小写 hex。
+fn parse_hex_key(trimmed: &str) -> std::result::Result<String, String> {
+    let hex_part = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    if hex_part.len() == 64 && hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+        let mut key = [0u8; 32];
+        hex::decode_to_slice(hex_part, &mut key).map_err(|_| "hex 私钥解析失败".to_string())?;
+        return Ok(hex::encode(key));
+    }
+    Err("无法识别的私钥格式:需要 WIF(base58)或 64 位 hex".into())
 }
 
 impl std::fmt::Debug for WalletSecret {
@@ -58,6 +285,11 @@ impl std::fmt::Debug for WalletSecret {
                 .field("phrase", &"[redacted]")
                 .field("derivation", derivation)
                 .finish(),
+            WalletSecret::PrivateKey { .. } => f.write_str("WalletSecret::PrivateKey([redacted])"),
+            WalletSecret::Aggregate { entries } => f
+                .debug_struct("WalletSecret::Aggregate")
+                .field("entries", &entries.len())
+                .finish(),
         }
     }
 }
@@ -67,6 +299,22 @@ impl Drop for WalletSecret {
         match self {
             WalletSecret::Mnemonic { mnemonic } => mnemonic.zeroize(),
             WalletSecret::Passphrase { phrase, .. } => phrase.zeroize(),
+            WalletSecret::PrivateKey { keys } => {
+                if let Some(key) = &mut keys.secp256k1 {
+                    key.zeroize();
+                }
+                if let Some(key) = &mut keys.ed25519 {
+                    key.zeroize();
+                }
+                if let Some(key) = &mut keys.monero {
+                    key.zeroize();
+                }
+            }
+            WalletSecret::Aggregate { entries } => {
+                for entry in entries {
+                    entry.key.zeroize();
+                }
+            }
         }
     }
 }
@@ -87,10 +335,55 @@ impl WalletSecret {
         })
     }
 
+    /// 导入一把原始 secp256k1 私钥(WIF 或 64 位 hex)。
+    /// 统一存储为小写 hex;密钥非法(非 32 字节/零钥/越界)直接报错。
+    pub fn new_private_key(input: &str) -> Result<Self> {
+        let key = parse_imported_private_key(input).map_err(Error::InvalidPrivateKey)?;
+        if key == hex::encode([0u8; 32]) {
+            return Err(Error::InvalidPrivateKey("零私钥非法".into()));
+        }
+        Ok(Self::PrivateKey {
+            keys: KeyRing {
+                secp256k1: Some(key),
+                ed25519: None,
+                monero: None,
+            },
+        })
+    }
+
+    /// 钥匙环只读访问。
+    pub fn key_ring(&self) -> Option<&KeyRing> {
+        match self {
+            Self::PrivateKey { keys } => Some(keys),
+            _ => None,
+        }
+    }
+
+    /// 解析存储的 secp 槽 hex 私钥为可用的 secp256k1 密钥。
+    /// 零钥在这里被拒绝(解析时无法在纯文本层面判定)。
+    pub fn private_key(&self) -> Result<SecretKey> {
+        match self {
+            Self::PrivateKey { keys } => {
+                let hex_key = keys
+                    .secp256k1
+                    .as_ref()
+                    .ok_or_else(|| Error::InvalidPrivateKey("钥匙环没有 secp256k1 槽".into()))?;
+                let mut bytes = [0u8; 32];
+                hex::decode_to_slice(hex_key, &mut bytes)
+                    .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+                SecretKey::from_slice(&bytes)
+                    .map_err(|e| Error::InvalidPrivateKey(format!("密钥非法: {e}")))
+            }
+            _ => Err(Error::InvalidPrivateKey("钱包不是私钥导入钱包".into())),
+        }
+    }
+
     pub fn mode(&self) -> WalletMode {
         match self {
             Self::Mnemonic { .. } => WalletMode::Mnemonic,
             Self::Passphrase { .. } => WalletMode::Passphrase,
+            Self::PrivateKey { .. } => WalletMode::PrivateKey,
+            Self::Aggregate { .. } => WalletMode::Aggregate,
         }
     }
 
@@ -98,29 +391,39 @@ impl WalletSecret {
         match self {
             Self::Mnemonic { .. } => None,
             Self::Passphrase { derivation, .. } => Some(*derivation),
+            Self::PrivateKey { .. } => None,
+            Self::Aggregate { .. } => None,
+        }
+    }
+
+    /// 聚合钱包的钥匙列表只读访问(其他模式为空切片)。
+    pub fn aggregate_entries(&self) -> &[AggregateEntry] {
+        match self {
+            Self::Aggregate { entries } => entries,
+            _ => &[],
         }
     }
 
     pub fn mnemonic(&self) -> Result<Mnemonic> {
         match self {
             Self::Mnemonic { mnemonic } => parse_mnemonic(mnemonic),
-            Self::Passphrase { .. } => Err(Error::InvalidMnemonic(
-                "wallet is not a mnemonic wallet".into(),
-            )),
+            Self::Passphrase { .. } | Self::PrivateKey { .. } | Self::Aggregate { .. } => Err(
+                Error::InvalidMnemonic("wallet is not a mnemonic wallet".into()),
+            ),
         }
     }
 
     pub fn passphrase(&self) -> Option<&str> {
         match self {
             Self::Passphrase { phrase, .. } => Some(phrase),
-            Self::Mnemonic { .. } => None,
+            Self::Mnemonic { .. } | Self::PrivateKey { .. } | Self::Aggregate { .. } => None,
         }
     }
 
     pub fn word_count(&self) -> Option<usize> {
         match self {
             Self::Mnemonic { mnemonic } => Some(mnemonic.split_whitespace().count()),
-            Self::Passphrase { .. } => None,
+            Self::Passphrase { .. } | Self::PrivateKey { .. } | Self::Aggregate { .. } => None,
         }
     }
 
@@ -134,8 +437,153 @@ impl WalletSecret {
                 crate::hash::canonical_phrase(phrase)?;
                 Ok(())
             }
+            Self::PrivateKey { keys } => {
+                // 创建/解锁时就校验钥匙环:至少要有一个槽;每个已填槽
+                // 都必须是 32 字节 hex。secp 槽额外拒绝零钥。
+                let filled = [
+                    keys.secp256k1.as_ref(),
+                    keys.ed25519.as_ref(),
+                    keys.monero.as_ref(),
+                ];
+                if filled.iter().all(|slot| slot.is_none()) {
+                    return Err(Error::InvalidPrivateKey("钥匙环是空的".into()));
+                }
+                for slot in filled.into_iter().flatten() {
+                    let mut bytes = [0u8; 32];
+                    hex::decode_to_slice(slot, &mut bytes)
+                        .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+                    if bytes == [0u8; 32] {
+                        return Err(Error::InvalidPrivateKey("零私钥非法".into()));
+                    }
+                }
+                Ok(())
+            }
+            Self::Aggregate { entries } => {
+                // 至少一把钥匙;每条记录的 id 非空且不重复,钥匙是 32 字节
+                // 非零 hex(按各自链的曲线在导入时已校验,这里兜底)。
+                if entries.is_empty() {
+                    return Err(Error::InvalidPrivateKey("聚合钱包至少要有一把私钥".into()));
+                }
+                let mut seen = std::collections::HashSet::new();
+                for entry in entries {
+                    if entry.id.trim().is_empty() {
+                        return Err(Error::InvalidPrivateKey("钥匙记录缺少 id".into()));
+                    }
+                    if !seen.insert(entry.id.as_str()) {
+                        return Err(Error::InvalidPrivateKey(format!(
+                            "钥匙记录 id 重复: {}",
+                            entry.id
+                        )));
+                    }
+                    let mut bytes = [0u8; 32];
+                    hex::decode_to_slice(&entry.key, &mut bytes)
+                        .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+                    if bytes == [0u8; 32] {
+                        return Err(Error::InvalidPrivateKey("零私钥非法".into()));
+                    }
+                }
+                Ok(())
+            }
         }
     }
+
+    /// 导入聚合钱包的第一把私钥(链 + 原始钥匙 + 可选备注)。
+    /// 钥匙按链的曲线解析并规范化;生成稳定 id。
+    pub fn new_aggregate(chain: ChainId, key: &str, label: Option<String>) -> Result<Self> {
+        let normalized = parse_aggregate_key(chain, key).map_err(Error::InvalidPrivateKey)?;
+        let entry = AggregateEntry {
+            id: aggregate_entry_id(),
+            chain,
+            key: normalized,
+            label: label
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty()),
+        };
+        // 入口即校验:钥匙必须真的能推出地址(拒零钥/非法标量)。
+        entry.account()?;
+        Ok(Self::Aggregate {
+            entries: vec![entry],
+        })
+    }
+
+    /// 聚合钱包补加一把私钥(链 + 原始钥匙 + 可选备注)。返回新条目 id。
+    pub fn add_aggregate_key(
+        &mut self,
+        chain: ChainId,
+        key: &str,
+        label: Option<String>,
+    ) -> Result<String> {
+        let Self::Aggregate { entries } = self else {
+            return Err(Error::Message("只有聚合钱包才能添加聚合钥匙".into()));
+        };
+        let normalized = parse_aggregate_key(chain, key).map_err(Error::InvalidPrivateKey)?;
+        let entry = AggregateEntry {
+            id: aggregate_entry_id(),
+            chain,
+            key: normalized,
+            label: label
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty()),
+        };
+        entry.account()?;
+        let id = entry.id.clone();
+        entries.push(entry);
+        Ok(id)
+    }
+
+    /// 聚合钱包摘除一把私钥。至少要留一把。
+    pub fn remove_aggregate_key(&mut self, id: &str) -> Result<()> {
+        let Self::Aggregate { entries } = self else {
+            return Err(Error::Message("只有聚合钱包才能管理聚合钥匙".into()));
+        };
+        if entries.len() <= 1 {
+            return Err(Error::Message("聚合钱包至少要保留一把私钥".into()));
+        }
+        let before = entries.len();
+        entries.retain(|entry| entry.id != id);
+        if entries.len() == before {
+            return Err(Error::Message(format!("找不到钥匙记录: {id}")));
+        }
+        Ok(())
+    }
+
+    /// 聚合钱包重命名一把私钥的备注。
+    pub fn rename_aggregate_key(&mut self, id: &str, label: &str) -> Result<()> {
+        let Self::Aggregate { entries } = self else {
+            return Err(Error::Message("只有聚合钱包才能管理聚合钥匙".into()));
+        };
+        let trimmed = label.trim();
+        let entry = entries
+            .iter_mut()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| Error::Message(format!("找不到钥匙记录: {id}")))?;
+        entry.label = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        Ok(())
+    }
+}
+
+/// 解析用户输入的原始私钥:WIF(base58check)或 32 字节 hex。
+/// 返回规范化的小写 hex 字符串(入库格式)。
+fn parse_imported_private_key(input: &str) -> std::result::Result<String, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("私钥不能为空".into());
+    }
+    if looks_like_wif(trimmed) {
+        if let Some(key) = parse_wif(trimmed) {
+            return Ok(key);
+        }
+        // 64 位 hex 不可能包含 0OIl,落 base58 分支说明有非法字符;
+        // 若全为 hex 字符则按 hex 报错,否则按 base58 报错。
+        if trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("WIF 校验失败(base58check):请检查是否复制完整".into());
+        }
+    }
+    parse_hex_key(trimmed)
 }
 
 fn parse_mnemonic(input: &str) -> Result<Mnemonic> {
@@ -246,6 +694,9 @@ impl BatchStrategy {
         match mode {
             WalletMode::Mnemonic => &[Self::Path, Self::Iterated],
             WalletMode::Passphrase => &[Self::Salted, Self::Iterated],
+            WalletMode::PrivateKey => &[Self::Salted, Self::Iterated],
+            // 聚合钱包是独立钥匙的集合,没有任何派生。
+            WalletMode::Aggregate => &[],
         }
     }
 
@@ -257,6 +708,10 @@ impl BatchStrategy {
             WalletMode::Mnemonic => true,
             // Tolerated for legacy specs: `Path` derives as a salted hash.
             WalletMode::Passphrase => true,
+            // Path 派生对私钥钱包没有意义,derive_chain_account 里显式报错。
+            WalletMode::PrivateKey => true,
+            // 聚合钱包没有任何合法策略。
+            WalletMode::Aggregate => false,
         }
     }
 }
@@ -322,6 +777,131 @@ pub fn strategy_id(strategy: BatchStrategy) -> &'static str {
         BatchStrategy::Path => "path",
         BatchStrategy::Salted => "salted",
         BatchStrategy::Iterated => "iterated",
+    }
+}
+
+/// 聚合钱包条目的按链解析:secp 链(BTC/LTC/DOGE/BCH 收 WIF 或 hex;ETH 系
+/// 收 hex);Solana 收 64 字节 base58 keypair( Phantom 等钱包导出格式)、
+/// 32 字节 base58 或 hex;Monero 收 32 字节 hex spend key。
+/// 返回规范化的小写 hex。
+pub fn parse_aggregate_key(chain: ChainId, input: &str) -> std::result::Result<String, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("私钥不能为空".into());
+    }
+    match chain.info().kind {
+        ChainKind::Utxo => {
+            // UTXO 链社区通用 WIF,兼容纯 hex。
+            parse_imported_private_key(trimmed)
+        }
+        ChainKind::Evm => parse_hex_key(trimmed),
+        ChainKind::Ed25519 => parse_solana_key(trimmed),
+        ChainKind::Cryptonote => parse_hex_key(trimmed),
+    }
+}
+
+/// Solana 生态三种主流导出格式 → 32 字节种子 hex:
+/// - 64 字节 base58 keypair(Phantom/Solflare CLI 导出,后 32 字节是种子);
+/// - 32 字节 base58 种子;
+/// - 64 位 hex(可带 0x)。
+fn parse_solana_key(trimmed: &str) -> std::result::Result<String, String> {
+    let hex_part = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    if hex_part.len() == 64 && hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+        return parse_hex_key(trimmed);
+    }
+    // base58:先试 64 字节 keypair,再试 32 字节种子。
+    if let Ok(decoded) = bs58::decode(trimmed).into_vec() {
+        if decoded.len() == 64 {
+            let mut seed = [0u8; 32];
+            seed.copy_from_slice(&decoded[32..]);
+            return Ok(hex::encode(seed));
+        }
+        if decoded.len() == 32 {
+            return Ok(hex::encode(decoded));
+        }
+        return Err(format!(
+            "Solana 私钥应为 64 字节 base58 keypair 或 32 字节种子,收到 {} 字节",
+            decoded.len()
+        ));
+    }
+    Err("无法识别的 Solana 私钥格式".into())
+}
+
+/// 聚合钱包条目 → 该链账户。原始钥匙字节直连,无任何派生。
+fn aggregate_entry_account(entry: &AggregateEntry) -> Result<Account> {
+    let chain = entry.chain;
+    let info = chain.info();
+    let path = "imported · direct";
+    let derivation = "聚合导入 · 直接使用";
+    match info.kind {
+        ChainKind::Utxo | ChainKind::Evm => {
+            let mut bytes = [0u8; 32];
+            hex::decode_to_slice(&entry.key, &mut bytes)
+                .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+            let secret_key = SecretKey::from_slice(&bytes)
+                .map_err(|e| Error::InvalidPrivateKey(format!("密钥非法: {e}")))?;
+            account_from_secp(
+                chain,
+                &secret_key,
+                path,
+                derivation,
+                info.hash.label(),
+                "原始密钥字节 · 无路径派生",
+            )
+        }
+        ChainKind::Ed25519 => {
+            let mut seed = [0u8; 32];
+            hex::decode_to_slice(&entry.key, &mut seed)
+                .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+            account_from_ed25519(
+                chain,
+                &seed,
+                path,
+                derivation,
+                info.hash.label(),
+                "原始密钥种子 · 无路径派生",
+            )
+        }
+        ChainKind::Cryptonote => {
+            let mut spend = [0u8; 32];
+            hex::decode_to_slice(&entry.key, &mut spend)
+                .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+            let keys = crate::cryptonote::MoneroKeys::from_spend_seed(&spend);
+            account_from_monero(
+                chain,
+                &keys,
+                path,
+                derivation,
+                "Keccak-256 · CryptoNote",
+                "spend = 导入字节 · view = reduce(Keccak(spend))",
+            )
+        }
+    }
+}
+
+/// 聚合钱包条目的稳定 id:16 字节随机 hex(vault 特性关闭时退化为
+/// 时间+进程 id 哈希,wasm 演示桥不依赖宿主随机源)。
+fn aggregate_entry_id() -> String {
+    #[cfg(feature = "vault")]
+    {
+        let mut bytes = [0u8; 16];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+        hex::encode(bytes)
+    }
+    #[cfg(not(feature = "vault"))]
+    {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let mut hasher = Sha256::new();
+        hasher.update(nanos.to_le_bytes());
+        hasher.update(std::process::id().to_le_bytes());
+        hex::encode(&hasher.finalize()[..16])
     }
 }
 
@@ -616,6 +1196,92 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                 }
             }
             Ok(accounts)
+        }
+        WalletSecret::PrivateKey { keys } => {
+            // 钥匙环:每类曲线的槽各自直连自己的链。secp256k1 覆盖
+            // 8 条 UTXO/EVM,ed25519 覆盖 Solana,CryptoNote 覆盖 Monero。
+            // 没有对应槽的链不生成账户;设置里随时可以补加。
+            let mut accounts = Vec::with_capacity(ChainId::ALL.len());
+            let secp_key = match &keys.secp256k1 {
+                Some(hex_key) => {
+                    let mut bytes = [0u8; 32];
+                    hex::decode_to_slice(hex_key, &mut bytes)
+                        .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+                    Some(
+                        SecretKey::from_slice(&bytes)
+                            .map_err(|e| Error::InvalidPrivateKey(format!("密钥非法: {e}")))?,
+                    )
+                }
+                None => None,
+            };
+            for chain in ChainId::ALL {
+                let info = chain.info();
+                match info.kind {
+                    ChainKind::Utxo | ChainKind::Evm => {
+                        if let Some(secret_key) = &secp_key {
+                            accounts.push(account_from_secp(
+                                chain,
+                                secret_key,
+                                "imported · direct",
+                                "导入私钥 · 直接使用",
+                                info.hash.label(),
+                                "原始密钥字节 · 无路径派生",
+                            )?);
+                        }
+                    }
+                    ChainKind::Ed25519 => {
+                        if let Some(hex_key) = &keys.ed25519 {
+                            let mut seed = [0u8; 32];
+                            hex::decode_to_slice(hex_key, &mut seed).map_err(|e| {
+                                Error::InvalidPrivateKey(format!("密钥数据损坏: {e}"))
+                            })?;
+                            accounts.push(account_from_ed25519(
+                                chain,
+                                &seed,
+                                "imported · direct",
+                                "导入私钥 · 直接使用",
+                                info.hash.label(),
+                                "原始密钥种子 · 无路径派生",
+                            )?);
+                        }
+                    }
+                    ChainKind::Cryptonote => {
+                        if let Some(hex_key) = &keys.monero {
+                            let mut spend = [0u8; 32];
+                            hex::decode_to_slice(hex_key, &mut spend).map_err(|e| {
+                                Error::InvalidPrivateKey(format!("密钥数据损坏: {e}"))
+                            })?;
+                            let monero_keys =
+                                crate::cryptonote::MoneroKeys::from_spend_seed(&spend);
+                            accounts.push(account_from_monero(
+                                chain,
+                                &monero_keys,
+                                "imported · direct",
+                                "导入私钥 · 直接使用",
+                                "Keccak-256 · CryptoNote",
+                                "spend = 导入字节 · view = reduce(Keccak(spend))",
+                            )?);
+                        }
+                    }
+                }
+            }
+            Ok(accounts)
+        }
+        WalletSecret::Aggregate { entries } => {
+            // 聚合钱包:每把钥匙一条账户,一把管一条链上的一个地址。
+            // 两条记录可以是同一条链(同链多钱包正是聚合钱包的本意)。
+            entries
+                .iter()
+                .map(|entry| {
+                    entry.account().map(|mut account| {
+                        // path 列展示钥匙备注或链名,帮助区分同链多钥。
+                        if let Some(label) = &entry.label {
+                            account.path = format!("imported · {label}");
+                        }
+                        account
+                    })
+                })
+                .collect()
         }
         WalletSecret::Passphrase { phrase, derivation } => {
             let isolated = *derivation == DerivationMode::Isolated;
@@ -919,6 +1585,63 @@ pub fn derive_chain_account(
             let isolated = *derivation == DerivationMode::Isolated;
             passphrase_account_at_index(phrase, chain, isolated, strategy, index)
         }
+        WalletSecret::PrivateKey { keys } => {
+            private_key_account_at_index(keys, chain, strategy, index)
+        }
+        WalletSecret::Aggregate { .. } => {
+            // 聚合钱包没有派生概念:每把钥匙就是一个固定地址。
+            Err(Error::Message("聚合钱包不支持派生地址".into()))
+        }
+    }
+}
+
+/// 导入私钥钱包的派生地址:以对应槽的原始密钥字节为基,加盐/迭代两种
+/// 策略。同一条链的多把钥匙不叠加在派生上——派生账户永远锚定该链的
+/// 槽钥匙;同链多账户需求由「多把钥匙 → 多个私钥钱包」承载。
+fn private_key_account_at_index(
+    keys: &KeyRing,
+    chain: ChainId,
+    strategy: BatchStrategy,
+    index: u32,
+) -> Result<Account> {
+    let info = chain.info();
+    match info.kind {
+        ChainKind::Utxo | ChainKind::Evm => {
+            let hex_key = keys
+                .secp256k1
+                .as_ref()
+                .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+            let mut bytes = [0u8; 32];
+            hex::decode_to_slice(hex_key, &mut bytes)
+                .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+            let digest = match strategy {
+                BatchStrategy::Salted => {
+                    crate::hash::chain_hash_salted_bytes(&bytes, chain, index)?
+                }
+                BatchStrategy::Iterated => crate::hash::chain_key_iterated(bytes, chain, index)?,
+                BatchStrategy::Path => {
+                    return Err(Error::Message("路径派生不适用于私钥导入钱包".into()));
+                }
+            };
+            let derived = secp_from_digest(digest)?;
+            account_from_secp(
+                chain,
+                &derived,
+                &format!("imported · #{}", index),
+                match strategy {
+                    BatchStrategy::Salted => "H(key, #i)",
+                    _ => "H^i(key)",
+                },
+                info.hash.label(),
+                match strategy {
+                    BatchStrategy::Salted => "加盐哈希 · 32 byte digest",
+                    _ => "迭代哈希 · 32 byte digest",
+                },
+            )
+        }
+        ChainKind::Ed25519 | ChainKind::Cryptonote => {
+            Err(Error::UnsupportedChain(chain.to_string()))
+        }
     }
 }
 
@@ -1044,6 +1767,112 @@ pub fn derive_chain_private_key_for_spec(
             };
             Ok(digest_to_key(chain, digest))
         }
+        WalletSecret::PrivateKey { keys } => {
+            match chain.info().kind {
+                ChainKind::Utxo | ChainKind::Evm => {
+                    let hex_key = keys
+                        .secp256k1
+                        .as_ref()
+                        .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+                    let mut bytes = [0u8; 32];
+                    hex::decode_to_slice(hex_key, &mut bytes)
+                        .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+                    let digest = match strategy {
+                        None => bytes,
+                        Some(BatchStrategy::Salted) => {
+                            crate::hash::chain_hash_salted_bytes(&bytes, chain, index)?
+                        }
+                        Some(BatchStrategy::Iterated) => {
+                            crate::hash::chain_key_iterated(bytes, chain, index)?
+                        }
+                        // Path 派生没有 BIP-32 树可走,回落为原始密钥。
+                        Some(BatchStrategy::Path) => bytes,
+                    };
+                    let key = secp_from_digest(digest)?;
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Secp(key),
+                    })
+                }
+                ChainKind::Ed25519 => {
+                    // 直接导出的密钥:原始种子即 ed25519 密钥,派生策略不适用。
+                    let hex_key = keys
+                        .ed25519
+                        .as_ref()
+                        .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+                    let mut seed = [0u8; 32];
+                    hex::decode_to_slice(hex_key, &mut seed)
+                        .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Ed25519(seed),
+                    })
+                }
+                ChainKind::Cryptonote => {
+                    let hex_key = keys
+                        .monero
+                        .as_ref()
+                        .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+                    let mut spend = [0u8; 32];
+                    hex::decode_to_slice(hex_key, &mut spend)
+                        .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+                    Ok(PrivateKeyMaterial {
+                        chain,
+                        inner: PrivateKeyInner::Monero(
+                            crate::cryptonote::MoneroKeys::from_spend_seed(&spend),
+                        ),
+                    })
+                }
+            }
+        }
+        WalletSecret::Aggregate { entries } => {
+            // 聚合钱包的导出按条目 id 定位(spec 机制不适用);同链多钥
+            // 时由调用方保证 id 唯一指向一把钥匙。
+            let entry = entries
+                .iter()
+                .find(|entry| entry.chain == chain)
+                .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+            let material = entry_key_material(entry)?;
+            Ok(material)
+        }
+    }
+}
+
+/// 聚合条目的原始钥匙 → 可导出的密钥材料。
+fn entry_key_material(entry: &AggregateEntry) -> Result<PrivateKeyMaterial> {
+    let chain = entry.chain;
+    match chain.info().kind {
+        ChainKind::Utxo | ChainKind::Evm => {
+            let mut bytes = [0u8; 32];
+            hex::decode_to_slice(&entry.key, &mut bytes)
+                .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+            let secret_key = SecretKey::from_slice(&bytes)
+                .map_err(|e| Error::InvalidPrivateKey(format!("密钥非法: {e}")))?;
+            Ok(PrivateKeyMaterial {
+                chain,
+                inner: PrivateKeyInner::Secp(secret_key),
+            })
+        }
+        ChainKind::Ed25519 => {
+            let mut seed = [0u8; 32];
+            hex::decode_to_slice(&entry.key, &mut seed)
+                .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+            Ok(PrivateKeyMaterial {
+                chain,
+                inner: PrivateKeyInner::Ed25519(seed),
+            })
+        }
+        ChainKind::Cryptonote => {
+            let mut spend = [0u8; 32];
+            hex::decode_to_slice(&entry.key, &mut spend)
+                .map_err(|e| Error::InvalidPrivateKey(format!("密钥数据损坏: {e}")))?;
+            Ok(PrivateKeyMaterial {
+                chain,
+                inner: PrivateKeyInner::Monero(crate::cryptonote::MoneroKeys::from_spend_seed(
+                    &spend,
+                )),
+            })
+        }
     }
 }
 
@@ -1089,6 +1918,14 @@ fn replace_last_index(path: &str, index: u32) -> String {
 pub fn derive_private_key(secret: &WalletSecret, chain: ChainId) -> Result<PrivateKeyMaterial> {
     secret.validate()?;
     match secret {
+        WalletSecret::Aggregate { entries } => {
+            // 无 spec 的按链导出:同链多钥时取第一条(界面路径永远带 id)。
+            let entry = entries
+                .iter()
+                .find(|entry| entry.chain == chain)
+                .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+            entry_key_material(entry)
+        }
         WalletSecret::Mnemonic { .. } => {
             let mnemonic = secret.mnemonic()?;
             let seed = mnemonic.to_seed("");
@@ -1139,6 +1976,15 @@ pub fn derive_private_key(secret: &WalletSecret, chain: ChainId) -> Result<Priva
                 }),
             }
         }
+        WalletSecret::PrivateKey { .. } => match chain.info().kind {
+            ChainKind::Utxo | ChainKind::Evm => Ok(PrivateKeyMaterial {
+                chain,
+                inner: PrivateKeyInner::Secp(secret.private_key()?),
+            }),
+            ChainKind::Ed25519 | ChainKind::Cryptonote => {
+                Err(Error::UnsupportedChain(chain.to_string()))
+            }
+        },
     }
 }
 
@@ -1166,6 +2012,15 @@ pub fn preview_derivation(secret: &WalletSecret) -> Result<DerivationPreview> {
             } else {
                 "H_chain(phrase) → 32 bytes → private key".to_string()
             }
+        }
+        WalletSecret::PrivateKey { .. } => {
+            "imported secp256k1 key → same key bytes on every supported chain".to_string()
+        }
+        WalletSecret::Aggregate { entries } => {
+            format!(
+                "aggregate of {} independent keys → one address each, no derivation",
+                entries.len()
+            )
         }
     };
     Ok(DerivationPreview {
@@ -1350,6 +2205,259 @@ mod tests {
             }
         )
         .is_err());
+    }
+
+    #[test]
+    fn private_key_wallet_imports_wif_and_hex() {
+        // hex "0...01" 的标准 WIF(压缩,主网):众所周知的测试向量。
+        let wif = "KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9M7rFU73sVHnoWn";
+        let from_wif = WalletSecret::new_private_key(wif).unwrap();
+        // 同一把钥匙的 hex 形态,两者必须归一为同一存储。
+        let from_hex = WalletSecret::new_private_key(
+            "0000000000000000000000000000000000000000000000000000000000000001",
+        )
+        .unwrap();
+        match (&from_wif, &from_hex) {
+            (
+                WalletSecret::PrivateKey {
+                    keys:
+                        KeyRing {
+                            secp256k1: Some(a), ..
+                        },
+                },
+                WalletSecret::PrivateKey {
+                    keys:
+                        KeyRing {
+                            secp256k1: Some(b), ..
+                        },
+                },
+            ) => {
+                assert_eq!(a, b, "WIF 与 hex 必须归一为同一把钥匙");
+            }
+            _ => panic!("wrong variant"),
+        }
+
+        let accounts = derive_accounts(&from_wif).unwrap();
+        // 8 条 secp 链,无 Solana/Monero(钥匙环只导入了 secp 槽)。
+        assert_eq!(accounts.len(), 8);
+        assert!(accounts.iter().all(|a| a.chain != ChainId::Solana));
+        assert!(accounts.iter().all(|a| a.chain != ChainId::Monero));
+        // 私钥 1 的以太坊地址是众所周知的向量。
+        let eth = accounts
+            .iter()
+            .find(|a| a.chain == ChainId::Ethereum)
+            .unwrap();
+        assert_eq!(
+            eth.address.to_lowercase(),
+            "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+        );
+        let btc = accounts
+            .iter()
+            .find(|a| a.chain == ChainId::Bitcoin)
+            .unwrap();
+        assert_eq!(btc.path, "imported · direct");
+        assert_eq!(btc.derivation, "导入私钥 · 直接使用");
+    }
+
+    #[test]
+    fn private_key_wallet_rejects_bad_input() {
+        // 非法 base58(含校验错误的 WIF 形状)。
+        assert!(WalletSecret::new_private_key("1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH").is_err());
+        // 空与短 hex。
+        assert!(WalletSecret::new_private_key("").is_err());
+        assert!(WalletSecret::new_private_key("abcd").is_err());
+        // 63 位 hex。
+        assert!(WalletSecret::new_private_key(
+            "000000000000000000000000000000000000000000000000000000000000001"
+        )
+        .is_err());
+        // 零私钥非法。
+        assert!(WalletSecret::new_private_key(
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn aggregate_wallet_one_key_one_address() {
+        // 三把互不相关的钥匙:BTC(WIF)+ EVM(hex)+ Monero(hex spend)。
+        // 其中 BTC 与 EVM 链上各一把;无派生,每把只出一个地址。
+        let mut secret = WalletSecret::new_aggregate(
+            ChainId::Bitcoin,
+            "KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9M7rFU73sVHnoWn",
+            Some("冷存储".into()),
+        )
+        .unwrap();
+        secret
+            .add_aggregate_key(
+                ChainId::Ethereum,
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+                None,
+            )
+            .unwrap();
+        let monero_id = secret
+            .add_aggregate_key(
+                ChainId::Monero,
+                "0b2f7b6c4f3ea25da6d54f0d1ec2ab8a3f4c5d6e7f8091a2b3c4d5e6f708192a",
+                None,
+            )
+            .unwrap();
+
+        let accounts = derive_accounts(&secret).unwrap();
+        assert_eq!(accounts.len(), 3, "一把钥匙一个地址");
+        assert!(accounts.iter().any(|a| a.chain == ChainId::Bitcoin));
+        assert!(accounts.iter().any(|a| a.chain == ChainId::Ethereum));
+        assert!(accounts.iter().any(|a| a.chain == ChainId::Monero));
+        // 备注显示在 path 列。
+        assert!(accounts[0].path.contains("冷存储"));
+
+        // 同链多钥:再补一把 BTC,账户数 +1。
+        secret
+            .add_aggregate_key(
+                ChainId::Bitcoin,
+                "0x0000000000000000000000000000000000000000000000000000000000000002",
+                None,
+            )
+            .unwrap();
+        assert_eq!(derive_accounts(&secret).unwrap().len(), 4);
+
+        // 无派生:批量派生一律报错;可用策略为空。
+        assert!(BatchStrategy::available_for(WalletMode::Aggregate).is_empty());
+        assert!(derive_accounts_batch(
+            &secret,
+            &BatchRequest {
+                strategy: BatchStrategy::Salted,
+                chain: ChainId::Bitcoin,
+                count: 1,
+                start: 1,
+            },
+        )
+        .is_err());
+
+        // 摘除与空钱包校验。
+        secret.remove_aggregate_key(&monero_id).unwrap();
+        assert!(secret.aggregate_entries().len() == 3);
+        let err = secret.remove_aggregate_key(&monero_id).unwrap_err();
+        assert!(err.to_string().contains("找不到钥匙记录"));
+
+        // Solana base58 keypair(64 字节)→ 种子归一。
+        // 0x000…001 私钥的 64 字节 keypair 形式(0…01 ‖ 公钥占位)不做真实验证,
+        // 只验证 hex 路径;keypair 路径由解析单元保证。
+        let sol = WalletSecret::new_aggregate(
+            ChainId::Solana,
+            "d97db1d57e12e19b45aad225ea140f38d0f0dae9fdf5bbbb60b5a90f09990a2f",
+            None,
+        )
+        .unwrap();
+        assert_eq!(derive_accounts(&sol).unwrap().len(), 1);
+        assert_eq!(derive_accounts(&sol).unwrap()[0].chain, ChainId::Solana);
+
+        // 导入即拒非法钥匙。
+        assert!(WalletSecret::new_aggregate(ChainId::Ethereum, "zz", None).is_err());
+        assert!(WalletSecret::new_aggregate(
+            ChainId::Ethereum,
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            None
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn key_ring_covers_all_chains_and_reads_legacy_format() {
+        // 三槽齐全:10 条链全部生成账户。
+        let hex32 = |b: u8| hex::encode([b; 32]);
+        let full = WalletSecret::PrivateKey {
+            keys: KeyRing {
+                secp256k1: Some(hex32(1)),
+                ed25519: Some(hex32(2)),
+                monero: Some(hex32(3)),
+            },
+        };
+        assert!(full.validate().is_ok());
+        let accounts = derive_accounts(&full).unwrap();
+        assert_eq!(accounts.len(), ChainId::ALL.len(), "三槽齐全应覆盖全部链");
+        assert!(accounts.iter().any(|a| a.chain == ChainId::Solana));
+        assert!(accounts.iter().any(|a| a.chain == ChainId::Monero));
+
+        // 旧格式(单把 WIF 字符串 / `key` 字段)读入后归入 secp 槽。
+        let legacy: WalletSecret = serde_json::from_str(
+            r#"{ "mode": "private_key",
+                 "key": "KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9M7rFU73sVHnoWn" }"#,
+        )
+        .unwrap();
+        let ring = legacy.key_ring().unwrap();
+        assert_eq!(
+            ring.secp256k1.as_deref(),
+            Some("0000000000000000000000000000000000000000000000000000000000000001")
+        );
+        assert!(ring.ed25519.is_none() && ring.monero.is_none());
+
+        // 新格式 map + 归一化(ed25519/monero 槽收 hex)。
+        let modern: WalletSecret = serde_json::from_str(&format!(
+            r#"{{ "mode": "private_key",
+                 "keys": {{ "secp256k1": "0x{}", "ed25519": "{}", "monero": "{}" }} }}"#,
+            hex32(1),
+            hex32(2),
+            hex32(3)
+        ))
+        .unwrap();
+        assert_eq!(
+            modern.key_ring().unwrap().secp256k1.as_deref(),
+            Some(hex32(1).as_str()),
+            "0x 前缀应被剥掉"
+        );
+
+        // 全空钥匙环非法。
+        let empty = WalletSecret::PrivateKey {
+            keys: KeyRing::default(),
+        };
+        assert!(empty.validate().is_err());
+    }
+
+    #[test]
+    fn private_key_wallet_batch_derives_salted_and_iterated() {
+        let secret = WalletSecret::new_private_key(
+            "0000000000000000000000000000000000000000000000000000000000000001",
+        )
+        .unwrap();
+        let base = derive_accounts(&secret)
+            .unwrap()
+            .into_iter()
+            .find(|a| a.chain == ChainId::Bitcoin)
+            .unwrap();
+        for strategy in [BatchStrategy::Salted, BatchStrategy::Iterated] {
+            let batch = derive_accounts_batch(
+                &secret,
+                &BatchRequest {
+                    strategy,
+                    chain: ChainId::Bitcoin,
+                    count: 1,
+                    start: 1,
+                },
+            )
+            .unwrap();
+            assert_ne!(
+                batch[0].address, base.address,
+                "{strategy:?} 必须异于基础账户"
+            );
+        }
+        // Path 策略不适用。
+        assert!(derive_accounts_batch(
+            &secret,
+            &BatchRequest {
+                strategy: BatchStrategy::Path,
+                chain: ChainId::Bitcoin,
+                count: 1,
+                start: 1,
+            },
+        )
+        .is_err());
+        // 详情导出私钥:基础账户返回原始密钥。
+        let material = derive_chain_private_key_for_spec(&secret, None, ChainId::Ethereum).unwrap();
+        assert_eq!(
+            material.export().unwrap(),
+            "0x0000000000000000000000000000000000000000000000000000000000000001"
+        );
     }
 
     #[test]

@@ -18,7 +18,7 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 - **十条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Solana、Monero。
 - **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 / UTXO P2WPKH 与 legacy P2PKH / Solana 系统转账 / Monero CryptoNote）、交易记录、地址簿。
 - **本地加密**：Argon2id + XChaCha20-Poly1305 加密的钱包文件，自动锁定、密码尝试冷却。
-- **演示模式**：`ui/index.html?mock=1` 直接加载编译成 WebAssembly 的同一份 Rust 核心——地址、指纹、
+- **演示模式**：`ui-react` 开发服务器（`npm run dev`）加 `?mock=1` 直接加载编译成 WebAssembly 的同一份 Rust 核心——地址、指纹、
   地址校验和二维码都是真数据，只有余额、价格与广播结果是演示值，不需要 Rust 后端。
 
 ## 支持的网络
@@ -100,28 +100,29 @@ crates/core   纯 Rust 核心：派生、地址、vault、网络、交易签名�
 crates/wasm   把核心编译成 WebAssembly 的裸 C ABI 桥（演示模式用）
 crates/cli    命令行入口（占位，尚未实现）
 src-tauri     Tauri 2 桌面外壳：命令、会话状态机、报价与广播、自动锁定
-ui            无打包器的原生 ES 模块前端（withGlobalTauri）
+ui-react      React 18 + TypeScript 前端（Vite 构建，桌面与演示模式共用）
 tools         图标生成、交易夹具独立校验脚本
 ```
 
 ## 构建与运行
 
-依赖：Rust（MSVC 工具链）+ Windows 上的 WebView2 Runtime。前端不需要 Node。
+依赖：Rust（MSVC 工具链）+ Windows 上的 WebView2 Runtime；前端构建需要 Node 22。
 
 ```bash
-cargo run -p lycoris-wallet          # 开发运行
+cd ui-react && npm ci && npm run build   # 先产出 ui-react/dist（frontendDist 指向这里）
+cargo run -p lycoris-wallet              # 开发运行
 cargo build --release -p lycoris-wallet
 ```
 
 - 钱包文件默认保存在系统应用数据目录；设置环境变量 `LYCORIS_VAULT_DIR` 可覆盖（测试用）。
-- 演示前端：任意静态服务器指向 `ui/`，打开 `index.html?mock=1`；默认密码提示为 `lycoris-demo`。
+- 演示前端：`cd ui-react && npm run dev`，打开 `http://localhost:5183/?mock=1`；演示内核与桌面同源。
 
-演示模式加载 `ui/vendor/lycoris-core.wasm`（已提交，约 1.2 MB）。修改核心后重新生成：
+演示模式加载 `ui-react/src/mock/vendor/lycoris-core.wasm`（已提交，约 1.2 MB）。修改核心后重新生成：
 
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo build -p lycoris-wasm --target wasm32-unknown-unknown --release
-copy target\wasm32-unknown-unknown\release\lycoris_wasm.wasm ui\vendor\lycoris-core.wasm
+copy target\wasm32-unknown-unknown\release\lycoris_wasm.wasm ui-react\src\mock\vendor\lycoris-core.wasm
 ```
 
 `crates/wasm` 使用裸 C ABI（`lycoris_alloc` / `lycoris_call` / `lycoris_result_free`），

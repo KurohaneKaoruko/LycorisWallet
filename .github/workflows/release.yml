@@ -90,6 +90,21 @@ jobs:
         with:
           workspaces: . -> target
 
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui-react/package-lock.json
+
+      - name: 构建前端（ui-react）
+        shell: bash
+        # tauri.conf.json 的 frontendDist 指向 ../ui-react/dist，必须先于打包生成
+        working-directory: ui-react
+        run: |
+          npm ci
+          npm run build
+
       - name: 安装 Tauri CLI
         # Windows 默认 PowerShell 不会展开 $TAURI_CLI_VERSION（环境变量要用
         # $env:…），统一用 bash 执行，三个平台行为一致。

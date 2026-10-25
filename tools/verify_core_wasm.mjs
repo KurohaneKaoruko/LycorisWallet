@@ -2,7 +2,7 @@
 /**
  * Verify the WebAssembly bridge the demo build uses.
  *
- * The demo (`ui/?mock=1`) is not a mock any more: it loads `lycoris-core`
+ * The demo (`ui-react/?mock=1`) is not a mock any more: it loads `lycoris-core`
  * compiled to wasm, so addresses, fingerprints, address validation and QR codes
  * are produced by exactly the same Rust code as the desktop app. This script
  * pins that contract:
@@ -21,7 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const wasmPath = path.join(root, "ui", "vendor", "lycoris-core.wasm");
+const wasmPath = path.join(root, "ui-react", "src", "mock", "vendor", "lycoris-core.wasm");
 const outDir = path.join(root, "out");
 
 const OP_PREVIEW = 1;

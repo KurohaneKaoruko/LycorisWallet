@@ -1,18 +1,18 @@
 /** Application shell: boot sequence, router, rail, titlebar and auto-lock. */
 
-import { api, hasTauri, isMock, listen } from "./api.js?v=23";
-import { escapeHtml } from "./format.js?v=23";
-import { icon, openModal, toast } from "./ui.js?v=23";
-import { render as renderActivity } from "./views/activity.js?v=23";
-import { render as renderAsset } from "./views/asset.js?v=23";
-import { render as renderContacts } from "./views/contacts.js?v=23";
-import { render as renderDashboard } from "./views/dashboard.js?v=23";
-import { render as renderOnboarding } from "./views/onboarding.js?v=23";
-import { render as renderReceive } from "./views/receive.js?v=23";
-import { render as renderSend } from "./views/send.js?v=23";
-import { render as renderSettings } from "./views/settings.js?v=23";
-import { render as renderUnlock } from "./views/unlock.js?v=23";
-import { render as renderWallets } from "./views/wallets.js?v=23";
+import { api, hasTauri, isMock, listen } from "./api.js?v=24";
+import { escapeHtml } from "./format.js?v=24";
+import { icon, openModal, toast } from "./ui.js?v=24";
+import { render as renderActivity } from "./views/activity.js?v=24";
+import { render as renderAsset } from "./views/asset.js?v=24";
+import { render as renderContacts } from "./views/contacts.js?v=24";
+import { render as renderDashboard } from "./views/dashboard.js?v=24";
+import { render as renderOnboarding } from "./views/onboarding.js?v=24";
+import { render as renderReceive } from "./views/receive.js?v=24";
+import { render as renderSend } from "./views/send.js?v=24";
+import { render as renderSettings } from "./views/settings.js?v=24";
+import { render as renderUnlock } from "./views/unlock.js?v=24";
+import { render as renderWallets } from "./views/wallets.js?v=24";
 
 const VERSION = "0.3.0";
 const PORTFOLIO_TTL = 60; // seconds

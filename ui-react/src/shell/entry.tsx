@@ -10,7 +10,7 @@ import { copyText } from "../clipboard";
 import { useSession } from "./session";
 import { useDialogs, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
-import type { DerivationPreview, WalletView } from "../types";
+import type { ChainId, DerivationPreview, WalletView } from "../types";
 
 const STEPS = ["选择模式", "生成密钥", "设置密码"];
 
@@ -111,7 +111,7 @@ function strengthOf(password: string): { level: number; label: string; hint: str
   return { level: 3, label: "较强", hint: "很好，请妥善保管" };
 }
 
-type Mode = "mnemonic" | "mnemonic-import" | "passphrase";
+type Mode = "mnemonic" | "mnemonic-import" | "passphrase" | "private-key" | "aggregate";
 
 /** 引导向导：选择模式 → 生成/导入/口令 → 设置密码。移植自 ui/js/views/onboarding.js。 */
 export function OnboardingView() {
@@ -205,6 +205,60 @@ export function OnboardingView() {
     return () => window.clearTimeout(timer);
   }, [importText, step, mode]);
 
+  /* 私钥预览：粘贴后防抖验证（解析失败立刻提示）。 */
+  const [keyPreview, setKeyPreview] = useState<DerivationPreview | null>(null);
+  useEffect(() => {
+    if (step !== 1 || mode !== "private-key") return;
+    if (!importText.trim()) {
+      setKeyPreview(null);
+      setImportError("");
+      setImportPreviewing(false);
+      return;
+    }
+    setImportPreviewing(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        setKeyPreview(await api.previewDerivation({ mode: "private_key", key: importText.trim() }));
+        setImportError("");
+      } catch (e) {
+        setKeyPreview(null);
+        setImportError((e as Error).message);
+      } finally {
+        setImportPreviewing(false);
+      }
+    }, 380);
+    return () => window.clearTimeout(timer);
+  }, [importText, step, mode]);
+
+  /* 聚合钱包第一把钥匙预览:链 + 原始钥匙防抖验证。 */
+  const [aggChain, setAggChain] = useState<ChainId>("bitcoin");
+  const [aggPreview, setAggPreview] = useState<DerivationPreview | null>(null);
+  const [aggError, setAggError] = useState("");
+  useEffect(() => {
+    if (step !== 1 || mode !== "aggregate") return;
+    if (!importText.trim()) {
+      setAggPreview(null);
+      setAggError("");
+      setImportPreviewing(false);
+      return;
+    }
+    setImportPreviewing(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        setAggPreview(
+          await api.previewDerivation({ mode: "aggregate", chain: aggChain, key: importText.trim() }),
+        );
+        setAggError("");
+      } catch (e) {
+        setAggPreview(null);
+        setAggError((e as Error).message);
+      } finally {
+        setImportPreviewing(false);
+      }
+    }, 380);
+    return () => window.clearTimeout(timer);
+  }, [importText, step, mode, aggChain]);
+
   const makeVerify = () => {
     const positions = new Set<number>();
     const total = words.length;
@@ -235,9 +289,18 @@ export function OnboardingView() {
       const secret =
         mode === "passphrase"
           ? { mode: "passphrase" as const, phrase, derivation }
-          : mode === "mnemonic-import"
-            ? { mode: "mnemonic" as const, mnemonic: importText.trim() }
-            : { mode: "mnemonic" as const, mnemonic };
+          : mode === "private-key"
+            ? { mode: "private_key" as const, key: importText.trim() }
+            : mode === "aggregate"
+              ? {
+                  mode: "aggregate" as const,
+                  chain: aggChain,
+                  key: importText.trim(),
+                  label: null,
+                }
+              : mode === "mnemonic-import"
+                ? { mode: "mnemonic" as const, mnemonic: importText.trim() }
+                : { mode: "mnemonic" as const, mnemonic };
       const wallet = await api.createVault({
         password,
         hint: hint.trim() || null,
@@ -293,6 +356,38 @@ export function OnboardingView() {
                 SHA-256、莱特币用 scrypt、EVM 用 Keccak-256、Solana 用 SHA-256。
               </p>
               <div className="foot">一句话管所有链 · 口令一旦忘记无法找回</div>
+            </button>
+            <button
+              className="mode-card"
+              type="button"
+              onClick={() => {
+                setMode("private-key");
+                setStep(1);
+              }}
+            >
+              <span className="tag">钥匙环 · secp256k1 + ed25519 + CryptoNote</span>
+              <h3>私钥钱包</h3>
+              <p>
+                导入已有的原始私钥(WIF / hex),按曲线分槽管理:一类钥匙覆盖一条曲线上的所有链,
+                随时补加 Solana、Monero 槽补齐全能覆盖;同链多账户可再建一个私钥钱包。
+              </p>
+              <div className="foot">从其他钱包迁移 · 私钥泄露即全部资产泄露</div>
+            </button>
+            <button
+              className="mode-card"
+              type="button"
+              onClick={() => {
+                setMode("aggregate");
+                setStep(1);
+              }}
+            >
+              <span className="tag">一钥一链一址 · 数量不限</span>
+              <h3>聚合钱包</h3>
+              <p>
+                随意添加任意数量的独立私钥:每把钥匙只管自己链上的一个地址,互不相关、
+                无任何派生。同一条链想放几把就放几把,像仓库一样集中收发。
+              </p>
+              <div className="foot">大量零散私钥的统一管家 · 逐把导入逐把管理</div>
             </button>
           </div>
           <div className="note note-warn" style={{ marginTop: 18 }}>
@@ -552,6 +647,156 @@ export function OnboardingView() {
                 className="btn btn-primary"
                 type="button"
                 disabled={!phrase.trim()}
+                onClick={() => setStep(2)}
+              >
+                下一步
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  /* -- 私钥钱包 -- */
+  if (step === 1 && mode === "private-key") {
+    return (
+      <section className="onboarding">
+        <div className="onboarding-inner">
+          <BrandHead title="Lycoris Wallet" sub={BRAND_SUB} />
+          <StepBar step={1} />
+          <div className="card card-pad stack">
+            <div>
+              <h2>导入第一把私钥</h2>
+              <p className="hint">
+                钥匙环按椭圆曲线分三类,互相独立:secp256k1 覆盖 Bitcoin、Ethereum
+                等 8 条链,ed25519 覆盖 Solana,CryptoNote 覆盖 Monero。这里先导入任意一把,
+                创建后可在 设置 → 钥匙环 随时补加其余的,补齐后即为覆盖全部链的全能钱包。
+              </p>
+            </div>
+            <div className="field">
+              <label htmlFor="private-key-input">原始私钥</label>
+              <textarea
+                className="textarea mono"
+                id="private-key-input"
+                placeholder="secp256k1:Kx…(WIF)或 64 位 hex"
+                autoComplete="off"
+                spellCheck={false}
+                value={importText}
+                onChange={(event) => setImportText(event.target.value)}
+              />
+              {importError ? (
+                <p className="hint" style={{ color: "var(--vermilion)" }}>{importError}</p>
+              ) : keyPreview ? (
+                <p className="hint">
+                  有效 · 指纹 {keyPreview.fingerprint} · 已覆盖 {keyPreview.accounts.length}{" "}
+                  条链{keyPreview.accounts.length < 10 ? "(其余可在设置里补加)" : ""}
+                </p>
+              ) : (
+                <p className="hint">输入将自动校验;密钥只保存在本机加密文件里。Solana / Monero 的私钥创建后可在设置里补加。</p>
+              )}
+            </div>
+            <div className="note note-warn">
+              <Icon name="warn" />
+              <div>导入的私钥等同于明文钥匙:任何拿到它的人都能取走资产,且无法像助记词那样抄成单词备份。请确认来源可信。</div>
+            </div>
+            <div className="row" style={{ gap: 10 }}>
+              <button className="btn btn-ghost" type="button" onClick={() => setStep(0)}>
+                返回
+              </button>
+              <button
+                className="btn"
+                type="button"
+                disabled={!importText.trim() || !keyPreview}
+                onClick={() => setStep(2)}
+              >
+                下一步
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  /* -- 聚合钱包 -- */
+  if (step === 1 && mode === "aggregate") {
+    const CHAIN_OPTIONS: Array<[ChainId, string, string]> = [
+      ["bitcoin", "Bitcoin", "WIF(5/K/L 开头)或 64 位 hex"],
+      ["litecoin", "Litecoin", "WIF 或 64 位 hex"],
+      ["dogecoin", "Dogecoin", "WIF(D 开头)或 64 位 hex"],
+      ["bitcoincash", "Bitcoin Cash", "WIF 或 64 位 hex"],
+      ["ethereum", "Ethereum", "64 位 hex"],
+      ["ethereum-classic", "Ethereum Classic", "64 位 hex"],
+      ["bsc", "BNB Chain", "64 位 hex"],
+      ["polygon", "Polygon", "64 位 hex"],
+      ["solana", "Solana", "base58 keypair(Phantom 导出)或 64 位 hex"],
+      ["monero", "Monero", "64 位 hex spend key"],
+    ];
+    const active = CHAIN_OPTIONS.find(([id]) => id === aggChain)!;
+    return (
+      <section className="onboarding">
+        <div className="onboarding-inner">
+          <BrandHead title="Lycoris Wallet" sub={BRAND_SUB} />
+          <StepBar step={1} />
+          <div className="card card-pad stack">
+            <div>
+              <h2>导入第一把私钥</h2>
+              <p className="hint">
+                聚合钱包从一把钥匙开始:每把钥匙只管自己链上的一个地址,互不相关、无派生。
+                创建后可在 设置 → 聚合钥匙 里随意追加,想加多少把都行。
+              </p>
+            </div>
+            <div className="field">
+              <label htmlFor="agg-chain">这条钥匙属于哪条链</label>
+              <div className="seg seg-flow" role="group">
+                {CHAIN_OPTIONS.map(([id, name]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={aggChain === id}
+                    onClick={() => {
+                      setAggChain(id);
+                      setAggPreview(null);
+                      setAggError("");
+                    }}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="private-key-input">原始私钥</label>
+              <textarea
+                className="textarea mono"
+                id="private-key-input"
+                placeholder={active[2]}
+                autoComplete="off"
+                spellCheck={false}
+                value={importText}
+                onChange={(event) => setImportText(event.target.value)}
+              />
+              {aggError || importError ? (
+                <p className="hint" style={{ color: "var(--vermilion)" }}>{aggError || importError}</p>
+              ) : aggPreview ? (
+                <p className="hint">有效 · 地址 {aggPreview.accounts[0]?.address.slice(0, 14)}… · 创建后可继续追加更多钥匙</p>
+              ) : (
+                <p className="hint">输入将自动校验;密钥只保存在本机加密文件里。</p>
+              )}
+            </div>
+            <div className="note note-warn">
+              <Icon name="warn" />
+              <div>聚合钱包里的每把私钥都是独立的明文钥匙,泄露一把就丢一把的资产。请逐把确认来源可信。</div>
+            </div>
+            <div className="row" style={{ gap: 10 }}>
+              <button className="btn btn-ghost" type="button" onClick={() => setStep(0)}>
+                返回
+              </button>
+              <button
+                className="btn"
+                type="button"
+                disabled={!importText.trim() || !aggPreview}
                 onClick={() => setStep(2)}
               >
                 下一步

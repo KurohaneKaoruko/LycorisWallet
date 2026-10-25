@@ -18,7 +18,21 @@ export type ChainId =
 
 export type FiatCurrency = "usd" | "cny";
 export type Theme = "system" | "light" | "dark";
-export type WalletMode = "mnemonic" | "passphrase";
+export type WalletMode = "mnemonic" | "passphrase" | "private_key" | "aggregate";
+/** 钥匙环的槽类别(私钥钱包)。 */
+export type KeySlotKind = "secp256k1" | "ed25519" | "monero";
+/** 钥匙环快照:每个槽 present 与否决定对应链是否显示。 */
+export interface KeyRingView {
+  secp256k1: string | null;
+  ed25519: string | null;
+  monero: string | null;
+}
+/** 聚合钱包的钥匙目录(id/链/备注,不含钥匙本体)。 */
+export interface AggregateEntryView {
+  id: string;
+  chain: ChainId;
+  label: string | null;
+}
 export type DerivationMode = "isolated" | "strict";
 export type BatchStrategy = "path" | "salted" | "iterated";
 export type Direction = "send" | "receive";
@@ -111,6 +125,10 @@ export interface WalletView {
   fingerprint: string;
   createdAt: number;
   formula: string;
+  /** 私钥钱包的钥匙环快照(其他模式为 null)。 */
+  keyRing: KeyRingView | null;
+  /** 聚合钱包的钥匙目录(其他模式为 null)。 */
+  aggregateEntries: AggregateEntryView[] | null;
   accounts: Account[];
   settings: Settings;
   contacts: Contact[];

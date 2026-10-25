@@ -7,7 +7,7 @@ import { api } from "../api";
 import { useSession } from "../shell/session";
 import { Modal, useDialogs, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
-import type { BatchRequest, BatchStrategy, DerivationPreview, WalletView } from "../types";
+import type { BatchRequest, BatchStrategy, ChainId, DerivationPreview, WalletView } from "../types";
 
 const STRATEGY_LABELS: Record<string, { title: string; desc: string }> = {
   path: { title: "路径派生", desc: "BIP-32 地址索引递增（助记词）" },
@@ -16,7 +16,7 @@ const STRATEGY_LABELS: Record<string, { title: string; desc: string }> = {
 };
 
 /** 派生策略按钱包模式过滤：助记词走 BIP-32 路径（+迭代哈希）；
- * 加盐派生以口令为哈希输入，属于口令钱包专属，助记词不提供。 */
+ * 加盐/迭代以口令或导入私钥为哈希输入；路径派生只属于助记词。 */
 function strategiesFor(wallet: WalletView | null) {
   const all = Object.entries(STRATEGY_LABELS);
   if (!wallet || wallet.mode === "mnemonic") {
@@ -262,11 +262,14 @@ export function WalletsView() {
         <div className="wallet-list">
           {wallet.wallets.map((item) => (
             <div key={item.id} className={`wallet-row${item.active ? " is-active" : ""}`}>
+              <div className="wallet-mark">
+                <Icon name="wallet" />
+              </div>
               <div className="wallet-main" role="button" tabIndex={0} onClick={() => void switchTo(item.id)}>
                 <div className="wallet-title">
                   {item.label}
                   {item.active ? <span className="chip chip-ok">当前</span> : null}
-                  {item.mode === "passphrase" ? <span className="chip">口令</span> : <span className="chip">助记词</span>}
+                  {item.mode === "passphrase" ? <span className="chip">口令</span> : item.mode === "private_key" ? <span className="chip">私钥</span> : item.mode === "aggregate" ? <span className="chip">聚合</span> : <span className="chip">助记词</span>}
                 </div>
                 <div className="wallet-sub muted small">
                   指纹 {item.fingerprint} · {(item.activityCount ?? 0)} 条记录
@@ -348,10 +351,12 @@ function AddWalletDialog({
   onDone: (view: WalletView) => void;
 }) {
   const toast = useToast();
-  const [mode, setMode] = useState<"passphrase" | "mnemonic">("passphrase");
+  const [mode, setMode] = useState<"passphrase" | "mnemonic" | "private-key" | "aggregate">("passphrase");
   const [phrase, setPhrase] = useState("");
-  const [derivation, setDerivation] = useState<"isolated" | "strict">("isolated");
+  const [derivation] = useState<"isolated" | "strict">("isolated");
   const [mnemonic, setMnemonic] = useState("");
+  const [privateKey, setPrivateKey] = useState("");
+  const [aggChain, setAggChain] = useState<ChainId>("bitcoin");
   const [name, setName] = useState("");
   const [preview, setPreview] = useState<DerivationPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -360,7 +365,12 @@ function AddWalletDialog({
 
   /* 实时派生预览：380ms 防抖（与旧版一致）。 */
   useEffect(() => {
-    const value = mode === "passphrase" ? phrase : mnemonic;
+    const value =
+      mode === "passphrase"
+        ? phrase
+        : mode === "private-key" || mode === "aggregate"
+          ? privateKey
+          : mnemonic;
     if (!value.trim()) {
       setPreview(null);
       setPreviewError("");
@@ -374,7 +384,11 @@ function AddWalletDialog({
           await api.previewDerivation(
             mode === "passphrase"
               ? { mode: "passphrase", phrase, derivation }
-              : { mode: "mnemonic", mnemonic: mnemonic.trim() },
+              : mode === "private-key"
+                ? { mode: "private_key", key: privateKey.trim() }
+                : mode === "aggregate"
+                  ? { mode: "aggregate", chain: aggChain, key: privateKey.trim() }
+                  : { mode: "mnemonic", mnemonic: mnemonic.trim() },
           ),
         );
         setPreviewError("");
@@ -386,7 +400,7 @@ function AddWalletDialog({
       }
     }, 380);
     return () => window.clearTimeout(timer);
-  }, [mode, phrase, derivation, mnemonic]);
+  }, [mode, phrase, derivation, mnemonic, privateKey, aggChain]);
 
   const save = async () => {
     if (busy) return;
@@ -397,7 +411,11 @@ function AddWalletDialog({
         secret:
           mode === "passphrase"
             ? { mode: "passphrase" as const, phrase, derivation }
-            : { mode: "mnemonic" as const, mnemonic: mnemonic.trim() },
+            : mode === "private-key"
+              ? { mode: "private_key" as const, key: privateKey.trim() }
+              : mode === "aggregate"
+                ? { mode: "aggregate" as const, chain: aggChain, key: privateKey.trim(), label: null }
+                : { mode: "mnemonic" as const, mnemonic: mnemonic.trim() },
       });
       onDone(view);
       toast(`已创建并切换到「${view.label}」`, "success");
@@ -407,7 +425,12 @@ function AddWalletDialog({
     }
   };
 
-  const inputFilled = mode === "passphrase" ? Boolean(phrase.trim()) : Boolean(mnemonic.trim());
+  const inputFilled =
+    mode === "passphrase"
+      ? Boolean(phrase.trim())
+      : mode === "private-key" || mode === "aggregate"
+        ? Boolean(privateKey.trim())
+        : Boolean(mnemonic.trim());
 
   return (
     <Modal title="新建钱包" onClose={onClose}>
@@ -415,64 +438,162 @@ function AddWalletDialog({
         在当前保险库里添加一个钱包，并立即切换过去；其他钱包不受影响。
       </p>
 
-      <div className="seg" role="group" aria-label="钱包类型" style={{ marginBottom: 14 }}>
+      <div className="seg seg-split" role="group" aria-label="钱包类型" style={{ marginBottom: 16 }}>
         <button type="button" data-mode="passphrase" aria-pressed={mode === "passphrase"} onClick={() => setMode("passphrase")}>
-          口令（哈希派生）
+          <span className="seg-title">口令</span>
+          <span className="seg-desc">哈希派生</span>
         </button>
         <button type="button" data-mode="mnemonic" aria-pressed={mode === "mnemonic"} onClick={() => setMode("mnemonic")}>
-          助记词（BIP-39）
+          <span className="seg-title">助记词</span>
+          <span className="seg-desc">BIP-39</span>
+        </button>
+        <button type="button" data-mode="private-key" aria-pressed={mode === "private-key"} onClick={() => setMode("private-key")}>
+          <span className="seg-title">私钥</span>
+          <span className="seg-desc">WIF / hex</span>
+        </button>
+        <button type="button" data-mode="aggregate" aria-pressed={mode === "aggregate"} onClick={() => setMode("aggregate")}>
+          <span className="seg-title">聚合</span>
+          <span className="seg-desc">多把独立钥</span>
         </button>
       </div>
 
       {mode === "passphrase" ? (
+        <div className="field">
+          <label htmlFor="wallet-phrase">口令</label>
+          <textarea
+            className="textarea"
+            id="wallet-phrase"
+            style={{ minHeight: 68 }}
+            placeholder="例如：a quiet garden at dusk"
+            autoComplete="off"
+            spellCheck={false}
+            value={phrase}
+            onChange={(event) => setPhrase(event.target.value)}
+          />
+        </div>
+      ) : mode === "private-key" ? (
+        <div className="field">
+          <label htmlFor="wallet-private-key">原始私钥</label>
+          <textarea
+            className="textarea mono"
+            id="wallet-private-key"
+            placeholder="Kx…（WIF）或 64 位 hex"
+            spellCheck={false}
+            autoComplete="off"
+            value={privateKey}
+            onChange={(event) => setPrivateKey(event.target.value)}
+          />
+          <p className="hint">
+            先导入任意一把即可;创建后可在 设置 → 钥匙环 随时补加 Solana、Monero 槽,覆盖全部链。
+            同一条链要多个账户?多建几个私钥钱包即可。
+          </p>
+        </div>
+      ) : mode === "aggregate" ? (
         <>
           <div className="field">
-            <label htmlFor="wallet-phrase">口令</label>
-            <textarea
-              className="textarea"
-              id="wallet-phrase"
-              placeholder="例如：a quiet garden at dusk"
-              autoComplete="off"
-              spellCheck={false}
-              value={phrase}
-              onChange={(event) => setPhrase(event.target.value)}
-            />
+            <span className="field-label">第一把钥匙属于哪条链</span>
+            <div className="seg seg-wrap" role="group">
+              {(
+                [
+                  ["bitcoin", "BTC"],
+                  ["ethereum", "ETH"],
+                  ["solana", "SOL"],
+                  ["monero", "XMR"],
+                  ["litecoin", "LTC"],
+                  ["dogecoin", "DOGE"],
+                  ["bitcoincash", "BCH"],
+                  ["ethereum-classic", "ETC"],
+                  ["bsc", "BNB"],
+                  ["polygon", "POL"],
+                ] as Array<[ChainId, string]>
+              ).map(([id, tag]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={aggChain === id}
+                  onClick={() => {
+                    setAggChain(id);
+                    setPreview(null);
+                  }}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="field">
-            <span className="field-label">派生方式</span>
-            <div className="seg" role="group">
-              <button
-                type="button"
-                data-derivation="isolated"
-                aria-pressed={derivation === "isolated"}
-                onClick={() => setDerivation("isolated")}
-              >
-                隔离（推荐）
-              </button>
-              <button
-                type="button"
-                data-derivation="strict"
-                aria-pressed={derivation === "strict"}
-                onClick={() => setDerivation("strict")}
-              >
-                严格 H(phrase)
-              </button>
-            </div>
+            <label htmlFor="wallet-aggregate-key">原始私钥</label>
+            <textarea
+              className="textarea mono"
+              id="wallet-aggregate-key"
+              placeholder="按链选格式:BTC 用 WIF,Solana 用 base58 keypair,其余 64 位 hex"
+              spellCheck={false}
+              autoComplete="off"
+              value={privateKey}
+              onChange={(event) => setPrivateKey(event.target.value)}
+            />
+            <p className="hint">
+              一把钥匙 = 一条链上的一个地址,互不相关、无派生。创建后可在 设置 → 聚合钥匙
+              随意追加,同一条链也能放多把。
+            </p>
           </div>
         </>
       ) : (
-        <div className="field">
-          <label htmlFor="wallet-mnemonic">助记词</label>
-          <textarea
-            className="textarea"
-            id="wallet-mnemonic"
-            placeholder="粘贴已有的 12 / 24 个英文单词"
-            spellCheck={false}
-            autoComplete="off"
-            value={mnemonic}
-            onChange={(event) => setMnemonic(event.target.value)}
-          />
-        </div>
+        <>
+          <div className="field">
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <label htmlFor="wallet-mnemonic">助记词</label>
+              <div className="row" style={{ gap: 6 }}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    try {
+                      setMnemonic(await api.generateMnemonic(12));
+                      setPreview(null);
+                    } catch (e) {
+                      toast((e as Error).message, "error");
+                    }
+                  }}
+                >
+                  <Icon name="refresh" />
+                  生成 12 词
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    try {
+                      setMnemonic(await api.generateMnemonic(24));
+                      setPreview(null);
+                    } catch (e) {
+                      toast((e as Error).message, "error");
+                    }
+                  }}
+                >
+                  <Icon name="refresh" />
+                  生成 24 词
+                </button>
+              </div>
+            </div>
+            <textarea
+              className="textarea"
+              id="wallet-mnemonic"
+              placeholder="粘贴已有的 12 / 24 个英文单词,或点上方按钮随机生成"
+              spellCheck={false}
+              autoComplete="off"
+              value={mnemonic}
+              onChange={(event) => setMnemonic(event.target.value)}
+            />
+            {mnemonic.trim() ? (
+              <p className="hint">
+                生成后请立即离线抄写保存;这个弹窗关闭后不会再次完整显示。
+              </p>
+            ) : null}
+          </div>
+        </>
       )}
 
       <div className="field">
@@ -480,7 +601,7 @@ function AddWalletDialog({
         <input
           className="input"
           id="wallet-name"
-          placeholder={mode === "passphrase" ? "口令钱包" : "助记词钱包"}
+          placeholder={mode === "passphrase" ? "口令钱包" : mode === "private-key" ? "私钥钱包" : mode === "aggregate" ? "聚合钱包" : "助记词钱包"}
           maxLength={40}
           value={name}
           onChange={(event) => setName(event.target.value)}

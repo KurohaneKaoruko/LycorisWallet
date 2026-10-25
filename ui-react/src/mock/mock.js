@@ -406,7 +406,10 @@ function walletView() {
   return {
     id: wallet.id,
     mode: wallet.secret.mode,
-    derivation: isMnemonic ? null : wallet.secret.derivation ?? "isolated",
+    derivation:
+      wallet.secret.mode === "mnemonic" || wallet.secret.mode === "aggregate"
+        ? null
+        : wallet.secret.derivation ?? "isolated",
     label: wallet.label,
     fingerprint: activeFingerprint,
     createdAt: wallet.createdAt ?? nowSeconds(),
@@ -415,9 +418,29 @@ function walletView() {
       : preview?.formula ??
       (isMnemonic
         ? "BIP-39 助记词 → 512 位种子 → BIP-32 / SLIP-0010 路径"
-        : wallet.secret.derivation === "strict"
-          ? "H_chain(phrase) → 32 字节 → 私钥"
-          : 'H_chain("lycoris/v1/<chain>\\0" + phrase) → 32 字节 → 私钥'),
+        : wallet.secret.mode === "private_key"
+          ? "imported secp256k1 / ed25519 / monero keys → direct"
+          : wallet.secret.mode === "aggregate"
+            ? `聚合 ${wallet.secret.entries?.length ?? 0} 把独立私钥 · 一钥一址`
+            : wallet.secret.derivation === "strict"
+              ? "H_chain(phrase) → 32 字节 → 私钥"
+              : 'H_chain("lycoris/v1/<chain>\\0" + phrase) → 32 字节 → 私钥'),
+    keyRing:
+      wallet.secret.mode === "private_key"
+        ? {
+            secp256k1: Boolean(wallet.secret.keys?.secp256k1),
+            ed25519: Boolean(wallet.secret.keys?.ed25519),
+            monero: Boolean(wallet.secret.keys?.monero),
+          }
+        : null,
+    aggregateEntries:
+      wallet.secret.mode === "aggregate"
+        ? (wallet.secret.entries ?? []).map((entry) => ({
+            id: entry.id,
+            chain: entry.chain,
+            label: entry.label ?? null,
+          }))
+        : null,
     accounts,
     settings: store.settings,
     contacts: store.contacts,
@@ -510,7 +533,132 @@ function sha256Bytes(data) {
   return out;
 }
 
+/** 演示存储的私钥归一化:输出统一为钥匙环形状
+ *  `{ keys: { secp256k1?: hex, ed25519?: hex, monero?: hex } }`。
+ *  secp 槽收 WIF(base58check)或 hex;ed25519/monero 槽只收 hex。
+ *  校验和不对直接原样返回,留给 wasm 后端报错。 */
+function normaliseStoredSecret(secret) {
+  if (secret?.mode !== "private_key") return secret;
+  const incoming = secret.keys && typeof secret.keys === "object" ? secret.keys : { secp256k1: secret.key };
+  const ring = {};
+  if (incoming.secp256k1) ring.secp256k1 = normaliseKeyHex(incoming.secp256k1) ?? incoming.secp256k1;
+  if (incoming.ed25519) ring.ed25519 = normaliseKeyHex(incoming.ed25519) ?? incoming.ed25519;
+  if (incoming.monero) ring.monero = normaliseKeyHex(incoming.monero) ?? incoming.monero;
+  // 剔除旧形状的 key 字段:serde 的 alias 与 keys 并存会报 duplicate field。
+  const { key: _legacyKey, ...rest } = secret;
+  return { ...rest, keys: ring };
+}
+
+/** 聚合钱包的存储归一化:每条记录按链把钥匙转成规范化 hex;id 缺失时
+ *  就地生成。校验不过的记录保留原样,留给 wasm 后端报错。 */
+function normaliseAggregateSecret(secret) {
+  if (secret?.mode !== "aggregate") return secret;
+  // 创建入口是 {chain, key} 单钥形状;转成一条记录再走统一归一。
+  const raw = Array.isArray(secret.entries)
+    ? secret.entries
+    : [{ chain: secret.chain, key: secret.key, label: secret.label }];
+  const entries = raw.filter((entry) => String(entry?.key ?? "").trim());
+  return {
+    ...secret,
+    entries: entries.map((entry) => {
+      const chain = String(entry.chain ?? "");
+      const key = entry.key ?? "";
+      // 各链归一:UTXO 收 WIF/hex,EVM/Monero 收 hex,Solana 收 hex/
+      // base58 keypair。JS 端只做「能确定的」归一,其余原样留给内核。
+      let hex = normaliseKeyHex(key);
+      if (!hex && chain === "solana") {
+        // 64 字节 base58 keypair → 后 32 字节。
+        const decoded = base58Decode(key);
+        if (decoded && decoded.length === 64) {
+          hex = [...decoded.slice(32)].map((b) => b.toString(16).padStart(2, "0")).join("");
+        } else if (decoded && decoded.length === 32) {
+          hex = [...decoded].map((b) => b.toString(16).padStart(2, "0")).join("");
+        }
+      }
+      return {
+        id: entry.id ?? makeId(),
+        chain,
+        key: hex ?? key,
+        ...(entry.label ? { label: entry.label } : {}),
+      };
+    }),
+  };
+}
+
+/** base58 → 字节(Solana keypair 用);非法字符返回 null。 */
+function base58Decode(input) {  const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let num = 0n;
+  for (const ch of String(input ?? "").trim()) {
+    const value = B58.indexOf(ch);
+    if (value < 0) return null;
+    num = num * 58n + BigInt(value);
+  }
+  let hex = num.toString(16);
+  if (hex.length % 2) hex = `0${hex}`;
+  const zeros = [...String(input).trim()].filter((ch) => ch === "1").length;
+  const bytes = new Uint8Array(zeros + hex.length / 2);
+  for (let i = 0; i < hex.length / 2; i += 1) {
+    bytes[zeros + i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+/** Solana 私钥(keypair base58 / 种子 base58)→ 32 字节种子 hex。 */
+function solanaKeyToHex(input) {
+  const bytes = base58Decode(input);
+  if (!bytes) return null;
+  if (bytes.length === 64) {
+    return [...bytes.slice(32)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  if (bytes.length === 32) {
+    return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  return null;
+}
+
+/** WIF/hex → 64 位小写 hex;解析不了返回 null。 */
+function normaliseKeyHex(input) {
+  const text = String(input ?? "").trim();
+  if (/^(0[xX])?[0-9a-fA-F]{64}$/.test(text)) {
+    return text.replace(/^0[xX]/, "").toLowerCase();
+  }
+  return wifToHex(text);
+}
+
+/** WIF(base58check)→ 32 字节 hex;载荷 33 字节(version+key)或 34 字节
+ *  (version+key+压缩标记,末尾 0x01 去掉)。 */
+function wifToHex(input) {
+  const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let num = 0n;
+  for (const ch of input) {
+    const value = B58.indexOf(ch);
+    if (value < 0) return null;
+    num = num * 58n + BigInt(value);
+  }
+  let hex = num.toString(16);
+  if (hex.length % 2) hex = `0${hex}`;
+  const zeros = [...input].filter((ch) => ch === "1").length;
+  let bytes = new Uint8Array(zeros + hex.length / 2);
+  for (let i = 0; i < hex.length / 2; i += 1) {
+    bytes[zeros + i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  if (bytes.length < 5) return null;
+  const payload = bytes.subarray(0, bytes.length - 4);
+  const checksum = sha256Bytes(sha256Bytes(payload));
+  for (let i = 0; i < 4; i += 1) {
+    if (checksum[i] !== bytes[bytes.length - 4 + i]) return null;
+  }
+  if (payload.length !== 33 && payload.length !== 34) return null;
+  // 33 字节 = version+key;34 字节 = version+key+压缩标记(末尾 0x01 要去掉)。
+  const keyBytes = payload.length === 34 ? payload.subarray(1, 33) : payload.subarray(1);
+  return [...keyBytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function perturbSecret(secret, index) {
+  if (secret.mode === "aggregate") {
+    // 聚合钱包没有派生,永远不会走批量路径;原样返回兜底。
+    return secret;
+  }
   if (secret.mode === "mnemonic") {
     const words = String(secret.mnemonic ?? "").trim().split(/\s+/);
     const count = words.length === 24 ? 24 : 12;
@@ -545,6 +693,22 @@ function perturbSecret(secret, index) {
       next.push(BIP39_WORDS[value]);
     }
     return { ...secret, mnemonic: next.join(" ") };
+  }
+  if (secret.mode === "private_key") {
+    // 私钥钱包的演示扰动:按索引翻转 secp 槽密钥 hex 的一个比特,保证
+    // 派生地址与基础账户不同(仅演示;桌面端走真实的加盐哈希)。
+    const key = String(secret.keys?.secp256k1 ?? secret.key ?? "");
+    if (!/^[0-9a-fA-F]{64}$/.test(key)) return secret;
+    const byteIndex = Number(index) % 32;
+    const bitIndex = (Number(index) * 5) % 8;
+    const flipped = 0x01 << bitIndex;
+    const bytes = key.match(/.{2}/g).map((h) => parseInt(h, 16));
+    bytes[byteIndex] ^= flipped;
+    const hex = bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (secret.keys) {
+      return { ...secret, keys: { ...secret.keys, secp256k1: hex } };
+    }
+    return { ...secret, key: hex };
   }
   return { ...secret, phrase: `${secret.phrase ?? ""} #${index}` };
 }
@@ -832,7 +996,7 @@ export async function mockCall(command, args = {}) {
       if ((request.password ?? "").length < 8) {
         throw { code: "WEAK_PASSWORD", message: "密码至少需要 8 个字符" };
       }
-      const secret = request.secret ?? {};
+      const secret = normaliseStoredSecret(normaliseAggregateSecret(request.secret ?? {}));
       // Real BIP-39 checksum / derivation check before the wallet is stored.
       if (core) corePreview(secret);
       const id = makeId();
@@ -840,7 +1004,12 @@ export async function mockCall(command, args = {}) {
         {
           id,
           label:
-            request.label ?? (secret.mode === "mnemonic" ? "助记词钱包" : "口令钱包"),
+            request.label ??
+            (secret.mode === "mnemonic"
+              ? "助记词钱包"
+              : secret.mode === "private_key"
+                ? "私钥钱包"
+                : "口令钱包"),
           secret: { ...secret },
           createdAt: nowSeconds(),
           activity: [],
@@ -876,19 +1045,26 @@ export async function mockCall(command, args = {}) {
 
     case "add_wallet": {
       const request = args.request ?? {};
-      const secret = request.secret ?? {};
+      const secret = normaliseStoredSecret(normaliseAggregateSecret(request.secret ?? {}));
       if (core) corePreview(secret);
       if (secret.mode === "mnemonic") {
         const words = String(secret.mnemonic ?? "").trim().split(/\s+/).filter(Boolean);
         if (words.length !== 12 && words.length !== 24) {
           throw { code: "INVALID_MNEMONIC", message: "助记词需要 12 或 24 个单词" };
         }
-      } else if (!String(secret.phrase ?? "").trim()) {
+      } else if (secret.mode !== "private_key" && secret.mode !== "aggregate" && !String(secret.phrase ?? "").trim()) {
         throw { code: "INVALID_PASSPHRASE", message: "口令不能为空" };
       }
       const id = makeId();
       const label = uniqueLabel(
-        request.name ?? (secret.mode === "mnemonic" ? "助记词钱包" : "口令钱包"),
+        request.name ??
+          (secret.mode === "mnemonic"
+            ? "助记词钱包"
+            : secret.mode === "private_key"
+              ? "私钥钱包"
+              : secret.mode === "aggregate"
+                ? "聚合钱包"
+                : "口令钱包"),
       );
       store.wallets.push({
         id,
@@ -1004,9 +1180,15 @@ export async function mockCall(command, args = {}) {
       if (args.id == null) {
         wallet.activeBatch = null;
       } else {
-        const spec = (wallet.batchAccounts ?? []).find((spec) => spec.id === args.id);
-        if (!spec) throw { code: "BATCH_ACCOUNT_NOT_FOUND", message: "找不到该派生账户" };
-        wallet.activeBatch = spec.id;
+        // 聚合钱包:id 指向钥匙记录本身,不是派生 spec。
+        if (wallet.secret.mode === "aggregate") {
+          const entry = (wallet.secret.entries ?? []).find((entry) => entry.id === args.id);
+          if (!entry) throw { code: "BATCH_ACCOUNT_NOT_FOUND", message: "找不到该钥匙记录" };
+        } else {
+          const spec = (wallet.batchAccounts ?? []).find((spec) => spec.id === args.id);
+          if (!spec) throw { code: "BATCH_ACCOUNT_NOT_FOUND", message: "找不到该派生账户" };
+        }
+        wallet.activeBatch = args.id;
       }
       persist();
       return walletView();
@@ -1016,6 +1198,29 @@ export async function mockCall(command, args = {}) {
       const wallet = activeWallet();
       if (store.locked || !wallet) throw { code: "LOCKED", message: "钱包已锁定" };
       const chain = args.chain;
+      // 聚合钱包:该链上的每把钥匙一行,id 指向钥匙记录;第一把默认高亮。
+      if (wallet.secret.mode === "aggregate") {
+        const entries = wallet.secret.entries ?? [];
+        // 全链账户顺序 = entries 顺序(core 直出);先筛本链再按链内序号对位。
+        const chainEntries = entries
+          .map((entry, index) => ({ entry, index }))
+          .filter(({ entry }) => entry.chain === chain);
+        const all = accountsFor(wallet.secret).filter((a) => a.chain === chain);
+        const chainName = CHAINS.find((item) => item.id === chain)?.name ?? chain;
+        if (!chainEntries.length) {
+          throw { code: "UNSUPPORTED_CHAIN", message: `聚合钱包没有 ${chainName} 的钥匙` };
+        }
+        return chainEntries.map(({ entry }, localIndex) => {
+          const label = entry.label ?? `${chainName} 钥匙 #${localIndex + 1}`;
+          return {
+            id: entry.id,
+            label,
+            address: all[localIndex]?.address ?? "",
+            path: "imported · direct",
+            active: wallet.activeBatch ? wallet.activeBatch === entry.id : localIndex === 0,
+          };
+        });
+      }
       const base = accountsFor(wallet.secret).find((a) => a.chain === chain);
       const rows = [
         {
@@ -1050,6 +1255,63 @@ export async function mockCall(command, args = {}) {
       const wallet = activeWallet();
       if (store.locked || !wallet) throw { code: "LOCKED", message: "钱包已锁定" };
       const chain = args.chain;
+      // 聚合钱包:id 指向钥匙记录;导出的就是导入的那把(按链格式)。
+      if (wallet.secret.mode === "aggregate") {
+        const entries = wallet.secret.entries ?? [];
+        const entry = args.id
+          ? entries.find((item) => item.id === args.id)
+          : entries.find((item) => item.chain === chain);
+        if (!entry) throw { code: "BATCH_ACCOUNT_NOT_FOUND", message: "找不到该钥匙记录" };
+        if (entry.chain !== chain) {
+          throw { code: "UNSUPPORTED_CHAIN", message: "该钥匙不属于此币种" };
+        }
+        const chainEntries = entries.filter((item) => item.chain === chain);
+        const localIndex = chainEntries.indexOf(entry);
+        const chainName = CHAINS.find((item) => item.id === chain)?.name ?? chain;
+        const label = entry.label ?? `${chainName} 钥匙 #${localIndex + 1}`;
+        const account = accountsFor(wallet.secret).filter((a) => a.chain === chain)[localIndex];
+        const value = core
+          ? core.privateKey(wallet.secret, chain)
+          : wallet.secret.entries.find((item) => item.id === entry.id)?.key ?? "";
+        const kindLabel =
+          chain === "solana"
+            ? "ed25519 种子"
+            : chain === "monero"
+              ? "monero spend key"
+              : "原始私钥";
+        const format =
+          chain === "solana"
+            ? "Base58 seed"
+            : chain === "monero"
+              ? "Hex (spend)"
+              : chain === "bitcoin" || chain === "litecoin"
+                ? "WIF"
+                : "Hex (0x…)";
+        return {
+          chain,
+          chainName: account?.name ?? chainName,
+          symbol: account?.symbol ?? "",
+          id: entry.id,
+          label,
+          address: account?.address ?? "",
+          addressFormat: account?.addressFormat ?? "",
+          path: "imported · direct",
+          derivation: "聚合导入 · 直接使用",
+          hashAlgorithm: account?.hashAlgorithm ?? "",
+          publicKey: account?.publicKey ?? "",
+          privateKeyFormat: format,
+          privateKey: value,
+          sourceKind: "聚合导入",
+          sourcePreview: `${chainName}(${account?.address ?? ""})`,
+          steps: [
+            "取该条目导入的原始私钥字节",
+            `字节即该链 ${kindLabel}(无任何派生)`,
+          ],
+          formula: "imported key → address",
+          warning:
+            "任何持有该私钥的人都能控制此地址的全部资产。请勿截图、勿粘贴到网页，用完请清理剪贴板。",
+        };
+      }
       const spec = args.id
         ? (wallet.batchAccounts ?? []).find((item) => item.id === args.id)
         : null;
@@ -1226,7 +1488,21 @@ export async function mockCall(command, args = {}) {
       return generateMnemonic(args.wordCount === 24 ? 24 : 12);
 
     case "preview_derivation": {
-      const secret = args.secret ?? {};
+      let secret = args.secret ?? {};
+      // 聚合预览请求是 {mode,chain,key} 单钥形状;转成带 entries 的存储形状
+      // 才能被 wasm 内核按 WalletSecret 解析(Tauri 侧由 SecretRequest 完成)。
+      if (secret.mode === "aggregate" && !Array.isArray(secret.entries)) {
+        const hex =
+          normaliseKeyHex(secret.key ?? "") ??
+          (secret.chain === "solana" ? solanaKeyToHex(secret.key ?? "") : null);
+        if (!hex) {
+          throw { code: "INVALID_PRIVATE_KEY", message: "无法识别的私钥格式" };
+        }
+        secret = {
+          mode: "aggregate",
+          entries: [{ id: "preview", chain: secret.chain, key: hex }],
+        };
+      }
       // Real preview (accounts, fingerprint and formula) straight from the core.
       const preview = corePreview(secret);
       if (preview) return preview;
@@ -1263,6 +1539,121 @@ export async function mockCall(command, args = {}) {
         throw { code: "ERROR", message: "当前钱包没有助记词" };
       }
       return wallet.secret.mnemonic;
+    }
+
+    case "update_key_slot": {
+      if (args.password !== store.password) {
+        throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
+      }
+      const wallet = activeWallet();
+      if (!wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      if (wallet.secret.mode !== "private_key") {
+        throw { code: "ERROR", message: "只有私钥钱包才能管理钥匙环" };
+      }
+      const slot = args.slot;
+      if (!["secp256k1", "ed25519", "monero"].includes(slot)) {
+        throw { code: "INVALID_SLOT", message: "未知的钥匙槽" };
+      }
+      const hex = normaliseKeyHex(args.key ?? "");
+      if (!hex) {
+        throw { code: "INVALID_PRIVATE_KEY", message: "无法识别的私钥格式:需要 WIF(base58)或 64 位 hex" };
+      }
+      if (/^0{64}$/.test(hex)) {
+        throw { code: "INVALID_PRIVATE_KEY", message: "零私钥非法" };
+      }
+      if (!wallet.secret.keys) wallet.secret.keys = {};
+      wallet.secret.keys[slot] = hex;
+      persist();
+      return walletView();
+    }
+
+    case "remove_key_slot": {
+      if (args.password !== store.password) {
+        throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
+      }
+      const wallet = activeWallet();
+      if (!wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      if (wallet.secret.mode !== "private_key") {
+        throw { code: "ERROR", message: "只有私钥钱包才能管理钥匙环" };
+      }
+      const slot = args.slot;
+      if (wallet.secret.keys) delete wallet.secret.keys[slot];
+      if (!wallet.secret.keys?.secp256k1 && !wallet.secret.keys?.ed25519 && !wallet.secret.keys?.monero) {
+        throw { code: "INVALID_REQUEST", message: "至少要保留一把私钥" };
+      }
+      persist();
+      return walletView();
+    }
+
+    case "add_aggregate_key": {
+      if (args.password !== store.password) {
+        throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
+      }
+      const wallet = activeWallet();
+      if (!wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      if (wallet.secret.mode !== "aggregate") {
+        throw { code: "ERROR", message: "只有聚合钱包才能添加聚合钥匙" };
+      }
+      const chain = String(args.chain ?? "");
+      if (!CHAINS.some((item) => item.id === chain)) {
+        throw { code: "INVALID_CHAIN", message: "未知的链" };
+      }
+      const hex = normaliseKeyHex(args.key ?? "") ?? (chain === "solana" ? solanaKeyToHex(args.key ?? "") : null);
+      if (!hex) {
+        throw { code: "INVALID_PRIVATE_KEY", message: "无法识别的私钥格式" };
+      }
+      if (/^0{64}$/.test(hex)) {
+        throw { code: "INVALID_PRIVATE_KEY", message: "零私钥非法" };
+      }
+      if (!wallet.secret.entries) wallet.secret.entries = [];
+      wallet.secret.entries.push({
+        id: makeId(),
+        chain,
+        key: hex,
+        ...(args.label?.trim() ? { label: args.label.trim() } : {}),
+      });
+      if (core) corePreview(wallet.secret);
+      persist();
+      return walletView();
+    }
+
+    case "remove_aggregate_key": {
+      if (args.password !== store.password) {
+        throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
+      }
+      const wallet = activeWallet();
+      if (!wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      if (wallet.secret.mode !== "aggregate") {
+        throw { code: "ERROR", message: "只有聚合钱包才能管理聚合钥匙" };
+      }
+      const entries = wallet.secret.entries ?? [];
+      if (entries.length <= 1) {
+        throw { code: "INVALID_REQUEST", message: "聚合钱包至少要保留一把私钥" };
+      }
+      const before = entries.length;
+      wallet.secret.entries = entries.filter((entry) => entry.id !== args.id);
+      if (wallet.secret.entries.length === before) {
+        throw { code: "NOT_FOUND", message: "找不到钥匙记录" };
+      }
+      persist();
+      return walletView();
+    }
+
+    case "rename_aggregate_key": {
+      if (args.password !== store.password) {
+        throw { code: "INCORRECT_PASSWORD", message: "密码错误" };
+      }
+      const wallet = activeWallet();
+      if (!wallet) throw { code: "LOCKED", message: "钱包已锁定" };
+      if (wallet.secret.mode !== "aggregate") {
+        throw { code: "ERROR", message: "只有聚合钱包才能管理聚合钥匙" };
+      }
+      const entry = (wallet.secret.entries ?? []).find((item) => item.id === args.id);
+      if (!entry) throw { code: "NOT_FOUND", message: "找不到钥匙记录" };
+      if (args.label?.trim()) entry.label = args.label.trim();
+      else delete entry.label;
+      persist();
+      return walletView();
     }
 
     case "export_private_key": {

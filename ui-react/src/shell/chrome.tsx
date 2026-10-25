@@ -3,6 +3,7 @@
  *  Ported from ui/js/main.js renderRail/syncChrome/timers. */
 
 import { Fragment, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { api, isMock } from "../api";
 import { useSession, type ViewId } from "./session";
@@ -138,36 +139,41 @@ export function Rail() {
           <Icon name="menu" />
           <span>更多</span>
         </button>
-        {moreOpen ? (
-          <div className="modal-backdrop" onClick={() => setMoreOpen(false)}>
-            <div
-              className="modal"
-              role="dialog"
-              aria-modal="true"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <h2>更多</h2>
-              <div className="stack-sm" style={{ marginTop: 12 }}>
-                {moreItems.map((item) => (
-                  <button
-                    key={item.id}
-                    className={`more-item${view === item.id ? " is-current" : ""}`}
-                    type="button"
-                    data-view={item.id}
-                    onClick={() => {
-                      setMoreOpen(false);
-                      go(item.id);
-                    }}
-                  >
-                    <Icon name={item.icon} />
-                    <span>{item.label}</span>
-                    <Icon name="chevronRight" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : null}
+        {moreOpen
+          ? createPortal(
+              <div className="modal-backdrop" onClick={() => setMoreOpen(false)}>
+                <div
+                  className="modal"
+                  role="dialog"
+                  aria-modal="true"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <h2>更多</h2>
+                  <div className="stack-sm" style={{ marginTop: 12 }}>
+                    {moreItems.map((item) => (
+                      <button
+                        key={item.id}
+                        className={`more-item${view === item.id ? " is-current" : ""}`}
+                        type="button"
+                        data-view={item.id}
+                        onClick={() => {
+                          setMoreOpen(false);
+                          go(item.id);
+                        }}
+                      >
+                        <Icon name={item.icon} />
+                        <span>{item.label}</span>
+                        <Icon name="chevronRight" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>,
+              /* 移动端 .rail 有 backdrop-filter,会把内部 fixed 后代的包含块改成导航条,
+                 菜单弹窗会被压进 64px 高的 rail 里;挂到 body 下避免。 */
+              document.body,
+            )
+          : null}
       </nav>
     );
   }

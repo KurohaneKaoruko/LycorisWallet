@@ -85,6 +85,14 @@ export function DashboardView() {
             <span className="chip chip-warn" title="口令钱包的强度完全取决于这句话">
               口令模式{wallet.derivation === "strict" ? " · 严格" : " · 隔离"}
             </span>
+          ) : wallet?.mode === "private_key" ? (
+            <span className="chip chip-warn" title="钥匙环:导入的原始私钥直接管理资产">
+              私钥导入 · {wallet.accounts.length} 条链
+            </span>
+          ) : wallet?.mode === "aggregate" ? (
+            <span className="chip chip-warn" title="聚合钱包:每把私钥独立管理一个地址">
+              聚合 · {wallet.aggregateEntries?.length ?? 0} 把钥匙
+            </span>
           ) : (
             <span className="chip" title="标准助记词派生">
               助记词 · BIP-39
@@ -125,6 +133,16 @@ export function DashboardView() {
         <div className="note note-warn" style={{ marginTop: 16 }}>
           <Icon name="warn" />
           <div>口令钱包的安全性等于这句话的强度。请不要使用歌词、名言、短句，建议使用只有你自己知道的长句子。</div>
+        </div>
+      ) : null}
+
+      {wallet?.mode === "private_key" ? (
+        <div className="note note-warn" style={{ marginTop: 16 }}>
+          <Icon name="warn" />
+          <div>
+            私钥钱包由钥匙环里的原始私钥直接管理资产(当前 {wallet.accounts.length} 条链)。
+            可在 设置 → 钥匙环 随时补加 Solana / Monero 槽;私钥泄露即全部资产泄露,请离线备份。
+          </div>
         </div>
       ) : null}
 

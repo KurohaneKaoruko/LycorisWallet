@@ -895,6 +895,7 @@
 .wallet-list {
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
 .wallet-row {
@@ -902,14 +903,15 @@
   grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
-  padding: 14px 6px;
-  border-bottom: 1px solid var(--hair);
-  border-radius: var(--radius-xs);
-  transition: background var(--fast) var(--ease);
+  padding: 14px 14px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-sm, var(--radius-xs));
+  background: var(--paper-raised);
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
 }
 
 .wallet-row:last-child {
-  border-bottom: 0;
+  border-bottom: 1px solid var(--hair);
 }
 
 .wallet-row:hover {
@@ -918,6 +920,7 @@
 
 .wallet-row.is-active {
   background: var(--vermilion-tint);
+  border-color: color-mix(in srgb, var(--vermilion) 35%, var(--hair));
 }
 
 .wallet-mark {
@@ -945,6 +948,16 @@
 }
 
 .wallet-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* React 版钱包行的标题行(旧版叫 .wallet-name)。 */
+.wallet-title {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1127,7 +1140,7 @@
   border-color: color-mix(in srgb, var(--vermilion) 45%, var(--hair-strong, var(--hair)));
   font-weight: 700;
   word-break: break-all;
-  text-align: left;
+  text-align: center;
   color: var(--vermilion);
 }
 
@@ -1234,13 +1247,20 @@
   }
 
   .wallet-row {
-    grid-template-columns: 34px minmax(0, 1fr);
-    row-gap: 10px;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 12px;
   }
 
+  /* 操作按钮回到名字行右侧,不再吊在第二行 */
   .wallet-actions {
-    grid-column: 2;
-    justify-content: flex-start;
+    grid-column: auto;
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+
+  .wallet-actions .btn {
+    padding: 0 10px;
   }
 }
 
@@ -1411,23 +1431,39 @@
     font-size: 12.5px;
   }
 
-  /* 弹窗在小屏改为底部抽屉 */
-  .modal {
+  /* 弹窗在小屏改为底部抽屉:从屏幕下缘滑上来,左右贴满、顶部留空隙透出背景。
+     特异性用 .modal-backdrop .modal 压过 theme.css 的桌面动画,与加载顺序无关。 */
+  .modal-backdrop .modal {
     width: 100%;
     max-width: 100%;
     margin: 0;
     border-radius: var(--radius) var(--radius) 0 0;
     max-height: 86vh;
     align-self: end;
-    border-bottom: 0;
+    border: 0;
+    border-top: 1px solid var(--hair);
+    animation: sheet-in var(--mid) var(--ease) both;
   }
 
   .modal-backdrop {
     place-items: end center;
-    padding: 0;
+    padding: 12px 0 0;
     align-items: end;
+    /* 抽屉上方露出一条背景;滑入起始位置在屏幕外,不露出滚动条 */
+    overflow: hidden;
     /* 小屏抽屉模式：蒙版更深，聚焦弹窗内容 */
     background: rgba(0, 0, 0, 0.68);
+  }
+
+  /* 顶部抓握条:提示这是一张可下滑关闭的抽屉 */
+  .modal::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 0 auto 10px;
+    border-radius: 999px;
+    background: var(--hair-strong, var(--hair));
   }
 
   .modal-foot {

@@ -508,7 +508,7 @@ pub async fn refresh_activity(state: &AppState) -> ApiResult<ActivitySyncReport>
     }
     report.new_items = fresh.len();
     merged.extend(fresh);
-    merged.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    merged.sort_by_key(|entry| std::cmp::Reverse(entry.timestamp));
     merged.dedup_by(|a, b| a.txid == b.txid && a.chain == b.chain && a.direction == b.direction);
     merged.truncate(500);
     state.replace_activity(merged)?;

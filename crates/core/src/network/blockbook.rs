@@ -261,6 +261,7 @@ mod tests {
         let total = confirmed + unconfirmed;
         assert_eq!(total.max(0) as u64, 60);
         // fully-negative → clamp to zero instead of panicking
-        assert_eq!((5 - 9).max(0) as u64, 0);
+        let negative = 5 - 9;
+        assert_eq!(negative.max(0) as u64, 0);
     }
 }

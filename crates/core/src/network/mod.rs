@@ -20,7 +20,7 @@ pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .connect_timeout(Duration::from_secs(10))
-        .user_agent("LycorisWallet/0.5 (+https://github.com/KurohaneKaoruko/LycorisWallet)")
+        .user_agent("LycorisWallet/0.6 (+https://github.com/KurohaneKaoruko/LycorisWallet)")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 }

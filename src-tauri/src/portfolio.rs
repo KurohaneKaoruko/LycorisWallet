@@ -7,14 +7,15 @@ use crate::error::{ApiError, ApiResult};
 use crate::monero;
 use crate::state::AppState;
 use lycoris_core::address;
-use lycoris_core::chains::{ChainId, ChainInfo, ChainKind};
+use lycoris_core::chains::{ChainId, ChainInfo, ChainKind, UtxoBackend};
 use lycoris_core::error::Error;
 use lycoris_core::models::{
     ActivityItem, ActivityStatus, AssetBalance, Direction, FeeOption, FiatCurrency, Portfolio,
     SendQuote, SendResult,
 };
 use lycoris_core::network::{
-    blockchair::BlockchairClient, evm::EvmClient, prices, solana::SolanaClient, utxo::UtxoClient,
+    blockbook::BlockbookClient, blockchair::BlockchairClient, evm::EvmClient, history, prices,
+    solana::SolanaClient, utxo::UtxoClient, woc::WocClient,
 };
 use lycoris_core::tx::evm::{sign_transaction, EvmCall, EvmFee};
 use lycoris_core::tx::solana::build_transfer;
@@ -133,17 +134,138 @@ fn asset_from(
     }
 }
 
+/// One UTXO chain, any index dialect. `Err` carries a friendly message for
+/// chains without a public data source.
+#[derive(Clone)]
+enum UtxoAdapter {
+    Esplora(UtxoClient),
+    Blockbook(BlockbookClient),
+    Blockchair(BlockchairClient),
+    Woc(WocClient),
+}
+
+const NO_DATA_SOURCE: &str = "该链暂无公共数据源（浏览器链接仍可用）";
+
+impl UtxoAdapter {
+    /// Builds the client for `chain`; `None` when the chain has no index API.
+    fn for_chain(
+        client: &reqwest::Client,
+        chain: ChainId,
+        blockchair_key: Option<&str>,
+    ) -> Option<Self> {
+        let info = chain.info();
+        match chain.utxo_backend() {
+            UtxoBackend::Esplora => Some(Self::Esplora(UtxoClient::new(client.clone(), info.rpc))),
+            UtxoBackend::Blockbook => Some(Self::Blockbook(BlockbookClient::new(
+                client.clone(),
+                info.rpc,
+            ))),
+            UtxoBackend::Blockchair => Some(Self::Blockchair(BlockchairClient::with_settings(
+                client.clone(),
+                info.rpc,
+                blockchair_key,
+            ))),
+            UtxoBackend::WhatsOnChain => Some(Self::Woc(WocClient::new(client.clone(), info.rpc))),
+            UtxoBackend::None => None,
+        }
+    }
+
+    async fn balance(&self, chain: ChainId, address: &str) -> ApiResult<u64> {
+        match self {
+            Self::Esplora(client) => client.balance(address).await.map_err(Into::into),
+            Self::Blockbook(client) => client
+                .balance(address, chain.info().decimals)
+                .await
+                .map_err(Into::into),
+            Self::Blockchair(client) => client.balance(address).await.map_err(Into::into),
+            Self::Woc(client) => client.balance(address).await.map_err(Into::into),
+        }
+    }
+
+    async fn utxos(
+        &self,
+        chain: ChainId,
+        address: &str,
+    ) -> ApiResult<Vec<lycoris_core::network::utxo::Utxo>> {
+        match self {
+            Self::Esplora(client) => client.utxos(address).await.map_err(Into::into),
+            Self::Blockbook(client) => client
+                .utxos(address, chain.info().decimals)
+                .await
+                .map_err(Into::into),
+            Self::Blockchair(client) => client.utxos(address).await.map_err(Into::into),
+            Self::Woc(client) => client.utxos(address).await.map_err(Into::into),
+        }
+    }
+
+    async fn fees(&self, chain: ChainId) -> ApiResult<lycoris_core::tx::utxo::RecommendedFees> {
+        match self {
+            Self::Esplora(client) => client.fees().await.map_err(Into::into),
+            Self::Blockbook(client) => client.fees(chain.info().decimals).await.map_err(Into::into),
+            // Blockchair/WoC have no free recommended-fee endpoint: fall back
+            // to the chain's documented default rate.
+            Self::Blockchair(_) | Self::Woc(_) => Ok(default_fees(chain)),
+        }
+    }
+
+    async fn broadcast(&self, raw_hex: &str) -> ApiResult<String> {
+        match self {
+            Self::Esplora(client) => client.broadcast(raw_hex).await.map_err(Into::into),
+            Self::Blockbook(client) => client.broadcast(raw_hex).await.map_err(Into::into),
+            Self::Blockchair(client) => client.broadcast(raw_hex).await.map_err(Into::into),
+            Self::Woc(client) => client.broadcast(raw_hex).await.map_err(Into::into),
+        }
+    }
+
+    /// Recent transactions, when the dialect has a history endpoint.
+    async fn transactions(
+        &self,
+        chain: ChainId,
+        address: &str,
+    ) -> ApiResult<Vec<lycoris_core::network::history::HistoryTx>> {
+        match self {
+            Self::Esplora(_) => history::fetch_esplora(
+                &lycoris_core::network::http_client(),
+                chain.info().rpc,
+                chain,
+                address,
+            )
+            .await
+            .map_err(ApiError::from),
+            Self::Blockbook(client) => client
+                .transactions(chain, address)
+                .await
+                .map_err(ApiError::from),
+            Self::Blockchair(_) | Self::Woc(_) => Ok(Vec::new()),
+        }
+    }
+}
+
+fn default_fees(chain: ChainId) -> lycoris_core::tx::utxo::RecommendedFees {
+    let rate = chain.default_fee_rate();
+    lycoris_core::tx::utxo::RecommendedFees {
+        fastest: rate,
+        half_hour: rate,
+        hour: rate,
+        economy: rate,
+        minimum: rate,
+    }
+}
+
 async fn fetch_balance(
     client: &reqwest::Client,
     chain: ChainId,
     address: &str,
 ) -> Result<u128, String> {
     match chain.info().kind {
-        ChainKind::Utxo => UtxoClient::new(client.clone(), chain.info().rpc)
-            .balance(address)
-            .await
-            .map(u128::from)
-            .map_err(|error| error.to_string()),
+        ChainKind::Utxo => match UtxoAdapter::for_chain(client, chain, None) {
+            Some(adapter) => adapter
+                .balance(chain, address)
+                .await
+                .map(u128::from)
+                .map_err(|error| error.to_string()),
+            None => Err(NO_DATA_SOURCE.to_string()),
+        },
         ChainKind::Evm => EvmClient::new(client.clone(), chain.info().rpc)
             .balance(address)
             .await
@@ -186,6 +308,147 @@ fn asset_from_result(
             )
         }
     }
+}
+
+/// Outcome of an activity sync, shown as a subtle status line in the UI.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivitySyncReport {
+    pub new_items: usize,
+    pub confirmed_items: usize,
+    /// Chains that failed; their names, for a short status hint.
+    pub failed_chains: Vec<String>,
+}
+
+/// Pulls on-chain history for every address of the active wallet and merges
+/// it into the activity list:
+/// - incoming transactions become `Receive` entries,
+/// - pending local entries are confirmed/failed by their live status,
+/// - already-known txids are never duplicated.
+pub async fn refresh_activity(state: &AppState) -> ApiResult<ActivitySyncReport> {
+    state.touch();
+    let accounts = state.all_accounts()?;
+    let existing = state.activity()?;
+    let client = lycoris_core::network::http_client();
+    let blockchair_key = state
+        .settings()
+        .ok()
+        .map(|settings| settings.blockchair_api_key.clone());
+
+    let mut tasks = tokio::task::JoinSet::new();
+    for (_, account) in accounts {
+        let chain = account.chain;
+        if chain.info().kind != ChainKind::Utxo {
+            continue; // EVM/Solana history needs indexer APIs; Monero needs rpc.
+        }
+        let adapter = match UtxoAdapter::for_chain(&client, chain, blockchair_key.as_deref()) {
+            Some(adapter) => adapter,
+            None => continue, // explorer-only chain
+        };
+        let address = account.address.clone();
+        tasks.spawn(async move {
+            let result = adapter.transactions(chain, &address).await;
+            (chain, result)
+        });
+    }
+
+    let mut incoming: Vec<lycoris_core::network::history::HistoryTx> = Vec::new();
+    let mut failed_chains = Vec::new();
+    while let Some(joined) = tasks.join_next().await {
+        let Ok((chain, result)) = joined else {
+            continue;
+        };
+        match result {
+            Ok(txs) => incoming.extend(txs),
+            Err(_) => failed_chains.push(chain.info().name.to_string()),
+        }
+    }
+
+    let mut merged = existing;
+    let mut report = ActivitySyncReport {
+        new_items: 0,
+        confirmed_items: 0,
+        failed_chains,
+    };
+
+    // Confirm pending local entries: the history pages carry live status.
+    let live: HashMap<(ChainId, String), (bool, u64)> = incoming
+        .iter()
+        .map(|tx| ((tx.chain, tx.txid.clone()), (tx.outgoing, tx.confirmations)))
+        .collect();
+    for item in merged.iter_mut() {
+        if item.status != ActivityStatus::Pending {
+            continue;
+        }
+        if let Some((_, confirmations)) = live.get(&(item.chain, item.txid.clone())) {
+            if *confirmations > 0 {
+                item.status = ActivityStatus::Confirmed;
+                report.confirmed_items += 1;
+            }
+        }
+    }
+
+    // Add on-chain receives (and chain-visible sends we did not record).
+    let known: std::collections::HashSet<(ChainId, String, bool)> = merged
+        .iter()
+        .map(|item| {
+            (
+                item.chain,
+                item.txid.clone(),
+                item.direction == Direction::Send,
+            )
+        })
+        .collect();
+    let mut fresh: Vec<ActivityItem> = Vec::new();
+    for tx in incoming {
+        let direction = if tx.outgoing {
+            Direction::Send
+        } else {
+            Direction::Receive
+        };
+        if known.contains(&(tx.chain, tx.txid.clone(), tx.outgoing)) {
+            continue;
+        }
+        // Skip placeholder rows (amount unknown, e.g. Solana signature rows).
+        if tx.amount == 0 && tx.fee.is_none() {
+            continue;
+        }
+        if tx.amount == 0 {
+            continue;
+        }
+        let info = tx.chain.info();
+        fresh.push(ActivityItem {
+            id: uuid::Uuid::new_v4().to_string(),
+            chain: tx.chain,
+            direction,
+            amount: format_amount(tx.amount, info.decimals),
+            symbol: info.symbol.to_string(),
+            counterparty: "链上记录".to_string(),
+            txid: tx.txid.clone(),
+            status: if tx.confirmations > 0 {
+                ActivityStatus::Confirmed
+            } else {
+                ActivityStatus::Pending
+            },
+            fee: tx
+                .fee
+                .map(|fee| format_amount(fee, info.decimals))
+                .unwrap_or_default(),
+            timestamp: if tx.timestamp > 0 {
+                tx.timestamp
+            } else {
+                now()
+            },
+            explorer_url: format!("{}{}", info.explorer_tx, tx.txid),
+        });
+    }
+    report.new_items = fresh.len();
+    merged.extend(fresh);
+    merged.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    merged.dedup_by(|a, b| a.txid == b.txid && a.chain == b.chain && a.direction == b.direction);
+    merged.truncate(500);
+    state.replace_activity(merged)?;
+    Ok(report)
 }
 
 pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
@@ -350,8 +613,10 @@ async fn legacy_utxo_quote(
     blockchair_key: Option<&str>,
 ) -> ApiResult<QuoteFees> {
     let info = chain.info();
-    let adapter = BlockchairClient::with_settings(client.clone(), info.rpc, blockchair_key);
-    let utxos = adapter.utxos(address).await?;
+    let Some(adapter) = UtxoAdapter::for_chain(client, chain, blockchair_key) else {
+        return Err(ApiError::new("UNSUPPORTED", NO_DATA_SOURCE));
+    };
+    let utxos = adapter.utxos(chain, address).await?;
     let inputs: Vec<UtxoInput> = utxos
         .iter()
         .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))
@@ -408,9 +673,11 @@ async fn utxo_quote(
     if chain.legacy_utxo() {
         return legacy_utxo_quote(client, chain, address, amount, blockchair_key).await;
     }
-    let adapter = UtxoClient::new(client.clone(), info.rpc);
-    let fees = adapter.fees().await?;
-    let utxos = adapter.utxos(address).await?;
+    let Some(adapter) = UtxoAdapter::for_chain(client, chain, blockchair_key) else {
+        return Err(ApiError::new("UNSUPPORTED", NO_DATA_SOURCE));
+    };
+    let fees = adapter.fees(chain).await?;
+    let utxos = adapter.utxos(chain, address).await?;
     let inputs: Vec<UtxoInput> = utxos
         .iter()
         .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))
@@ -805,16 +1072,18 @@ async fn send_utxo(
     amount: Option<u128>,
     level: &str,
 ) -> ApiResult<(String, u64, u128)> {
-    let info = chain.info();
+    let _info = chain.info();
     let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
     if chain.legacy_utxo() {
         return send_legacy_utxo(state, chain, address, to, amount, level).await;
     }
-    let adapter = UtxoClient::new(client.clone(), info.rpc);
-    let fees = adapter.fees().await?;
+    let Some(adapter) = UtxoAdapter::for_chain(&client, chain, None) else {
+        return Err(ApiError::new("UNSUPPORTED", NO_DATA_SOURCE));
+    };
+    let fees = adapter.fees(chain).await?;
     let fee_rate = fee_rate_for_level(&fees, level);
-    let utxos = adapter.utxos(address).await?;
+    let utxos = adapter.utxos(chain, address).await?;
     let inputs: Vec<UtxoInput> = utxos
         .iter()
         .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))
@@ -858,7 +1127,8 @@ async fn send_utxo(
     Ok((txid, fee, u128::from(target)))
 }
 
-/// Send with a legacy (pre-SegWit) P2PKH input: Dogecoin and Bitcoin Cash.
+/// Send with a legacy (pre-SegWit) P2PKH input: Dogecoin, Bitcoin Cash and
+/// the 2026 P2PKH chains (DASH/FTC via Blockbook, BSV via WhatsOnChain).
 async fn send_legacy_utxo(
     state: &AppState,
     chain: ChainId,
@@ -867,21 +1137,23 @@ async fn send_legacy_utxo(
     amount: Option<u128>,
     level: &str,
 ) -> ApiResult<(String, u64, u128)> {
-    let info = chain.info();
+    let _info = chain.info();
     let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
-    let adapter = BlockchairClient::with_settings(
-        client.clone(),
-        info.rpc,
+    let Some(adapter) = UtxoAdapter::for_chain(
+        &client,
+        chain,
         Some(state.settings()?.blockchair_api_key.as_str()),
-    );
+    ) else {
+        return Err(ApiError::new("UNSUPPORTED", NO_DATA_SOURCE));
+    };
     let fee_rate = legacy_fee_levels(chain)
         .iter()
         .find(|(name, _, _)| *name == level)
         .map(|(_, rate, _)| *rate)
         .unwrap_or_else(|| chain.default_fee_rate());
 
-    let utxos = adapter.utxos(address).await?;
+    let utxos = adapter.utxos(chain, address).await?;
     let inputs: Vec<UtxoInput> = utxos
         .iter()
         .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))

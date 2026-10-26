@@ -1,7 +1,7 @@
 /** Activity: transactions recorded on this device, with filters and a detail
  *  dialog. Ported from ui/js/views/activity.js. */
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api";
 import { useSession } from "../shell/session";
@@ -151,12 +151,47 @@ function DetailDialog({ item, onClose }: { item: ActivityItem; onClose: () => vo
 }
 
 export function ActivityView() {
-  const { wallet, go } = useSession();
+  const { wallet, reloadWallet, go } = useSession();
   const chainsRef = useTabScroll<HTMLDivElement>();
   const [chain, setChain] = useState<string>("all");
   const [dir, setDir] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<ActivityItem | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncHint, setSyncHint] = useState("");
+  const syncingRef = useRef(false);
+
+  const sync = useCallback(async () => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    setSyncing(true);
+    try {
+      const report = await api.refreshActivity();
+      const parts: string[] = [];
+      if (report.newItems > 0) parts.push(`新收款 ${report.newItems} 笔`);
+      if (report.confirmedItems > 0) parts.push(`${report.confirmedItems} 笔已确认`);
+      if (parts.length === 0) parts.push("已同步");
+      if (report.failedChains.length > 0) {
+        parts.push(`${report.failedChains.join("、")} 暂不可用`);
+      }
+      setSyncHint(parts.join(" · "));
+      if (report.newItems > 0 || report.confirmedItems > 0) await reloadWallet();
+    } catch {
+      setSyncHint("同步失败，稍后重试");
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+    }
+  }, [reloadWallet]);
+
+  // Pull on-chain history when the tab opens, then every minute while open.
+  useEffect(() => {
+    if (!wallet) return;
+    void sync();
+    const timer = window.setInterval(() => void sync(), 60_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet?.id]);
 
   const all = useMemo(
     () => [...(wallet?.activity ?? [])].sort((a, b) => b.timestamp - a.timestamp),
@@ -205,7 +240,7 @@ export function ActivityView() {
         <div className="page-head">
           <div>
             <h1>交易记录</h1>
-            <div className="sub">目前只记录本机发起的交易；链上状态请以区块浏览器为准。</div>
+            <div className="sub">本机发起的转账自动记录；打开本页会从链上同步收款记录。</div>
           </div>
           <button className="btn" type="button" onClick={() => go("send")}>
             <Icon name="send" />
@@ -219,7 +254,7 @@ export function ActivityView() {
             </div>
             还没有交易记录。
             <br />
-            在本机发起的每一笔转账都会自动记录在这里。
+            收到的转账会在打开本页时自动同步；发送后也会立即记录。
           </div>
         </div>
       </section>
@@ -231,13 +266,30 @@ export function ActivityView() {
       <div className="page-head">
         <div>
           <h1>交易记录</h1>
-          <div className="sub">目前只记录本机发起的交易；链上状态请以区块浏览器为准。</div>
+          <div className="sub">本机发起的转账自动记录；收款记录从链上索引同步。</div>
         </div>
-        <button className="btn" type="button" onClick={() => go("send")}>
-          <Icon name="send" />
-          去转账
-        </button>
+        <div className="row" style={{ gap: 8 }}>
+          <button
+            className="btn"
+            type="button"
+            disabled={syncing}
+            onClick={() => void sync()}
+            title="从链上同步最新交易"
+          >
+            <Icon name={syncing ? "activity" : "refresh"} />
+            {syncing ? "同步中…" : "同步"}
+          </button>
+          <button className="btn" type="button" onClick={() => go("send")}>
+            <Icon name="send" />
+            去转账
+          </button>
+        </div>
       </div>
+      {syncHint && (
+        <div className="card card-pad" style={{ padding: "8px 14px", marginBottom: 10 }}>
+          <span className="muted small">{syncHint}</span>
+        </div>
+      )}
 
       <div className="card card-pad">
         <div className="row-between" style={{ flexWrap: "wrap", gap: 10, marginBottom: 10 }}>

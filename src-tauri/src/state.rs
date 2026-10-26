@@ -1038,6 +1038,38 @@ impl AppState {
             wallet.activity.truncate(500);
             Ok(())
         })?;
+        let _ = self.sync_activity_count();
+        Ok(())
+    }
+
+    /// Replaces the active wallet's activity list after a history sync.
+    pub fn replace_activity(
+        &self,
+        items: Vec<lycoris_core::models::ActivityItem>,
+    ) -> CoreResult<()> {
+        self.mutate(|data| {
+            let wallet = data.active_mut()?;
+            wallet.activity = items;
+            wallet.activity.truncate(500);
+            Ok(())
+        })?;
+        let _ = self.sync_activity_count();
+        Ok(())
+    }
+
+    /// The active wallet's current activity, newest first.
+    pub fn activity(&self) -> CoreResult<Vec<lycoris_core::models::ActivityItem>> {
+        Ok(self
+            .session()
+            .data
+            .as_ref()
+            .ok_or(Error::Locked)?
+            .active()?
+            .activity
+            .clone())
+    }
+
+    fn sync_activity_count(&self) -> CoreResult<()> {
         // Keep the wallet list badge in sync without re-deriving every wallet.
         let mut session = self.session();
         let count = session

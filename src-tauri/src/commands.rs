@@ -342,6 +342,13 @@ pub async fn refresh_portfolio(state: State<'_, crate::state::AppState>) -> ApiR
 }
 
 #[tauri::command]
+pub async fn refresh_activity(
+    state: State<'_, crate::state::AppState>,
+) -> ApiResult<portfolio::ActivitySyncReport> {
+    portfolio::refresh_activity(&state).await
+}
+
+#[tauri::command]
 pub async fn quote_send(
     state: State<'_, crate::state::AppState>,
     request: QuoteRequest,

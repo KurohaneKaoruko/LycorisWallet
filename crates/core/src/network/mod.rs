@@ -3,12 +3,15 @@
 //! All network access is isolated here so the wallet can be audited, mocked or
 //! replaced with private endpoints without touching the crypto code.
 
+pub mod blockbook;
 pub mod blockchair;
 pub mod evm;
+pub mod history;
 pub mod monero;
 pub mod prices;
 pub mod solana;
 pub mod utxo;
+pub mod woc;
 
 use std::time::Duration;
 

@@ -226,8 +226,8 @@ function explorerUrlFor(chain: ChainId, address: string, accountExplorer?: strin
   const table: Record<string, string> = {
     bitcoin: "https://mempool.space/address/",
     litecoin: "https://litecoinspace.org/address/",
-    dogecoin: "https://blockchair.com/dogecoin/address/",
-    bitcoincash: "https://blockchair.com/bitcoin-cash/address/",
+    dogecoin: "https://doge.trezor.io/address/",
+    bitcoincash: "https://bch.trezor.io/address/",
     ethereum: "https://etherscan.io/address/",
     "ethereum-classic": "https://blockscout.com/etc/mainnet/address/",
     bsc: "https://bscscan.com/address/",

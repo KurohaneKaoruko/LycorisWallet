@@ -192,8 +192,8 @@ const COIN_TYPES = {
 
 const TX_EXPLORERS = {  bitcoin: "https://mempool.space/tx/",
   litecoin: "https://litecoinspace.org/tx/",
-  dogecoin: "https://blockchair.com/dogecoin/transaction/",
-  bitcoincash: "https://blockchair.com/bitcoin-cash/transaction/",
+  dogecoin: "https://doge.trezor.io/tx/",
+  bitcoincash: "https://bch.trezor.io/tx/",
   ethereum: "https://etherscan.io/tx/",
   "ethereum-classic": "https://blockscout.com/etc/mainnet/tx/",
   bsc: "https://bscscan.com/tx/",

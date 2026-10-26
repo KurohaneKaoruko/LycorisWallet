@@ -99,10 +99,11 @@ impl ChainId {
                 bip44_coin: 3,
                 derivation_path: "m/44'/3'/0'/0/0",
                 accent: "#C2A633",
-                explorer: "https://blockchair.com/dogecoin",
-                explorer_tx: "https://blockchair.com/dogecoin/transaction/",
-                explorer_address: "https://blockchair.com/dogecoin/address/",
-                rpc: "https://api.blockchair.com/dogecoin",
+                explorer: "https://doge.trezor.io",
+                explorer_tx: "https://doge.trezor.io/tx/",
+                explorer_address: "https://doge.trezor.io/address/",
+                // Trezor Suite's own public Blockbook — keyless, no rate plan.
+                rpc: "https://doge.trezor.io",
                 price_id: "dogecoin",
                 send_note: "Legacy P2PKH (Base58)",
             },
@@ -116,10 +117,11 @@ impl ChainId {
                 bip44_coin: 145,
                 derivation_path: "m/44'/145'/0'/0/0",
                 accent: "#8DC351",
-                explorer: "https://blockchair.com/bitcoin-cash",
-                explorer_tx: "https://blockchair.com/bitcoin-cash/transaction/",
-                explorer_address: "https://blockchair.com/bitcoin-cash/address/",
-                rpc: "https://api.blockchair.com/bitcoin-cash",
+                explorer: "https://bch.trezor.io",
+                explorer_tx: "https://bch.trezor.io/tx/",
+                explorer_address: "https://bch.trezor.io/address/",
+                // Trezor Suite's own public Blockbook — keyless, no rate plan.
+                rpc: "https://bch.trezor.io",
                 price_id: "bitcoin-cash",
                 send_note: "Legacy P2PKH / cashaddr",
             },
@@ -468,16 +470,51 @@ impl ChainId {
     /// history routing in the Tauri layer.
     pub fn utxo_backend(self) -> UtxoBackend {
         match self {
-            ChainId::Dogecoin | ChainId::BitcoinCash => UtxoBackend::Blockchair,
+            // Trezor Suite's public Blockbook instances come first (keyless,
+            // no rate plan); Blockchair is the configured fallback.
+            ChainId::Dogecoin
+            | ChainId::BitcoinCash
+            | ChainId::Viacoin
+            | ChainId::Feathercoin
+            | ChainId::Groestlcoin
+            | ChainId::Dash => UtxoBackend::Blockbook,
             ChainId::Bitcoin | ChainId::Litecoin => UtxoBackend::Esplora,
             ChainId::BitcoinSv => UtxoBackend::WhatsOnChain,
-            ChainId::Viacoin | ChainId::Feathercoin | ChainId::Groestlcoin | ChainId::Dash => {
-                UtxoBackend::Blockbook
-            }
-            // Explorer-only chains (chainz & bitinfocharts) degrade
-            // gracefully: address derivation works, balance reports the
-            // "no public data source" error.
+            // Chainz-only chains: balance via the keyless cryptoid API.
+            ChainId::Namecoin
+            | ChainId::LitecoinCash
+            | ChainId::Potcoin
+            | ChainId::EGulden
+            | ChainId::Vertcoin => UtxoBackend::Chainz,
+            // Non-UTXO kinds never route through here; the arm keeps the
+            // match exhaustive if chains are added later.
             _ => UtxoBackend::None,
+        }
+    }
+
+    /// Secondary source tried when the primary backend fails, so balance
+    /// queries keep working without any user configuration.
+    pub fn fallback_backend(self) -> Option<UtxoBackend> {
+        match self {
+            ChainId::Dogecoin
+            | ChainId::BitcoinCash
+            | ChainId::Dash
+            | ChainId::Groestlcoin
+            | ChainId::Feathercoin
+            | ChainId::Viacoin => Some(UtxoBackend::Blockchair),
+            _ => None,
+        }
+    }
+
+    /// The chain's slug on chainz.cryptoid.info (see `ChainzClient`).
+    pub fn chainz_coin(self) -> &'static str {
+        match self {
+            ChainId::Namecoin => "nmc",
+            ChainId::LitecoinCash => "lcc",
+            ChainId::Potcoin => "pot",
+            ChainId::EGulden => "efl",
+            ChainId::Vertcoin => "vtc",
+            _ => "",
         }
     }
 
@@ -656,6 +693,9 @@ pub enum UtxoBackend {
     Blockchair,
     /// WhatsOnChain REST API (BSV).
     WhatsOnChain,
+    /// Chainz cryptoid keyless balance API (Namecoin, Litecoin Cash,
+    /// Potcoin, e-Gulden, Vertcoin) — balance only, no UTXO feed.
+    Chainz,
     /// No public index API here; only address derivation and explorer links
     /// work, balance queries report a friendly error instead.
     None,
@@ -749,4 +789,57 @@ pub struct UtxoParams {
     pub p2pkh_version: u8,
     pub p2sh_version: u8,
     pub wif_version: u8,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_utxo_chain_routes_to_a_backend() {
+        for chain in ChainId::ALL {
+            if chain.info().kind == ChainKind::Utxo {
+                assert_ne!(chain.utxo_backend(), UtxoBackend::None, "{chain:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn keyless_balance_sources_cover_all_utxo_chains() {
+        // Balance must work out of the box: the primary source is keyless
+        // (Esplora/Blockbook/WoC/Chainz) and only the fallback may be
+        // Blockchair, where a key merely raises the rate limit.
+        for chain in ChainId::ALL {
+            if chain.info().kind != ChainKind::Utxo {
+                continue;
+            }
+            assert_ne!(
+                chain.utxo_backend(),
+                UtxoBackend::Blockchair,
+                "{chain:?} should not depend on a Blockchair key"
+            );
+            if let Some(fallback) = chain.fallback_backend() {
+                assert_eq!(fallback, UtxoBackend::Blockchair);
+            }
+        }
+    }
+
+    #[test]
+    fn chainz_slugs_match_the_supported_chains() {
+        assert_eq!(ChainId::Namecoin.chainz_coin(), "nmc");
+        assert_eq!(ChainId::LitecoinCash.chainz_coin(), "lcc");
+        assert_eq!(ChainId::Potcoin.chainz_coin(), "pot");
+        assert_eq!(ChainId::EGulden.chainz_coin(), "efl");
+        assert_eq!(ChainId::Vertcoin.chainz_coin(), "vtc");
+        // Chainz chains have no fallback: cryptoid has no UTXO feed either.
+        assert_eq!(ChainId::Potcoin.fallback_backend(), None);
+    }
+
+    #[test]
+    fn dogecoin_and_cash_use_trezor_blockbook() {
+        assert_eq!(ChainId::Dogecoin.utxo_backend(), UtxoBackend::Blockbook);
+        assert_eq!(ChainId::Dogecoin.info().rpc, "https://doge.trezor.io");
+        assert_eq!(ChainId::BitcoinCash.utxo_backend(), UtxoBackend::Blockbook);
+        assert_eq!(ChainId::BitcoinCash.info().rpc, "https://bch.trezor.io");
+    }
 }

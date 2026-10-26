@@ -188,7 +188,8 @@ impl BlockbookClient {
     pub async fn broadcast(&self, raw_hex: &str) -> Result<String> {
         let response = self
             .client
-            .post(format!("{}/api/v2/sendtx", self.base))
+            // The trailing slash matters: without it blockbook answers 301.
+            .post(format!("{}/api/v2/sendtx/", self.base))
             .header("Content-Type", "text/plain")
             .body(raw_hex.to_string())
             .send()

@@ -5,6 +5,7 @@
 
 pub mod blockbook;
 pub mod blockchair;
+pub mod chainz;
 pub mod evm;
 pub mod history;
 pub mod monero;
@@ -19,7 +20,7 @@ pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .connect_timeout(Duration::from_secs(10))
-        .user_agent("LycorisWallet/0.1 (+https://example.invalid)")
+        .user_agent("LycorisWallet/0.5 (+https://github.com/KurohaneKaoruko/LycorisWallet)")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 }

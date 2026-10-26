@@ -49,6 +49,16 @@ const CHAINS = [
   { id: "polygon", name: "Polygon", symbol: "POL", decimals: 18, accent: "#8247E5", kind: "evm" },
   { id: "solana", name: "Solana", symbol: "SOL", decimals: 9, accent: "#14F195", kind: "ed25519" },
   { id: "monero", name: "Monero", symbol: "XMR", decimals: 12, accent: "#FF6600", kind: "cryptonote" },
+  { id: "bitcoinsv", name: "Bitcoin SV", symbol: "BSV", decimals: 8, accent: "#EAB300", kind: "utxo" },
+  { id: "namecoin", name: "Namecoin", symbol: "NMC", decimals: 8, accent: "#186C9D", kind: "utxo" },
+  { id: "litecoincash", name: "Litecoin Cash", symbol: "LCC", decimals: 8, accent: "#BEBEBE", kind: "utxo" },
+  { id: "feathercoin", name: "Feathercoin", symbol: "FTC", decimals: 8, accent: "#C6E4EE", kind: "utxo" },
+  { id: "viacoin", name: "Viacoin", symbol: "VIA", decimals: 8, accent: "#404E82", kind: "utxo" },
+  { id: "potcoin", name: "Potcoin", symbol: "POT", decimals: 8, accent: "#3F8C48", kind: "utxo" },
+  { id: "egulden", name: "e-Gulden", symbol: "EFL", decimals: 8, accent: "#F4812F", kind: "utxo" },
+  { id: "dash", name: "Dash", symbol: "DASH", decimals: 8, accent: "#008DE4", kind: "utxo" },
+  { id: "groestlcoin", name: "Groestlcoin", symbol: "GRS", decimals: 8, accent: "#36855A", kind: "utxo" },
+  { id: "vertcoin", name: "Vertcoin", symbol: "VTC", decimals: 8, accent: "#5BB5A0", kind: "utxo" },
 ];
 
 const PRICES = {
@@ -62,6 +72,16 @@ const PRICES = {
   polygon: { usd: 0.5124, cny: 3.683 },
   solana: { usd: 187.63, cny: 1348.9 },
   monero: { usd: 176.4, cny: 1269.2 },
+  bitcoinsv: { usd: 62.4, cny: 448.9 },
+  namecoin: { usd: 0.918, cny: 6.6 },
+  litecoincash: { usd: 0.0083, cny: 0.0597 },
+  feathercoin: { usd: 0.0156, cny: 0.112 },
+  viacoin: { usd: 0.0671, cny: 0.483 },
+  potcoin: { usd: 0.00152, cny: 0.0109 },
+  egulden: { usd: 0.0241, cny: 0.173 },
+  dash: { usd: 31.86, cny: 229.0 },
+  groestlcoin: { usd: 0.382, cny: 2.75 },
+  vertcoin: { usd: 0.0492, cny: 0.354 },
 };
 
 const BALANCES = {
@@ -75,6 +95,16 @@ const BALANCES = {
   polygon: 486_000_000_000_000_000_000n,
   solana: 8_420_000_000n,
   monero: 3_420_000_000_000n,
+  bitcoinsv: 2_418_000_000n,
+  namecoin: 8_640_000_000n,
+  litecoincash: 126_400_000_000n,
+  feathercoin: 246_800_000_000n,
+  viacoin: 4_120_000_000n,
+  potcoin: 968_200_000_000n,
+  egulden: 74_100_000_000n,
+  dash: 5_320_000_000n,
+  groestlcoin: 68_400_000_000n,
+  vertcoin: 31_260_000_000n,
 };
 
 const ALGOS = {
@@ -88,6 +118,16 @@ const ALGOS = {
   polygon: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   solana: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
   monero: ["Keccak-256", "CryptoNote 原生哈希 · 32 字节摘要"],
+  bitcoinsv: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
+  namecoin: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
+  litecoincash: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
+  feathercoin: ["scrypt", "N=16384, r=8, p=1 · 32 字节摘要"],
+  viacoin: ["scrypt", "N=16384, r=8, p=1 · 32 字节摘要"],
+  potcoin: ["scrypt", "N=16384, r=8, p=1 · 32 字节摘要"],
+  egulden: ["scrypt", "N=16384, r=8, p=1 · 32 字节摘要"],
+  dash: ["X11", "Dash PoW 哈希 · 32 字节摘要"],
+  groestlcoin: ["Groestl", "Groestl-512 → 前 32 字节"],
+  vertcoin: ["Lyra2RE", "Vertcoin PoW 哈希链"],
 };
 
 const PATHS = {
@@ -101,6 +141,16 @@ const PATHS = {
   polygon: "m/44'/60'/0'/0/0",
   solana: "m/44'/501'/0'/0'",
   monero: "m/44'/128'/0'/0/0",
+  bitcoinsv: "m/44'/236'/0'/0/0",
+  namecoin: "m/44'/7'/0'/0/0",
+  litecoincash: "m/44'/192'/0'/0/0",
+  feathercoin: "m/44'/8'/0'/0/0",
+  viacoin: "m/44'/14'/0'/0/0",
+  potcoin: "m/44'/81'/0'/0/0",
+  egulden: "m/44'/78'/0'/0/0",
+  dash: "m/44'/5'/0'/0/0",
+  groestlcoin: "m/44'/17'/0'/0/0",
+  vertcoin: "m/44'/28'/0'/0/0",
 };
 
 /* BIP-44 coin types: chains with the same coin type share one key in
@@ -116,6 +166,16 @@ const COIN_TYPES = {
   polygon: 60,
   solana: 501,
   monero: 128,
+  bitcoinsv: 236,
+  namecoin: 7,
+  litecoincash: 192,
+  feathercoin: 8,
+  viacoin: 14,
+  potcoin: 81,
+  egulden: 78,
+  dash: 5,
+  groestlcoin: 17,
+  vertcoin: 28,
 };
 
 const TX_EXPLORERS = {  bitcoin: "https://mempool.space/tx/",
@@ -128,6 +188,16 @@ const TX_EXPLORERS = {  bitcoin: "https://mempool.space/tx/",
   polygon: "https://polygonscan.com/tx/",
   solana: "https://solscan.io/tx/",
   monero: "https://xmrchain.net/tx/",
+  bitcoinsv: "https://whatsonchain.com/tx/",
+  namecoin: "https://nmc.blockbook.network/tx/",
+  litecoincash: "https://explorer.litecoinca.sh/tx/",
+  feathercoin: "https://ftc.blockbook.network/tx/",
+  viacoin: "https://via.blockbook.network/tx/",
+  potcoin: "https://chainz.cryptoid.info/pot/tx.dws?",
+  egulden: "https://efl.blockbook.network/tx/",
+  dash: "https://chainz.cryptoid.info/dash/tx.dws?",
+  groestlcoin: "https://grs.blockbook.network/tx/",
+  vertcoin: "https://vtc.blockbook.network/tx/",
 };
 
 /* ------------------------------------------------------------------- random */
@@ -202,6 +272,27 @@ function fakeAddress(chain, seedText, mode) {
     case "monero":
       // 95-char primary address (4/8 prefix), structure-only fake.
       return `4${pick(rand, BASE58, 94)}`;
+    // 2024 追加的十条链:bech32 三条 + P2PKH 七条(结构演示,校验和随机)。
+    case "viacoin":
+      return `via1q${pick(rand, BASE32, 38)}`;
+    case "groestlcoin":
+      return `grs1q${pick(rand, BASE32, 38)}`;
+    case "vertcoin":
+      return `vtc1q${pick(rand, BASE32, 38)}`;
+    case "bitcoinsv":
+      return `1${pick(rand, BASE58, 33)}`;
+    case "namecoin":
+      return `N${pick(rand, BASE58, 33)}`;
+    case "litecoincash":
+      return `C${pick(rand, BASE58, 33)}`;
+    case "feathercoin":
+      return `6${pick(rand, BASE58, 33)}`;
+    case "potcoin":
+      return `P${pick(rand, BASE58, 33)}`;
+    case "egulden":
+      return `L${pick(rand, BASE58, 33)}`;
+    case "dash":
+      return `X${pick(rand, BASE58, 33)}`;
     default:
       return `0x${pick(rand, HEX, 40)}`;
   }
@@ -340,10 +431,12 @@ function uniqueLabel(base) {
 function accountsFor(secret) {
   // Prefer the real core: addresses, paths, hash descriptions and the
   // explorer links all come from the same code the desktop app runs.
+  // The shipped wasm may predate the 2026 chain additions — its (real)
+  // accounts are kept and the missing chains are filled in with demo
+  // addresses so every chain stays visible in 演示模式.
   const preview = corePreview(secret);
-  if (preview) return preview.accounts;
   const seedText = secret.mode === "mnemonic" ? secret.mnemonic : `${secret.phrase}:${secret.derivation}`;
-  return CHAINS.map((chain) => {
+  const demo = (chain) => {
     const [algorithm, detail] = ALGOS[chain.id];
     return {
       chain: chain.id,
@@ -366,14 +459,20 @@ function accountsFor(secret) {
             ? "Monero base58"
             : chain.kind === "evm"
               ? "EIP-55"
-              : "bech32",
+              : chain.kind === "utxo" &&
+                  ["viacoin", "groestlcoin", "vertcoin", "bitcoin", "litecoin"].includes(chain.id)
+                ? "bech32"
+                : "base58",
       publicKey: `0x${pick(keyStream(chain.id, seedText, secret.mode === "mnemonic" ? "mnemonic" : secret.derivation), HEX, 64)}`,
       accent: chain.accent,
       explorerUrl: "#",
       sendSupported: true,
       decimals: chain.decimals,
     };
-  });
+  };
+  if (!preview) return CHAINS.map(demo);
+  const known = new Set(preview.accounts.map((account) => account.chain));
+  return [...preview.accounts, ...CHAINS.filter((c) => !known.has(c.id)).map(demo)];
 }
 
 function walletView() {
@@ -1876,6 +1975,203 @@ export async function mockCall(command, args = {}) {
       });
       persist();
       return null;
+
+    case "tool_inspect_address": {
+      const text = String(args.address ?? "").trim();
+      if (!text) throw { code: "INVALID_ADDRESS", message: "地址是空的" };
+      const matches = [];
+      const notes = [];
+      const lower = text.toLowerCase();
+      if (/^0x[0-9a-f]{40}$/i.test(text) || /^[0-9a-f]{40}$/i.test(text)) {
+        const checksummed = text.startsWith("0x") ? text : `0x${text}`;
+        for (const id of ["ethereum", "ethereum-classic", "bsc", "polygon"]) {
+          matches.push({
+            chain: id,
+            chainName: CHAINS.find((c) => c.id === id)?.name ?? id,
+            symbol: CHAINS.find((c) => c.id === id)?.symbol ?? "",
+            addressKind: "evm",
+            normalised: checksummed,
+            checksumOk: null,
+          });
+        }
+      } else {
+        for (const chain of CHAINS.filter((c) => c.kind === "utxo")) {
+          if (chain.id === "bitcoincash") continue;
+          const prefix = { bitcoin: "bc1", litecoin: "ltc1", viacoin: "via1", groestlcoin: "grs1", vertcoin: "vtc1" }[chain.id];
+          const legacy = {
+            dogecoin: "D",
+            bitcoinsv: "1",
+            namecoin: "N",
+            litecoincash: "C",
+            feathercoin: "6",
+            potcoin: "P",
+            egulden: "L",
+            dash: "X",
+          }[chain.id];
+          const ok = (prefix && lower.startsWith(prefix)) || (legacy && text.startsWith(legacy) && text.length >= 26 && text.length <= 35);
+          if (ok) {
+            matches.push({
+              chain: chain.id,
+              chainName: chain.name,
+              symbol: chain.symbol,
+              addressKind: prefix ? "p2wpkh (bech32)" : "p2pkh (legacy)",
+              normalised: text,
+              checksumOk: null,
+            });
+          }
+        }
+      }
+      if (matches.length === 0) notes.push("演示模式只做前缀启发式识别;桌面版会做完整 base58/bech32 校验。");
+      return { matches, notes };
+    }
+
+    case "tool_convert_units": {
+      const chain = CHAINS.find((c) => c.id === args.chain);
+      if (!chain) throw { code: "UNSUPPORTED_CHAIN", message: `不支持的链:${args.chain}` };
+      const value = String(args.value ?? "").trim();
+      if (!value) throw { code: "INVALID_AMOUNT", message: "金额是空的" };
+      if (args.fromSmallest) {
+        if (!/^\d+$/.test(value)) throw { code: "INVALID_AMOUNT", message: "最小单位必须是非负整数" };
+        const raw = BigInt(value);
+        const divisor = 10n ** BigInt(chain.decimals);
+        const whole = raw / divisor;
+        const frac = (raw % divisor).toString().padStart(chain.decimals, "0").replace(/0+$/, "");
+        return {
+          chain: chain.id,
+          symbol: chain.symbol,
+          decimals: chain.decimals,
+          smallest: value,
+          decimal: frac ? `${whole}.${frac}` : `${whole}`,
+        };
+      }
+      const match = /^(\d+)(?:\.(\d+))?$/.exec(value);
+      if (!match) throw { code: "INVALID_AMOUNT", message: "金额格式不正确" };
+      if ((match[2] ?? "").length > chain.decimals) {
+        throw { code: "INVALID_AMOUNT", message: `最多 ${chain.decimals} 位小数` };
+      }
+      const frac = (match[2] ?? "").padEnd(chain.decimals, "0");
+      return {
+        chain: chain.id,
+        symbol: chain.symbol,
+        decimals: chain.decimals,
+        smallest: `${BigInt(match[1]) * 10n ** BigInt(chain.decimals) + BigInt(frac || "0")}`,
+        decimal: value,
+      };
+    }
+
+    case "tool_check_mnemonic": {
+      const text = String(args.mnemonic ?? "").trim();
+      if (!text) throw { code: "INVALID_MNEMONIC", message: "助记词是空的" };
+      const words = text.split(/\s+/);
+      const valid = words.length === 12 || words.length === 24;
+      return {
+        valid,
+        wordCount: words.length,
+        verdict: valid
+          ? "演示模式不做校验和;桌面版会完整校验 BIP-39。"
+          : `BIP-39 只接受 12 / 24 词,当前 ${words.length} 词。`,
+        words: words.map((word, index) => ({ word, index, valid: true })),
+      };
+    }
+
+    case "tool_hash": {
+      const text = String(args.input ?? "");
+      const bytes = new TextEncoder().encode(text);
+      const algorithm = String(args.algorithm ?? "sha256");
+      // 演示模式使用 WebCrypto(仅 SHA 系列);Keccak/RIPEMD 提示走桌面版。
+      const names = { sha256: "SHA-256", sha512: "SHA-512", "double-sha256": "SHA-256d", keccak256: "Keccak-256", hash160: "HASH160", ripemd160: "RIPEMD-160" };
+      if (!["sha256", "sha512"].includes(algorithm)) {
+        return {
+          algorithm: names[algorithm] ?? algorithm,
+          hex: `(演示模式不提供 ${names[algorithm] ?? algorithm},请使用桌面版)`,
+          base64: "",
+        };
+      }
+      const digest = await crypto.subtle.digest(algorithm.toUpperCase(), bytes);
+      const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(digest)));
+      return { algorithm: names[algorithm], hex, base64: b64 };
+    }
+
+    case "tool_encode": {
+      const text = String(args.input ?? "").trim();
+      if (!text) throw { code: "ERROR", message: "输入是空的" };
+      const bytes = text.startsWith("0x")
+        ? new Uint8Array(text.slice(2).match(/../g)?.map((h) => parseInt(h, 16)) ?? [])
+        : new TextEncoder().encode(text);
+      const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const b64 = btoa(String.fromCharCode(...bytes));
+      const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+      let n = 0n;
+      for (const b of bytes) n = n * 256n + BigInt(b);
+      let b58 = "";
+      while (n > 0n) {
+        b58 = B58[Number(n % 58n)] + b58;
+        n /= 58n;
+      }
+      for (const b of bytes) {
+        if (b === 0) b58 = "1" + b58;
+        else break;
+      }
+      return { hex, base64: b64, base58: b58 || "1" };
+    }
+
+    case "tool_parse_uri": {
+      const text = String(args.uri ?? "").trim();
+      const at = text.indexOf(":");
+      if (at <= 0) throw { code: "ERROR", message: "不是 payment URI:缺少 scheme" };
+      const scheme = text.slice(0, at).toLowerCase();
+      const rest = text.slice(at + 1);
+      const [path, query = ""] = rest.split("?");
+      const params = new URLSearchParams(query);
+      const chainMap = {
+        bitcoin: "bitcoin", litecoin: "litecoin", dogecoin: "dogecoin", bitcoincash: "bitcoincash",
+        ethereum: "ethereum", bsc: "bsc", polygon: "polygon", solana: "solana",
+        bitcoinsv: "bitcoinsv", namecoin: "namecoin", litecoincash: "litecoincash",
+        feathercoin: "feathercoin", viacoin: "viacoin", potcoin: "potcoin",
+        egulden: "egulden", dash: "dash", groestlcoin: "groestlcoin", vertcoin: "vertcoin",
+      };
+      const id = chainMap[scheme];
+      if (!id) throw { code: "ERROR", message: `不支持的 scheme:${scheme}` };
+      const chain = CHAINS.find((c) => c.id === id);
+      let amount = params.get("amount") ?? params.get("value");
+      if (params.has("value") && amount && /^\d+$/.test(amount) && chain) {
+        const raw = BigInt(amount);
+        const divisor = 10n ** BigInt(chain.decimals);
+        const whole = raw / divisor;
+        const frac = (raw % divisor).toString().padStart(chain.decimals, "0").replace(/0+$/, "");
+        amount = frac ? `${whole}.${frac}` : `${whole}`;
+      }
+      return {
+        chain: id,
+        chainName: chain?.name ?? id,
+        symbol: chain?.symbol ?? "",
+        address: path,
+        amount,
+        label: params.get("label"),
+        message: params.get("message"),
+        memo: null,
+        requestId: null,
+        warnings: [],
+      };
+    }
+
+    case "tool_compose_uri": {
+      const chain = CHAINS.find((c) => c.id === args.chain);
+      if (!chain) throw { code: "UNSUPPORTED_CHAIN", message: `不支持的链:${args.chain}` };
+      const parts = [];
+      if (args.amount) parts.push(`amount=${args.amount}`);
+      if (args.label) parts.push(`label=${encodeURIComponent(args.label)}`);
+      if (args.message) parts.push(`message=${encodeURIComponent(args.message)}`);
+      const scheme = { "ethereum-classic": "ethereum" }[chain.id] ?? chain.id;
+      return `${scheme}:${args.address}${parts.length ? `?${parts.join("&")}` : ""}`;
+    }
+
+    case "tool_sign_message":
+      throw { code: "LOCKED", message: "演示模式不提供消息签名;请使用桌面版。" };
+
+    case "tool_verify_message":
+      throw { code: "LOCKED", message: "演示模式不提供消息验签;请使用桌面版。" };
 
     case "touch_session":
       return null;

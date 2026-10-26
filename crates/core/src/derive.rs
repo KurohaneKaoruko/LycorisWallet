@@ -1034,11 +1034,22 @@ fn account_from_secp(
 ) -> Result<Account> {
     let info = chain.info();
     let address = match chain {
-        ChainId::Bitcoin | ChainId::Litecoin => {
+        ChainId::Bitcoin
+        | ChainId::Litecoin
+        | ChainId::Viacoin
+        | ChainId::Groestlcoin
+        | ChainId::Vertcoin => {
             let params = chain.utxo_params().expect("utxo params");
             p2wpkh_address(&compressed_pubkey(key), params.hrp)?
         }
-        ChainId::Dogecoin => {
+        ChainId::Dogecoin
+        | ChainId::BitcoinSv
+        | ChainId::Namecoin
+        | ChainId::LitecoinCash
+        | ChainId::Feathercoin
+        | ChainId::Potcoin
+        | ChainId::EGulden
+        | ChainId::Dash => {
             let params = chain.utxo_params().expect("utxo params");
             p2pkh_address(&compressed_pubkey(key), params.p2pkh_version)
         }
@@ -2238,8 +2249,9 @@ mod tests {
         }
 
         let accounts = derive_accounts(&from_wif).unwrap();
-        // 8 条 secp 链,无 Solana/Monero(钥匙环只导入了 secp 槽)。
-        assert_eq!(accounts.len(), 8);
+        // secp 链(原 8 条 + 2026 追加的 10 条 UTXO 链),无 Solana/Monero
+        // (钥匙环只导入了 secp 槽)。
+        assert_eq!(accounts.len(), 18);
         assert!(accounts.iter().all(|a| a.chain != ChainId::Solana));
         assert!(accounts.iter().all(|a| a.chain != ChainId::Monero));
         // 私钥 1 的以太坊地址是众所周知的向量。
@@ -2701,5 +2713,73 @@ mod tests {
         assert!(find(ChainId::BitcoinCash).send_supported);
         // Monero spends are signed by a local monero-wallet-rpc.
         assert!(find(ChainId::Monero).send_supported);
+    }
+
+    #[test]
+    fn extended_utxo_chains_derive_addresses_with_expected_prefixes() {
+        // 2026 追加的十条链:助记词派生(BIP-44 各自 coin type)+ 地址前缀。
+        let mnemonic =
+            "legal winner thank year wave sausage worth useful legal winner thank yellow";
+        let secret = WalletSecret::new_mnemonic(mnemonic).unwrap();
+        let accounts = derive_accounts(&secret).unwrap();
+        let address = |chain: ChainId| {
+            accounts
+                .iter()
+                .find(|a| a.chain == chain)
+                .unwrap_or_else(|| panic!("{chain:?} account missing"))
+                .address
+                .clone()
+        };
+
+        // bech32(SegWit)三条。
+        assert!(
+            address(ChainId::Viacoin).starts_with("via1"),
+            "{}",
+            address(ChainId::Viacoin)
+        );
+        assert!(address(ChainId::Groestlcoin).starts_with("grs1"));
+        assert!(address(ChainId::Vertcoin).starts_with("vtc1"));
+        // P2PKH 前缀由 base58 版本字节决定。
+        assert!(address(ChainId::BitcoinSv).starts_with('1'));
+        assert!(
+            address(ChainId::Namecoin).starts_with('N')
+                || address(ChainId::Namecoin).starts_with('M')
+        );
+        assert!(address(ChainId::LitecoinCash).starts_with('C'));
+        assert!(
+            address(ChainId::Feathercoin).starts_with('6')
+                || address(ChainId::Feathercoin).starts_with('7')
+        );
+        assert!(address(ChainId::Potcoin).starts_with('P'));
+        assert!(address(ChainId::EGulden).starts_with('L'));
+        assert!(address(ChainId::Dash).starts_with('X'));
+        // 每条链的地址都能通过自己的校验。
+        for chain in [
+            ChainId::BitcoinSv,
+            ChainId::Namecoin,
+            ChainId::LitecoinCash,
+            ChainId::Feathercoin,
+            ChainId::Viacoin,
+            ChainId::Potcoin,
+            ChainId::EGulden,
+            ChainId::Dash,
+            ChainId::Groestlcoin,
+            ChainId::Vertcoin,
+        ] {
+            let value = address(chain);
+            assert!(
+                crate::address::validate_address(chain, &value).is_ok(),
+                "{chain:?} address failed self-validation: {value}"
+            );
+            assert!(accounts
+                .iter()
+                .any(|a| a.chain == chain && a.send_supported));
+        }
+        // VIA/GRS/VTC 的 44' 路径与 84' 前缀并存:路径字符串应与配置一致。
+        let via = accounts
+            .iter()
+            .find(|a| a.chain == ChainId::Viacoin)
+            .unwrap();
+        assert_eq!(via.path, "m/44'/14'/0'/0/0");
     }
 }

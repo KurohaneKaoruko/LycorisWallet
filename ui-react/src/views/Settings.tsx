@@ -22,6 +22,16 @@ const CHAIN_LABELS: Record<ChainId, string> = {
   polygon: "Polygon",
   solana: "Solana",
   monero: "Monero",
+  bitcoinsv: "Bitcoin SV",
+  namecoin: "Namecoin",
+  litecoincash: "Litecoin Cash",
+  feathercoin: "Feathercoin",
+  viacoin: "Viacoin",
+  potcoin: "Potcoin",
+  egulden: "e-Gulden",
+  dash: "Dash",
+  groestlcoin: "Groestlcoin",
+  vertcoin: "Vertcoin",
 };
 
 const ACCENTS: Partial<Record<ChainId, string>> = {
@@ -35,6 +45,16 @@ const ACCENTS: Partial<Record<ChainId, string>> = {
   polygon: "#8247e5",
   solana: "#9945ff",
   monero: "#ff6600",
+  bitcoinsv: "#eab300",
+  namecoin: "#186c9d",
+  litecoincash: "#bebebe",
+  feathercoin: "#c6e4ee",
+  viacoin: "#404e82",
+  potcoin: "#3f8c48",
+  egulden: "#f4812f",
+  dash: "#008de4",
+  groestlcoin: "#36855a",
+  vertcoin: "#5bb5a0",
 };
 
 export function SettingsView() {

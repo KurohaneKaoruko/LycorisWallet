@@ -157,9 +157,20 @@ pub fn validate_address(chain: ChainId, address: &str) -> Result<()> {
             parse_evm_address(address).map(|_| ())
         }
         ChainId::Solana => parse_solana_address(address).map(|_| ()),
-        ChainId::Bitcoin | ChainId::Litecoin | ChainId::Dogecoin | ChainId::BitcoinCash => {
-            validate_utxo_address(chain, address)
-        }
+        ChainId::Bitcoin
+        | ChainId::Litecoin
+        | ChainId::Dogecoin
+        | ChainId::BitcoinCash
+        | ChainId::BitcoinSv
+        | ChainId::Namecoin
+        | ChainId::LitecoinCash
+        | ChainId::Feathercoin
+        | ChainId::Viacoin
+        | ChainId::Potcoin
+        | ChainId::EGulden
+        | ChainId::Dash
+        | ChainId::Groestlcoin
+        | ChainId::Vertcoin => validate_utxo_address(chain, address),
         ChainId::Monero => {
             if crate::cryptonote::monero_address_validate(address) {
                 Ok(())

@@ -26,6 +26,7 @@ export type ViewId =
   | "activity"
   | "contacts"
   | "settings"
+  | "tools"
   | "wallets";
 
 export interface SessionState {

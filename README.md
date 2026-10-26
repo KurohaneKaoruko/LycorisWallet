@@ -15,8 +15,12 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 - **多钱包管理**：同一个加密文件里可以保存多个钱包（助记词 / 口令混搭），共用一个本地密码；
   支持新建、导入、重命名、切换与删除（删除需密码确认），交易记录按钱包隔离，地址簿与设置全局共享。
   旧版单钱包文件在解锁时自动迁移到新格式。
-- **十条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Solana、Monero。
+- **二十条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Solana、Monero，
+  以及 Bitcoin SV、Namecoin、Litecoin Cash、Feathercoin、Viacoin、Potcoin、e-Gulden、Dash、Groestlcoin、Vertcoin。
 - **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 / UTXO P2WPKH 与 legacy P2PKH / Solana 系统转账 / Monero CryptoNote）、交易记录、地址簿。
+- **工具箱**：地址体检（自动识别链 + 校验和）、单位换算（聪/wei/lamport ↔ 显示单位）、BIP-39 助记词校验、
+  哈希与编码（SHA-256/512、Keccak-256、HASH160、RIPEMD-160 与 hex/base64/base58）、
+  消息签名与验签（EVM EIP-191 / Bitcoin BIP-137 / Solana ed25519）、支付 URI（BIP-21 / EIP-681 / Solana Pay 解析与构造）。
 - **本地加密**：Argon2id + XChaCha20-Poly1305 加密的钱包文件，自动锁定、密码尝试冷却。
 - **演示模式**：`ui-react` 开发服务器（`npm run dev`）加 `?mock=1` 直接加载编译成 WebAssembly 的同一份 Rust 核心——地址、指纹、
   地址校验和二维码都是真数据，只有余额、价格与广播结果是演示值，不需要 Rust 后端。
@@ -35,10 +39,26 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | Polygon | POL | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 | Solana | SOL | SHA-256 → ed25519 | `m/44'/501'/0'/0'` | base58 |
 | Monero | XMR | Keccak-256 → CryptoNote | `m/44'/128'/0'/0/0`（SLIP-10 kholaw） | Monero base58 |
+| Bitcoin SV | BSV | SHA-256 | `m/44'/236'/0'/0/0` | base58（P2PKH） |
+| Namecoin | NMC | SHA-256 | `m/44'/7'/0'/0/0` | base58（P2PKH） |
+| Litecoin Cash | LCC | SHA-256 | `m/44'/192'/0'/0/0` | base58（P2PKH） |
+| Feathercoin | FTC | scrypt（N=16384, r=8, p=1） | `m/44'/8'/0'/0/0` | base58（P2PKH） |
+| Viacoin | VIA | scrypt（N=16384, r=8, p=1） | `m/44'/14'/0'/0/0` | bech32（P2WPKH） |
+| Potcoin | POT | scrypt（N=16384, r=8, p=1） | `m/44'/81'/0'/0/0` | base58（P2PKH） |
+| e-Gulden | EFL | scrypt（N=16384, r=8, p=1） | `m/44'/78'/0'/0/0` | base58（P2PKH） |
+| Dash | DASH | SHA-256* | `m/44'/5'/0'/0/0` | base58（P2PKH） |
+| Groestlcoin | GRS | SHA-256* | `m/44'/17'/0'/0/0` | bech32（P2WPKH） |
+| Vertcoin | VTC | SHA-256* | `m/44'/28'/0'/0/0` | bech32（P2WPKH） |
 
+> 带 * 的三条链（Dash 的 X11、Groestlcoin 的 Groestl、Vertcoin 的 Lyra2RE）在口令模式下使用
+> 域分隔的 SHA-256 替代原生 PoW 哈希级联（`lycoris/pow-fallback/v1/`），保证派生稳定可审计；
+> 助记词钱包不受影响（走 BIP-32）。
+>
 > Dogecoin 与 Bitcoin Cash 的收款、余额与转账均已可用：前者用 legacy P2PKH 传统 sighash，后者用
 > BIP-143 + SIGHASH-FORKID，交易字节与 libsecp256k1 独立实现逐字节一致。
 > 两条链的链上数据走 Blockchair，现在需要 API Key，可在「设置 → 网络」里填写（保存在加密钱包文件里）。
+> 新增的十条链：地址派生、校验与收款即时可用；余额/转账依赖对应 blockbook 端点的可用性
+> （部分小链的公共实例可能不稳定，失败时仅显示「余额未查询」并不影响资产管理）。
 > Monero 的收款地址派生、余额与转账均已可用：RingCT 签名由本地的 `monero-wallet-rpc` 完成，
 > 配置见下方「Monero 转账」一节。
 
@@ -62,6 +82,19 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 Monero 口令模式的派生：`spend = sc_reduce32(Keccak-256(message))`、`view = sc_reduce32(Keccak-256(spend))`，
 地址为 CryptoNote 双公钥 + Keccak-4 校验的 Monero base58（与 bip_utils 独立实现互相验证）；
 助记词模式走 SLIP-10 kholaw（ed25519 非强化变体）`m/44'/128'/0'/0/0`，`spend = sc_reduce32(Keccak-256(kL ‖ kR))`。
+
+## 工具箱
+
+「工具箱」视图（侧栏 → 工具箱）收纳日常小工具，全部本地计算：
+
+| 工具 | 说明 |
+| --- | --- |
+| 地址体检 | 粘贴任意地址，自动识别属于哪条链（含跨链同源格式提示）、地址类型（P2PKH/P2WPKH/cashaddr/evm/ed25519）与 EIP-55 校验和状态。 |
+| 单位换算 | 二十条链的显示单位 ↔ 最小单位（聪/wei/lamport/piconero…）互转，输入即算。 |
+| 助记词校验 | BIP-39 词表逐词检查（错词标红）+ 校验和判定；不派生地址、不落盘。 |
+| 哈希 / 编码 | SHA-256、SHA-512、SHA-256d、Keccak-256、HASH160、RIPEMD-160；同一输入并排给出 hex / base64 / base58。 |
+| 消息签名 | 用当前钱包密钥签名（EVM 走 EIP-191 `personal_sign`，Bitcoin 走 BIP-137，Solana 走 ed25519）；验签恢复签名者地址。签名需要密码确认，密钥不出 Rust 侧。 |
+| 支付 URI | BIP-21 / EIP-681（含 `value=1e18` 科学计数法）/ Solana Pay 的解析与构造，解析结果可一键带入转账。 |
 
 ## Monero 转账
 

@@ -14,7 +14,17 @@ export type ChainId =
   | "bsc"
   | "polygon"
   | "solana"
-  | "monero";
+  | "monero"
+  | "bitcoinsv"
+  | "namecoin"
+  | "litecoincash"
+  | "feathercoin"
+  | "viacoin"
+  | "potcoin"
+  | "egulden"
+  | "dash"
+  | "groestlcoin"
+  | "vertcoin";
 
 export type FiatCurrency = "usd" | "cny";
 export type Theme = "system" | "light" | "dark";
@@ -265,4 +275,88 @@ export type SecretRequest =
 export interface ApiErrorLike {
   code: string;
   message: string;
+}
+
+/* ------------------------------------------------------------------ 工具箱 */
+
+/** 地址体检结果（tools::AddressReport）。 */
+export interface AddressMatch {
+  chain: ChainId;
+  chainName: string;
+  symbol: string;
+  addressKind: string;
+  normalised: string;
+  checksumOk: boolean | null;
+}
+
+export interface AddressReport {
+  matches: AddressMatch[];
+  notes: string[];
+}
+
+/** 单位换算结果（tools::UnitConversion）。 */
+export interface UnitConversion {
+  chain: ChainId;
+  symbol: string;
+  decimals: number;
+  smallest: string;
+  decimal: string;
+}
+
+/** 助记词校验结果（tools::MnemonicCheck）。 */
+export interface MnemonicWordState {
+  word: string;
+  index: number;
+  valid: boolean;
+}
+
+export interface MnemonicCheck {
+  valid: boolean;
+  wordCount: number;
+  verdict: string;
+  words: MnemonicWordState[];
+}
+
+/** 哈希输出（tools::DigestOutput）。 */
+export interface DigestOutput {
+  algorithm: string;
+  hex: string;
+  base64: string;
+}
+
+/** 编码转换输出（tools::EncodingOutput）。 */
+export interface EncodingOutput {
+  hex: string;
+  base64: string;
+  base58: string;
+}
+
+/** 支付 URI 解析结果（tools::ParsedUri）。 */
+export interface ParsedUri {
+  chain: ChainId;
+  chainName: string;
+  symbol: string;
+  address: string;
+  amount: string | null;
+  label: string | null;
+  message: string | null;
+  memo: string | null;
+  requestId: string | null;
+  warnings: string[];
+}
+
+/** 消息签名结果（tx::message::MessageSignature）。 */
+export interface MessageSignature {
+  scheme: string;
+  signatureHex: string;
+  pubkey: string | null;
+  address: string | null;
+  recovery: number | null;
+}
+
+/** 消息验签结果（tx::message::VerifyResult）。 */
+export interface VerifyResult {
+  scheme: string;
+  signer: string;
+  verified: boolean;
 }

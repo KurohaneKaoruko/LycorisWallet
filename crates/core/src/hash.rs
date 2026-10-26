@@ -107,6 +107,20 @@ fn hash_message(message: &[u8], chain: ChainId) -> Result<[u8; 32]> {
                 .map_err(|e| Error::Crypto(format!("scrypt failed: {e}")))?;
             Ok(out)
         }
+        // Dash (X11), Groestlcoin and Vertcoin (Lyra2RE) proof-of-work hashes
+        // are not reproducible in this build without pulling in their full
+        // hash cascades. Passphrase wallets on these chains deliberately fall
+        // back to a domain-separated SHA-256 so the derivation stays stable
+        // and auditable; mnemonic wallets are unaffected (they use BIP-32).
+        HashAlgorithm::X11 | HashAlgorithm::Groestl | HashAlgorithm::Lyra2re => {
+            let mut hasher = Sha256::new();
+            hasher.update(format!("lycoris/pow-fallback/v1/{}\0", chain.as_str()));
+            hasher.update(message);
+            let digest = hasher.finalize();
+            let mut out = [0u8; 32];
+            out.copy_from_slice(&digest);
+            Ok(out)
+        }
     }
 }
 

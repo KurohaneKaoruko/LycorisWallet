@@ -17,10 +17,20 @@ pub enum ChainId {
     Polygon,
     Solana,
     Monero,
+    BitcoinSv,
+    Namecoin,
+    LitecoinCash,
+    Feathercoin,
+    Viacoin,
+    Potcoin,
+    EGulden,
+    Dash,
+    Groestlcoin,
+    Vertcoin,
 }
 
 impl ChainId {
-    pub const ALL: [ChainId; 10] = [
+    pub const ALL: [ChainId; 20] = [
         ChainId::Bitcoin,
         ChainId::Litecoin,
         ChainId::Dogecoin,
@@ -31,6 +41,16 @@ impl ChainId {
         ChainId::Polygon,
         ChainId::Solana,
         ChainId::Monero,
+        ChainId::BitcoinSv,
+        ChainId::Namecoin,
+        ChainId::LitecoinCash,
+        ChainId::Feathercoin,
+        ChainId::Viacoin,
+        ChainId::Potcoin,
+        ChainId::EGulden,
+        ChainId::Dash,
+        ChainId::Groestlcoin,
+        ChainId::Vertcoin,
     ];
 
     pub fn info(self) -> ChainInfo {
@@ -205,6 +225,176 @@ impl ChainId {
                 price_id: "monero",
                 send_note: "CryptoNote · RingCT（经 monero-wallet-rpc 签名）",
             },
+            ChainId::BitcoinSv => ChainInfo {
+                id: self,
+                name: "Bitcoin SV",
+                symbol: "BSV",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Sha256,
+                bip44_coin: 236,
+                derivation_path: "m/44'/236'/0'/0/0",
+                accent: "#EAB300",
+                explorer: "https://whatsonchain.com",
+                explorer_tx: "https://whatsonchain.com/tx/",
+                explorer_address: "https://whatsonchain.com/address/",
+                rpc: "https://api.whatsonchain.com/v1/bsv/main",
+                price_id: "bitcoin-sv",
+                send_note: "Legacy P2PKH（经典 sighash）",
+            },
+            ChainId::Namecoin => ChainInfo {
+                id: self,
+                name: "Namecoin",
+                symbol: "NMC",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Sha256,
+                bip44_coin: 7,
+                derivation_path: "m/44'/7'/0'/0/0",
+                accent: "#186C9D",
+                explorer: "https://nmc.blockbook.trezor.io",
+                explorer_tx: "https://nmc.blockbook.trezor.io/tx/",
+                explorer_address: "https://nmc.blockbook.trezor.io/address/",
+                rpc: "https://nmc.blockbook.trezor.io/api",
+                price_id: "namecoin",
+                send_note: "Legacy P2PKH（经典 sighash）",
+            },
+            ChainId::LitecoinCash => ChainInfo {
+                id: self,
+                name: "Litecoin Cash",
+                symbol: "LCC",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Sha256,
+                bip44_coin: 192,
+                derivation_path: "m/44'/192'/0'/0/0",
+                accent: "#BEBEBE",
+                explorer: "https://explorer.litecoinca.sh",
+                explorer_tx: "https://explorer.litecoinca.sh/tx/",
+                explorer_address: "https://explorer.litecoinca.sh/address/",
+                rpc: "https://explorer.litecoinca.sh/api",
+                price_id: "litecoin-cash",
+                send_note: "Legacy P2PKH（经典 sighash）",
+            },
+            ChainId::Feathercoin => ChainInfo {
+                id: self,
+                name: "Feathercoin",
+                symbol: "FTC",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Scrypt,
+                bip44_coin: 8,
+                derivation_path: "m/44'/8'/0'/0/0",
+                accent: "#C6E4EE",
+                explorer: "https://ftc.blockbook.trezor.io",
+                explorer_tx: "https://ftc.blockbook.trezor.io/tx/",
+                explorer_address: "https://ftc.blockbook.trezor.io/address/",
+                rpc: "https://ftc.blockbook.trezor.io/api",
+                price_id: "feathercoin",
+                send_note: "Legacy P2PKH（经典 sighash）",
+            },
+            ChainId::Viacoin => ChainInfo {
+                id: self,
+                name: "Viacoin",
+                symbol: "VIA",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Scrypt,
+                bip44_coin: 14,
+                derivation_path: "m/44'/14'/0'/0/0",
+                accent: "#404E82",
+                explorer: "https://via.blockbook.trezor.io",
+                explorer_tx: "https://via.blockbook.trezor.io/tx/",
+                explorer_address: "https://via.blockbook.trezor.io/address/",
+                rpc: "https://via.blockbook.trezor.io/api",
+                price_id: "viacoin",
+                send_note: "Native SegWit (Bech32)",
+            },
+            ChainId::Potcoin => ChainInfo {
+                id: self,
+                name: "Potcoin",
+                symbol: "POT",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Scrypt,
+                bip44_coin: 81,
+                derivation_path: "m/44'/81'/0'/0/0",
+                accent: "#3F8C48",
+                explorer: "https://chainz.cryptoid.info/pot",
+                explorer_tx: "https://chainz.cryptoid.info/pot/tx.dws?",
+                explorer_address: "https://chainz.cryptoid.info/pot/address.dws?",
+                rpc: "https://potcoin1.blockbook.trezor.io",
+                price_id: "potcoin",
+                send_note: "Legacy P2PKH（经典 sighash）",
+            },
+            ChainId::EGulden => ChainInfo {
+                id: self,
+                name: "e-Gulden",
+                symbol: "EFL",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Scrypt,
+                bip44_coin: 78,
+                derivation_path: "m/44'/78'/0'/0/0",
+                accent: "#F4812F",
+                explorer: "https://efl.blockbook.trezor.io",
+                explorer_tx: "https://efl.blockbook.trezor.io/tx/",
+                explorer_address: "https://efl.blockbook.trezor.io/address/",
+                rpc: "https://efl.blockbook.trezor.io/api",
+                price_id: "e-gulden",
+                send_note: "Legacy P2PKH（经典 sighash）",
+            },
+            ChainId::Dash => ChainInfo {
+                id: self,
+                name: "Dash",
+                symbol: "DASH",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::X11,
+                bip44_coin: 5,
+                derivation_path: "m/44'/5'/0'/0/0",
+                accent: "#008DE4",
+                explorer: "https://blockbook.dash.zelcore.io",
+                explorer_tx: "https://blockbook.dash.zelcore.io/tx/",
+                explorer_address: "https://blockbook.dash.zelcore.io/address/",
+                rpc: "https://blockbook.dash.zelcore.io/api",
+                price_id: "dash",
+                send_note: "Legacy P2PKH（经典 sighash）",
+            },
+            ChainId::Groestlcoin => ChainInfo {
+                id: self,
+                name: "Groestlcoin",
+                symbol: "GRS",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Groestl,
+                bip44_coin: 17,
+                derivation_path: "m/44'/17'/0'/0/0",
+                accent: "#36855A",
+                explorer: "https://grs.blockbook.trezor.io",
+                explorer_tx: "https://grs.blockbook.trezor.io/tx/",
+                explorer_address: "https://grs.blockbook.trezor.io/address/",
+                rpc: "https://grs.blockbook.trezor.io/api",
+                price_id: "groestlcoin",
+                send_note: "Native SegWit (Bech32)",
+            },
+            ChainId::Vertcoin => ChainInfo {
+                id: self,
+                name: "Vertcoin",
+                symbol: "VTC",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Lyra2re,
+                bip44_coin: 28,
+                derivation_path: "m/44'/28'/0'/0/0",
+                accent: "#5BB5A0",
+                explorer: "https://vtc.blockbook.trezor.io",
+                explorer_tx: "https://vtc.blockbook.trezor.io/tx/",
+                explorer_address: "https://vtc.blockbook.trezor.io/address/",
+                rpc: "https://vtc.blockbook.trezor.io/api",
+                price_id: "vertcoin",
+                send_note: "Native SegWit (Bech32)",
+            },
         }
     }
 
@@ -227,6 +417,16 @@ impl ChainId {
             ChainId::Polygon => "polygon",
             ChainId::Solana => "solana",
             ChainId::Monero => "monero",
+            ChainId::BitcoinSv => "bitcoinsv",
+            ChainId::Namecoin => "namecoin",
+            ChainId::LitecoinCash => "litecoincash",
+            ChainId::Feathercoin => "feathercoin",
+            ChainId::Viacoin => "viacoin",
+            ChainId::Potcoin => "potcoin",
+            ChainId::EGulden => "egulden",
+            ChainId::Dash => "dash",
+            ChainId::Groestlcoin => "groestlcoin",
+            ChainId::Vertcoin => "vertcoin",
         }
     }
 
@@ -236,7 +436,18 @@ impl ChainId {
     /// chains: Dogecoin uses the classic pre-BIP143 sighash, Bitcoin Cash the
     /// BIP143 digest with `SIGHASH_FORKID`.
     pub fn legacy_utxo(self) -> bool {
-        matches!(self, ChainId::Dogecoin | ChainId::BitcoinCash)
+        matches!(
+            self,
+            ChainId::Dogecoin
+                | ChainId::BitcoinCash
+                | ChainId::BitcoinSv
+                | ChainId::Namecoin
+                | ChainId::LitecoinCash
+                | ChainId::Feathercoin
+                | ChainId::Potcoin
+                | ChainId::EGulden
+                | ChainId::Dash
+        )
     }
 
     /// Which digest a legacy input is signed with.
@@ -253,9 +464,18 @@ impl ChainId {
     /// Dogecoin in shibas.
     pub fn base_unit(self) -> &'static str {
         match self {
-            ChainId::Bitcoin | ChainId::BitcoinCash => "聪",
+            ChainId::Bitcoin | ChainId::BitcoinCash | ChainId::BitcoinSv => "聪",
             ChainId::Litecoin => "里特",
+            ChainId::LitecoinCash => "里特现金",
             ChainId::Dogecoin => "柴",
+            ChainId::Namecoin => "聪", // 与比特币同构,社区无专名
+            ChainId::Feathercoin => "羽",
+            ChainId::Viacoin => "维亚",
+            ChainId::Potcoin => "锅",
+            ChainId::EGulden => "格罗申",
+            ChainId::Dash => "duff",
+            ChainId::Groestlcoin => "gros",
+            ChainId::Vertcoin => "弗特",
             ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => {
                 "gwei"
             }
@@ -329,6 +549,68 @@ impl ChainId {
                 p2sh_version: 0x05,
                 wif_version: 0x80,
             }),
+            // Same address version bytes as Bitcoin (BSV kept the legacy
+            // format when it split from BCH).
+            ChainId::BitcoinSv => Some(UtxoParams {
+                hrp: "bsv",
+                p2pkh_version: 0x00,
+                p2sh_version: 0x05,
+                wif_version: 0x80,
+            }),
+            ChainId::Namecoin => Some(UtxoParams {
+                hrp: "nmc",
+                p2pkh_version: 0x34,
+                p2sh_version: 0x0d,
+                wif_version: 0xb4,
+            }),
+            ChainId::LitecoinCash => Some(UtxoParams {
+                hrp: "lcc",
+                p2pkh_version: 0x1c,
+                p2sh_version: 0x05,
+                wif_version: 0xb0,
+            }),
+            ChainId::Feathercoin => Some(UtxoParams {
+                hrp: "fc",
+                p2pkh_version: 0x0e,
+                p2sh_version: 0x05,
+                wif_version: 0x8e,
+            }),
+            ChainId::Viacoin => Some(UtxoParams {
+                hrp: "via",
+                p2pkh_version: 0x47,
+                p2sh_version: 0x21,
+                wif_version: 0xc7,
+            }),
+            ChainId::Potcoin => Some(UtxoParams {
+                hrp: "pot",
+                p2pkh_version: 0x37,
+                p2sh_version: 0x05,
+                wif_version: 0xb7,
+            }),
+            ChainId::EGulden => Some(UtxoParams {
+                hrp: "efl",
+                p2pkh_version: 0x30,
+                p2sh_version: 0x05,
+                wif_version: 0xb0,
+            }),
+            ChainId::Dash => Some(UtxoParams {
+                hrp: "dash",
+                p2pkh_version: 0x4c,
+                p2sh_version: 0x10,
+                wif_version: 0xcc,
+            }),
+            ChainId::Groestlcoin => Some(UtxoParams {
+                hrp: "grs",
+                p2pkh_version: 0x24,
+                p2sh_version: 0x05,
+                wif_version: 0x80,
+            }),
+            ChainId::Vertcoin => Some(UtxoParams {
+                hrp: "vtc",
+                p2pkh_version: 0x47,
+                p2sh_version: 0x05,
+                wif_version: 0x80,
+            }),
             _ => None,
         }
     }
@@ -366,6 +648,9 @@ pub enum HashAlgorithm {
     Sha256,
     Keccak256,
     Scrypt,
+    X11,
+    Groestl,
+    Lyra2re,
 }
 
 impl HashAlgorithm {
@@ -374,6 +659,9 @@ impl HashAlgorithm {
             HashAlgorithm::Sha256 => "SHA-256",
             HashAlgorithm::Keccak256 => "Keccak-256",
             HashAlgorithm::Scrypt => "scrypt",
+            HashAlgorithm::X11 => "X11",
+            HashAlgorithm::Groestl => "Groestl",
+            HashAlgorithm::Lyra2re => "Lyra2RE",
         }
     }
 
@@ -382,6 +670,9 @@ impl HashAlgorithm {
             HashAlgorithm::Sha256 => "FIPS 180-4 · 32 byte digest",
             HashAlgorithm::Keccak256 => "Ethereum native hash · 32 byte digest",
             HashAlgorithm::Scrypt => "N=16384, r=8, p=1 · 32 byte digest",
+            HashAlgorithm::X11 => "Dash PoW 哈希 · 32 byte digest",
+            HashAlgorithm::Groestl => "Groestl-512 → 前 32 字节",
+            HashAlgorithm::Lyra2re => "Vertcoin PoW 哈希链",
         }
     }
 }

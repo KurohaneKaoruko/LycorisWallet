@@ -1590,3 +1590,96 @@
   color: var(--vermilion);
   font-weight: 600;
 }
+
+/* ------------------------------------------------------------------ 工具箱 */
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tool-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-md, 12px);
+  background: var(--panel, transparent);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.tool-card:hover {
+  border-color: var(--ink-3);
+}
+
+.tool-card.is-active {
+  border-color: var(--vermilion);
+  box-shadow: 0 0 0 1px var(--vermilion) inset;
+}
+
+.tool-card svg {
+  width: 20px;
+  height: 20px;
+  stroke: var(--vermilion);
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tool-card span {
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+.word-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.word-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  font-size: 13px;
+  font-family: var(--mono, monospace);
+}
+
+.word-chip.is-bad {
+  border-color: #d64545;
+  color: #d64545;
+  background: rgba(214, 69, 69, 0.08);
+}
+
+.kv-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kv-row .kv-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row.check {
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.form-ok {
+  color: #2f9e63;
+  font-size: 13px;
+}

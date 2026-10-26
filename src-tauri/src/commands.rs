@@ -446,6 +446,166 @@ pub fn qr_svg(text: String, dark: Option<String>, light: Option<String>) -> ApiR
     )?)
 }
 
+/* -------------------------------------------------------------- 工具箱命令 */
+
+/// 地址体检:识别任意地址属于哪条链 + 校验详情。纯函数,无密钥。
+#[tauri::command]
+pub fn tool_inspect_address(address: String) -> ApiResult<lycoris_core::tools::AddressReport> {
+    Ok(lycoris_core::tools::inspect_address(&address)?)
+}
+
+/// 单位换算:显示单位 ↔ 最小单位。
+#[tauri::command]
+pub fn tool_convert_units(
+    chain: ChainId,
+    value: String,
+    from_smallest: bool,
+) -> ApiResult<lycoris_core::tools::UnitConversion> {
+    Ok(lycoris_core::tools::convert_units(
+        chain,
+        &value,
+        from_smallest,
+    )?)
+}
+
+/// 助记词校验(BIP-39 词表 + 校验和)。
+#[tauri::command]
+pub fn tool_check_mnemonic(mnemonic: String) -> ApiResult<lycoris_core::tools::MnemonicCheck> {
+    Ok(lycoris_core::tools::check_mnemonic(&mnemonic)?)
+}
+
+/// 哈希计算:sha256 / sha512 / double-sha256 / keccak256 / hash160 / ripemd160。
+#[tauri::command]
+pub fn tool_hash(algorithm: String, input: String) -> ApiResult<lycoris_core::tools::DigestOutput> {
+    Ok(lycoris_core::tools::hash_string(&algorithm, &input)?)
+}
+
+/// 编码转换:hex / base64 / base58 并排展示。
+#[tauri::command]
+pub fn tool_encode(input: String) -> ApiResult<lycoris_core::tools::EncodingOutput> {
+    Ok(lycoris_core::tools::transform_encoding(&input)?)
+}
+
+/// 解析 BIP-21 / EIP-681 / Solana Pay 支付 URI。
+#[tauri::command]
+pub fn tool_parse_uri(uri: String) -> ApiResult<lycoris_core::tools::ParsedUri> {
+    Ok(lycoris_core::tools::parse_payment_uri(&uri)?)
+}
+
+/// 构造支付 URI(BIP-21 / EIP-681 / Solana Pay)。
+#[tauri::command]
+pub fn tool_compose_uri(
+    chain: ChainId,
+    address: String,
+    amount: Option<String>,
+    label: Option<String>,
+    message: Option<String>,
+) -> ApiResult<String> {
+    Ok(lycoris_core::tools::compose_payment_uri(
+        chain,
+        &address,
+        amount.as_deref(),
+        label.as_deref(),
+        message.as_deref(),
+    )?)
+}
+
+/// 用当前钱包的密钥对任意消息签名(EVM EIP-191 / Bitcoin BIP-137 /
+/// Solana ed25519),签名在 Rust 侧完成,密钥不经过 JS。
+#[tauri::command]
+pub fn tool_sign_message(
+    state: State<'_, crate::state::AppState>,
+    chain: ChainId,
+    message: String,
+    password: String,
+) -> ApiResult<lycoris_core::tx::message::MessageSignature> {
+    if !state.verify_password(&password)? {
+        return Err(ApiError::from(lycoris_core::Error::IncorrectPassword));
+    }
+    let secret = state.active_secret()?;
+    let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
+    match chain {
+        ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => Ok(
+            lycoris_core::tx::message::evm_sign_message(material.secp()?, &message)?,
+        ),
+        ChainId::Bitcoin | ChainId::Litecoin => Ok(lycoris_core::tx::message::btc_sign_message(
+            material.secp()?,
+            &message,
+        )?),
+        ChainId::Solana => Ok(lycoris_core::tx::message::solana_sign_message(
+            &material.ed25519_seed()?,
+            &message,
+        )?),
+        _ => Err(ApiError::new(
+            "UNSUPPORTED_CHAIN",
+            format!("{} 暂不支持消息签名", chain.info().name),
+        )),
+    }
+}
+
+/// 验证消息签名:返回签名者地址,与预期不符即应视为无效。
+#[tauri::command]
+pub fn tool_verify_message(
+    chain: ChainId,
+    message: String,
+    signature: String,
+) -> ApiResult<lycoris_core::tx::message::VerifyResult> {
+    match chain {
+        ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => {
+            let address = lycoris_core::tx::message::evm_verify_message(&message, &signature)
+                .map_err(ApiError::from)?;
+            Ok(lycoris_core::tx::message::VerifyResult {
+                scheme: "eip-191 personal_sign".into(),
+                signer: address,
+                verified: true,
+            })
+        }
+        ChainId::Bitcoin | ChainId::Litecoin => {
+            // BTC 侧接受 hex 或 base64 两种输入。
+            let b64 = if signature.trim().len() == 130 || signature.trim().len() == 128 {
+                let raw = hex::decode(signature.trim().trim_start_matches("0x")).map_err(|e| {
+                    ApiError::new("INVALID_SIGNATURE", format!("hex 解码失败: {e}"))
+                })?;
+                // 130 = r‖s‖v,128 = r‖s(取不到恢复位则报错)
+                if raw.len() != 65 {
+                    return Err(ApiError::new(
+                        "INVALID_SIGNATURE",
+                        "hex 签名应为 65 字节(r‖s‖v)",
+                    ));
+                }
+                use base64::Engine as _;
+                base64::engine::general_purpose::STANDARD.encode(raw)
+            } else {
+                signature.trim().to_string()
+            };
+            let address = lycoris_core::tx::message::btc_verify_message(&message, &b64)
+                .map_err(ApiError::from)?;
+            Ok(lycoris_core::tx::message::VerifyResult {
+                scheme: "bip-137 (compressed)".into(),
+                signer: address,
+                verified: true,
+            })
+        }
+        ChainId::Solana => {
+            // Solana 验签需要公钥:签名输入格式为 "地址:签名hex"。
+            let (address, sig) = signature.trim().split_once(':').ok_or_else(|| {
+                ApiError::new("INVALID_SIGNATURE", "Solana 验签格式:地址:签名hex")
+            })?;
+            let verified = lycoris_core::tx::message::solana_verify_message(address, &message, sig)
+                .map_err(ApiError::from)?;
+            Ok(lycoris_core::tx::message::VerifyResult {
+                scheme: "ed25519 (solana sign_message)".into(),
+                signer: address.to_string(),
+                verified,
+            })
+        }
+        _ => Err(ApiError::new(
+            "UNSUPPORTED_CHAIN",
+            format!("{} 暂不支持消息验签", chain.info().name),
+        )),
+    }
+}
+
 /// Open an explorer link in the system browser. Only `http(s)` URLs are
 /// allowed, everything else is rejected before it reaches the OS.
 #[tauri::command]

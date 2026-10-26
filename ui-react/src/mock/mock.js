@@ -71,6 +71,9 @@ const CHAINS = [
   { id: "dash", name: "Dash", symbol: "DASH", decimals: 8, accent: "#008DE4", kind: "utxo" },
   { id: "groestlcoin", name: "Groestlcoin", symbol: "GRS", decimals: 8, accent: "#36855A", kind: "utxo" },
   { id: "vertcoin", name: "Vertcoin", symbol: "VTC", decimals: 8, accent: "#5BB5A0", kind: "utxo" },
+  { id: "ravencoin", name: "Ravencoin", symbol: "RVN", decimals: 8, accent: "#B7B7B7", kind: "utxo" },
+  { id: "monacoin", name: "Monacoin", symbol: "MONA", decimals: 8, accent: "#B78C33", kind: "utxo" },
+  { id: "fujicoin", name: "Fujicoin", symbol: "FJC", decimals: 8, accent: "#B7472A", kind: "utxo" },
 ];
 
 const PRICES = {
@@ -94,6 +97,9 @@ const PRICES = {
   dash: { usd: 31.86, cny: 229.0 },
   groestlcoin: { usd: 0.382, cny: 2.75 },
   vertcoin: { usd: 0.0492, cny: 0.354 },
+  ravencoin: { usd: 0.0217, cny: 0.156 },
+  monacoin: { usd: 0.384, cny: 2.76 },
+  fujicoin: { usd: 0.0129, cny: 0.0928 },
 };
 
 const BALANCES = {
@@ -117,6 +123,9 @@ const BALANCES = {
   dash: 5_320_000_000n,
   groestlcoin: 68_400_000_000n,
   vertcoin: 31_260_000_000n,
+  ravencoin: 1_842_600_000_000n,
+  monacoin: 7_640_000_000n,
+  fujicoin: 124_800_000_000n,
 };
 
 const ALGOS = {
@@ -139,7 +148,10 @@ const ALGOS = {
   egulden: ["scrypt", "N=16384, r=8, p=1 · 32 字节摘要"],
   dash: ["X11", "Dash PoW 哈希 · 32 字节摘要"],
   groestlcoin: ["Groestl", "Groestl-512 → 前 32 字节"],
-  vertcoin: ["Lyra2RE", "Vertcoin PoW 哈希链"],
+  vertcoin: ["Lyra2RE", "Lyra2RE(v2) 哈希链"],
+  ravencoin: ["KawPow", "Ravencoin PoW 哈希 · progpow 变体"],
+  monacoin: ["Lyra2RE", "Lyra2RE(v2) 哈希链"],
+  fujicoin: ["Lyra2RE", "Lyra2RE(v2) 哈希链"],
 };
 
 const PATHS = {
@@ -163,6 +175,9 @@ const PATHS = {
   dash: "m/44'/5'/0'/0/0",
   groestlcoin: "m/44'/17'/0'/0/0",
   vertcoin: "m/44'/28'/0'/0/0",
+  ravencoin: "m/44'/175'/0'/0/0",
+  monacoin: "m/84'/22'/0'/0/0",
+  fujicoin: "m/84'/75'/0'/0/0",
 };
 
 /* BIP-44 coin types: chains with the same coin type share one key in
@@ -188,6 +203,9 @@ const COIN_TYPES = {
   dash: 5,
   groestlcoin: 17,
   vertcoin: 28,
+  ravencoin: 175,
+  monacoin: 22,
+  fujicoin: 75,
 };
 
 const TX_EXPLORERS = {  bitcoin: "https://mempool.space/tx/",
@@ -210,6 +228,9 @@ const TX_EXPLORERS = {  bitcoin: "https://mempool.space/tx/",
   dash: "https://chainz.cryptoid.info/dash/tx.dws?",
   groestlcoin: "https://grs.blockbook.network/tx/",
   vertcoin: "https://vtc.blockbook.network/tx/",
+  ravencoin: "https://blockbook.ravencoin.org/tx/",
+  monacoin: "https://blockbook.electrum-mona.org/tx/",
+  fujicoin: "https://explorer.fujicoin.org/tx/",
 };
 
 /* ------------------------------------------------------------------- random */
@@ -305,6 +326,12 @@ function fakeAddress(chain, seedText, mode) {
       return `L${pick(rand, BASE58, 33)}`;
     case "dash":
       return `X${pick(rand, BASE58, 33)}`;
+    case "ravencoin":
+      return `R${pick(rand, BASE58, 33)}`;
+    case "monacoin":
+      return `mona1q${pick(rand, BASE32, 38)}`;
+    case "fujicoin":
+      return `fc1q${pick(rand, BASE32, 38)}`;
     default:
       return `0x${pick(rand, HEX, 40)}`;
   }
@@ -472,7 +499,7 @@ function accountsFor(secret) {
             : chain.kind === "evm"
               ? "EIP-55"
               : chain.kind === "utxo" &&
-                  ["viacoin", "groestlcoin", "vertcoin", "bitcoin", "litecoin"].includes(chain.id)
+                  ["viacoin", "groestlcoin", "vertcoin", "bitcoin", "litecoin", "monacoin", "fujicoin"].includes(chain.id)
                 ? "bech32"
                 : "base58",
       publicKey: `0x${pick(keyStream(chain.id, seedText, secret.mode === "mnemonic" ? "mnemonic" : secret.derivation), HEX, 64)}`,
@@ -2053,7 +2080,7 @@ export async function mockCall(command, args = {}) {
       } else {
         for (const chain of CHAINS.filter((c) => c.kind === "utxo")) {
           if (chain.id === "bitcoincash") continue;
-          const prefix = { bitcoin: "bc1", litecoin: "ltc1", viacoin: "via1", groestlcoin: "grs1", vertcoin: "vtc1" }[chain.id];
+          const prefix = { bitcoin: "bc1", litecoin: "ltc1", viacoin: "via1", groestlcoin: "grs1", vertcoin: "vtc1", monacoin: "mona1", fujicoin: "fc1" }[chain.id];
           const legacy = {
             dogecoin: "D",
             bitcoinsv: "1",

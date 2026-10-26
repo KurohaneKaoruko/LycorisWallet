@@ -27,10 +27,13 @@ pub enum ChainId {
     Dash,
     Groestlcoin,
     Vertcoin,
+    Ravencoin,
+    Monacoin,
+    Fujicoin,
 }
 
 impl ChainId {
-    pub const ALL: [ChainId; 20] = [
+    pub const ALL: [ChainId; 23] = [
         ChainId::Bitcoin,
         ChainId::Litecoin,
         ChainId::Dogecoin,
@@ -51,6 +54,9 @@ impl ChainId {
         ChainId::Dash,
         ChainId::Groestlcoin,
         ChainId::Vertcoin,
+        ChainId::Ravencoin,
+        ChainId::Monacoin,
+        ChainId::Fujicoin,
     ];
 
     pub fn info(self) -> ChainInfo {
@@ -403,6 +409,57 @@ impl ChainId {
                 price_id: "vertcoin",
                 send_note: "Native SegWit (Bech32)",
             },
+            ChainId::Ravencoin => ChainInfo {
+                id: self,
+                name: "Ravencoin",
+                symbol: "RVN",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::KawPow,
+                bip44_coin: 175,
+                derivation_path: "m/44'/175'/0'/0/0",
+                accent: "#B7B7B7",
+                explorer: "https://blockbook.ravencoin.org",
+                explorer_tx: "https://blockbook.ravencoin.org/tx/",
+                explorer_address: "https://blockbook.ravencoin.org/address/",
+                rpc: "https://blockbook.ravencoin.org",
+                price_id: "ravencoin",
+                send_note: "Legacy P2PKH (Base58)",
+            },
+            ChainId::Monacoin => ChainInfo {
+                id: self,
+                name: "Monacoin",
+                symbol: "MONA",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Lyra2re,
+                bip44_coin: 22,
+                derivation_path: "m/84'/22'/0'/0/0",
+                accent: "#B78C33",
+                explorer: "https://blockbook.electrum-mona.org",
+                explorer_tx: "https://blockbook.electrum-mona.org/tx/",
+                explorer_address: "https://blockbook.electrum-mona.org/address/",
+                rpc: "https://blockbook.electrum-mona.org",
+                price_id: "monacoin",
+                send_note: "Native SegWit (Bech32 mona)",
+            },
+            ChainId::Fujicoin => ChainInfo {
+                id: self,
+                name: "Fujicoin",
+                symbol: "FJC",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Lyra2re,
+                bip44_coin: 75,
+                derivation_path: "m/84'/75'/0'/0/0",
+                accent: "#B7472A",
+                explorer: "https://explorer.fujicoin.org",
+                explorer_tx: "https://explorer.fujicoin.org/tx/",
+                explorer_address: "https://explorer.fujicoin.org/address/",
+                rpc: "https://explorer.fujicoin.org",
+                price_id: "fujicoin",
+                send_note: "Native SegWit (Bech32 fc)",
+            },
         }
     }
 
@@ -435,6 +492,9 @@ impl ChainId {
             ChainId::Dash => "dash",
             ChainId::Groestlcoin => "groestlcoin",
             ChainId::Vertcoin => "vertcoin",
+            ChainId::Ravencoin => "ravencoin",
+            ChainId::Monacoin => "monacoin",
+            ChainId::Fujicoin => "fujicoin",
         }
     }
 
@@ -455,6 +515,9 @@ impl ChainId {
                 | ChainId::Potcoin
                 | ChainId::EGulden
                 | ChainId::Dash
+                // Ravencoin never activated SegWit; its R… addresses are
+                // plain P2PKH with the classic pre-BIP143 digest.
+                | ChainId::Ravencoin
         )
     }
 
@@ -477,7 +540,12 @@ impl ChainId {
             | ChainId::Viacoin
             | ChainId::Feathercoin
             | ChainId::Groestlcoin
-            | ChainId::Dash => UtxoBackend::Blockbook,
+            | ChainId::Dash
+            // Ravencoin / Monacoin / Fujicoin community Blockbook instances
+            // (verified live: balance, UTXO and history endpoints answer).
+            | ChainId::Ravencoin
+            | ChainId::Monacoin
+            | ChainId::Fujicoin => UtxoBackend::Blockbook,
             ChainId::Bitcoin | ChainId::Litecoin => UtxoBackend::Esplora,
             ChainId::BitcoinSv => UtxoBackend::WhatsOnChain,
             // Chainz-only chains: balance via the keyless cryptoid API.
@@ -536,6 +604,9 @@ impl ChainId {
             ChainId::Dash => "duff",
             ChainId::Groestlcoin => "gros",
             ChainId::Vertcoin => "弗特",
+            ChainId::Ravencoin => "渡鸦",
+            ChainId::Monacoin => "萌",
+            ChainId::Fujicoin => "富士",
             ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => {
                 "gwei"
             }
@@ -671,6 +742,32 @@ impl ChainId {
                 p2sh_version: 0x05,
                 wif_version: 0x80,
             }),
+            // Ravencoin: PUBKEY=60 (R…), SCRIPT=122, SECRET=128 — verified
+            // against Ravencoin's src/chainparams.cpp CMainParams.
+            ChainId::Ravencoin => Some(UtxoParams {
+                hrp: "rvn",
+                p2pkh_version: 60,
+                p2sh_version: 122,
+                wif_version: 0x80,
+            }),
+            // Monacoin: PUBKEY=50 (M…), SCRIPT=55 (P…), SECRET=176 — verified
+            // against monacoin's src/chainparams.cpp CMainParams.
+            ChainId::Monacoin => Some(UtxoParams {
+                hrp: "mona",
+                p2pkh_version: 50,
+                p2sh_version: 55,
+                wif_version: 0xb0,
+            }),
+            // Fujicoin: PUBKEY=36 (F…), SCRIPT=16, bech32 "fc" — verified
+            // against trezor coins.json and a live mainnet coinbase payout
+            // (FoFS1uDd5CtBPm2wmSWmorfU1eubVJRAdJ). WIF keeps the Bitcoin
+            // fork default 0x80.
+            ChainId::Fujicoin => Some(UtxoParams {
+                hrp: "fc",
+                p2pkh_version: 36,
+                p2sh_version: 16,
+                wif_version: 0x80,
+            }),
             _ => None,
         }
     }
@@ -730,6 +827,7 @@ pub enum HashAlgorithm {
     X11,
     Groestl,
     Lyra2re,
+    KawPow,
 }
 
 impl HashAlgorithm {
@@ -741,6 +839,7 @@ impl HashAlgorithm {
             HashAlgorithm::X11 => "X11",
             HashAlgorithm::Groestl => "Groestl",
             HashAlgorithm::Lyra2re => "Lyra2RE",
+            HashAlgorithm::KawPow => "KawPow",
         }
     }
 
@@ -751,7 +850,8 @@ impl HashAlgorithm {
             HashAlgorithm::Scrypt => "N=16384, r=8, p=1 · 32 byte digest",
             HashAlgorithm::X11 => "Dash PoW 哈希 · 32 byte digest",
             HashAlgorithm::Groestl => "Groestl-512 → 前 32 字节",
-            HashAlgorithm::Lyra2re => "Vertcoin PoW 哈希链",
+            HashAlgorithm::Lyra2re => "Lyra2RE(v2) 哈希链",
+            HashAlgorithm::KawPow => "Ravencoin PoW 哈希 · progpow 变体",
         }
     }
 }
@@ -842,4 +942,47 @@ mod tests {
         assert_eq!(ChainId::BitcoinCash.utxo_backend(), UtxoBackend::Blockbook);
         assert_eq!(ChainId::BitcoinCash.info().rpc, "https://bch.trezor.io");
     }
+
+    #[test]
+    fn pow_forks_route_to_live_blockbooks() {
+        // Endpoints verified live (balance/UTXO/history answered 200).
+        for (chain, base) in [
+            (ChainId::Ravencoin, "https://blockbook.ravencoin.org"),
+            (ChainId::Monacoin, "https://blockbook.electrum-mona.org"),
+            (ChainId::Fujicoin, "https://explorer.fujicoin.org"),
+        ] {
+            assert_eq!(chain.utxo_backend(), UtxoBackend::Blockbook);
+            assert_eq!(chain.info().rpc, base);
+        }
+    }
+
+    #[test]
+    fn pow_fork_address_params_match_chainparams() {
+        // Version bytes cross-checked against each coin's chainparams.cpp
+        // CMainParams (see comments on utxo_params).
+        let rvn = ChainId::Ravencoin.utxo_params().unwrap();
+        assert_eq!(
+            (rvn.p2pkh_version, rvn.p2sh_version, rvn.wif_version),
+            (60, 122, 0x80)
+        );
+        let mona = ChainId::Monacoin.utxo_params().unwrap();
+        assert_eq!(
+            (mona.p2pkh_version, mona.p2sh_version, mona.wif_version),
+            (50, 55, 0xb0)
+        );
+        let fjc = ChainId::Fujicoin.utxo_params().unwrap();
+        assert_eq!(
+            (fjc.p2pkh_version, fjc.p2sh_version, fjc.wif_version),
+            (36, 16, 0x80)
+        );
+        // Ravencoin is the only SegWit-less one of the three.
+        assert!(ChainId::Ravencoin.legacy_utxo());
+        assert!(!ChainId::Monacoin.legacy_utxo());
+        assert!(!ChainId::Fujicoin.legacy_utxo());
+        // BIP-44/84 coin types match SLIP-44.
+        assert_eq!(ChainId::Ravencoin.info().bip44_coin, 175);
+        assert_eq!(ChainId::Monacoin.info().bip44_coin, 22);
+        assert_eq!(ChainId::Fujicoin.info().bip44_coin, 75);
+    }
 }
+

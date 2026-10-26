@@ -32,6 +32,9 @@ const CHAIN_LABELS: Record<ChainId, string> = {
   dash: "Dash",
   groestlcoin: "Groestlcoin",
   vertcoin: "Vertcoin",
+  ravencoin: "Ravencoin",
+  monacoin: "Monacoin",
+  fujicoin: "Fujicoin",
 };
 
 const ACCENTS: Partial<Record<ChainId, string>> = {

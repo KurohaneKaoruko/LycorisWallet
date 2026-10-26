@@ -1038,7 +1038,11 @@ fn account_from_secp(
         | ChainId::Litecoin
         | ChainId::Viacoin
         | ChainId::Groestlcoin
-        | ChainId::Vertcoin => {
+        | ChainId::Vertcoin
+        // Monacoin and Fujicoin run native SegWit with their own hrp
+        // (mona / fc), exactly like Litecoin does with ltc.
+        | ChainId::Monacoin
+        | ChainId::Fujicoin => {
             let params = chain.utxo_params().expect("utxo params");
             p2wpkh_address(&compressed_pubkey(key), params.hrp)?
         }
@@ -1049,7 +1053,9 @@ fn account_from_secp(
         | ChainId::Feathercoin
         | ChainId::Potcoin
         | ChainId::EGulden
-        | ChainId::Dash => {
+        | ChainId::Dash
+        // Ravencoin never activated SegWit: plain P2PKH, R… prefix.
+        | ChainId::Ravencoin => {
             let params = chain.utxo_params().expect("utxo params");
             p2pkh_address(&compressed_pubkey(key), params.p2pkh_version)
         }
@@ -2249,9 +2255,9 @@ mod tests {
         }
 
         let accounts = derive_accounts(&from_wif).unwrap();
-        // secp 链(原 8 条 + 2026 追加的 10 条 UTXO 链),无 Solana/Monero
-        // (钥匙环只导入了 secp 槽)。
-        assert_eq!(accounts.len(), 18);
+        // secp 链(原 8 条 + 2026 追加的 10 条 UTXO 链 + 2026 二批的
+        // RVN/MONA/FJC),无 Solana/Monero(钥匙环只导入了 secp 槽)。
+        assert_eq!(accounts.len(), 21);
         assert!(accounts.iter().all(|a| a.chain != ChainId::Solana));
         assert!(accounts.iter().all(|a| a.chain != ChainId::Monero));
         // 私钥 1 的以太坊地址是众所周知的向量。
@@ -2731,7 +2737,7 @@ mod tests {
                 .clone()
         };
 
-        // bech32(SegWit)三条。
+        // bech32(SegWit)三条 + 2026 二批的 MONA/FJC。
         assert!(
             address(ChainId::Viacoin).starts_with("via1"),
             "{}",
@@ -2739,6 +2745,8 @@ mod tests {
         );
         assert!(address(ChainId::Groestlcoin).starts_with("grs1"));
         assert!(address(ChainId::Vertcoin).starts_with("vtc1"));
+        assert!(address(ChainId::Monacoin).starts_with("mona1"));
+        assert!(address(ChainId::Fujicoin).starts_with("fc1"));
         // P2PKH 前缀由 base58 版本字节决定。
         assert!(address(ChainId::BitcoinSv).starts_with('1'));
         assert!(
@@ -2753,6 +2761,8 @@ mod tests {
         assert!(address(ChainId::Potcoin).starts_with('P'));
         assert!(address(ChainId::EGulden).starts_with('L'));
         assert!(address(ChainId::Dash).starts_with('X'));
+        // Ravencoin P2PKH 版本字节 60 → R 前缀。
+        assert!(address(ChainId::Ravencoin).starts_with('R'));
         // 每条链的地址都能通过自己的校验。
         for chain in [
             ChainId::BitcoinSv,
@@ -2765,6 +2775,9 @@ mod tests {
             ChainId::Dash,
             ChainId::Groestlcoin,
             ChainId::Vertcoin,
+            ChainId::Ravencoin,
+            ChainId::Monacoin,
+            ChainId::Fujicoin,
         ] {
             let value = address(chain);
             assert!(

@@ -14,8 +14,8 @@ use lycoris_core::models::{
     SendQuote, SendResult,
 };
 use lycoris_core::network::{
-    blockbook::BlockbookClient, blockchair::BlockchairClient, evm::EvmClient, history, prices,
-    solana::SolanaClient, utxo::UtxoClient, woc::WocClient,
+    blockbook::BlockbookClient, blockchair::BlockchairClient, chainz::ChainzClient, evm::EvmClient,
+    history, prices, solana::SolanaClient, utxo::UtxoClient, woc::WocClient,
 };
 use lycoris_core::tx::evm::{sign_transaction, EvmCall, EvmFee};
 use lycoris_core::tx::solana::build_transfer;
@@ -142,32 +142,70 @@ enum UtxoAdapter {
     Blockbook(BlockbookClient),
     Blockchair(BlockchairClient),
     Woc(WocClient),
+    Chainz(ChainzClient),
 }
 
 const NO_DATA_SOURCE: &str = "该链暂无公共数据源（浏览器链接仍可用）";
 
+/// Blockchair's per-chain base URL, used by the fallback backend only.
+fn blockchair_base(chain: ChainId) -> &'static str {
+    match chain {
+        ChainId::Dogecoin => "https://api.blockchair.com/dogecoin",
+        ChainId::BitcoinCash => "https://api.blockchair.com/bitcoin-cash",
+        ChainId::Dash => "https://api.blockchair.com/dash",
+        ChainId::Groestlcoin => "https://api.blockchair.com/groestlcoin",
+        ChainId::Feathercoin => "https://api.blockchair.com/feathercoin",
+        ChainId::Viacoin => "https://api.blockchair.com/viacoin",
+        _ => "https://api.blockchair.com/bitcoin",
+    }
+}
+
 impl UtxoAdapter {
-    /// Builds the client for `chain`; `None` when the chain has no index API.
-    fn for_chain(
+    fn from_backend(
         client: &reqwest::Client,
         chain: ChainId,
+        backend: UtxoBackend,
         blockchair_key: Option<&str>,
     ) -> Option<Self> {
         let info = chain.info();
-        match chain.utxo_backend() {
+        match backend {
             UtxoBackend::Esplora => Some(Self::Esplora(UtxoClient::new(client.clone(), info.rpc))),
             UtxoBackend::Blockbook => Some(Self::Blockbook(BlockbookClient::new(
                 client.clone(),
                 info.rpc,
             ))),
-            UtxoBackend::Blockchair => Some(Self::Blockchair(BlockchairClient::with_settings(
-                client.clone(),
-                info.rpc,
-                blockchair_key,
-            ))),
+            UtxoBackend::Blockchair => {
+                // The fallback reads Blockchair directly (primary chains keep
+                // their own rpc; blockbook chains get the per-chain base).
+                let base = if chain.utxo_backend() == UtxoBackend::Blockchair {
+                    info.rpc
+                } else {
+                    blockchair_base(chain)
+                };
+                Some(Self::Blockchair(BlockchairClient::with_settings(
+                    client.clone(),
+                    base,
+                    blockchair_key,
+                )))
+            }
             UtxoBackend::WhatsOnChain => Some(Self::Woc(WocClient::new(client.clone(), info.rpc))),
+            UtxoBackend::Chainz => Some(Self::Chainz(ChainzClient::new(
+                client.clone(),
+                chain.chainz_coin(),
+                info.decimals,
+            ))),
             UtxoBackend::None => None,
         }
+    }
+
+    /// Builds the primary client for `chain`; `None` when the chain has no
+    /// index API at all.
+    fn for_chain(
+        client: &reqwest::Client,
+        chain: ChainId,
+        blockchair_key: Option<&str>,
+    ) -> Option<Self> {
+        Self::from_backend(client, chain, chain.utxo_backend(), blockchair_key)
     }
 
     async fn balance(&self, chain: ChainId, address: &str) -> ApiResult<u64> {
@@ -179,6 +217,7 @@ impl UtxoAdapter {
                 .map_err(Into::into),
             Self::Blockchair(client) => client.balance(address).await.map_err(Into::into),
             Self::Woc(client) => client.balance(address).await.map_err(Into::into),
+            Self::Chainz(client) => client.balance(address).await.map_err(Into::into),
         }
     }
 
@@ -195,6 +234,10 @@ impl UtxoAdapter {
                 .map_err(Into::into),
             Self::Blockchair(client) => client.utxos(address).await.map_err(Into::into),
             Self::Woc(client) => client.utxos(address).await.map_err(Into::into),
+            Self::Chainz(_) => Err(ApiError::new(
+                "UNSUPPORTED",
+                "该链暂无公共 UTXO 数据源，无法转账（余额查询可用）",
+            )),
         }
     }
 
@@ -202,9 +245,9 @@ impl UtxoAdapter {
         match self {
             Self::Esplora(client) => client.fees().await.map_err(Into::into),
             Self::Blockbook(client) => client.fees(chain.info().decimals).await.map_err(Into::into),
-            // Blockchair/WoC have no free recommended-fee endpoint: fall back
-            // to the chain's documented default rate.
-            Self::Blockchair(_) | Self::Woc(_) => Ok(default_fees(chain)),
+            // Blockchair/WoC/Chainz have no free recommended-fee endpoint:
+            // fall back to the chain's documented default rate.
+            Self::Blockchair(_) | Self::Woc(_) | Self::Chainz(_) => Ok(default_fees(chain)),
         }
     }
 
@@ -214,6 +257,10 @@ impl UtxoAdapter {
             Self::Blockbook(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Blockchair(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Woc(client) => client.broadcast(raw_hex).await.map_err(Into::into),
+            Self::Chainz(_) => Err(ApiError::new(
+                "UNSUPPORTED",
+                "该链暂无公共广播端点，无法转账（余额查询可用）",
+            )),
         }
     }
 
@@ -236,7 +283,7 @@ impl UtxoAdapter {
                 .transactions(chain, address)
                 .await
                 .map_err(ApiError::from),
-            Self::Blockchair(_) | Self::Woc(_) => Ok(Vec::new()),
+            Self::Blockchair(_) | Self::Woc(_) | Self::Chainz(_) => Ok(Vec::new()),
         }
     }
 }
@@ -252,20 +299,37 @@ fn default_fees(chain: ChainId) -> lycoris_core::tx::utxo::RecommendedFees {
     }
 }
 
+/// Balance with automatic multi-source fallback: primary backend first,
+/// then the chain's configured fallback — so out-of-the-box wallets never
+/// need an API key to show a balance.
 async fn fetch_balance(
     client: &reqwest::Client,
     chain: ChainId,
     address: &str,
+    blockchair_key: Option<&str>,
 ) -> Result<u128, String> {
     match chain.info().kind {
-        ChainKind::Utxo => match UtxoAdapter::for_chain(client, chain, None) {
-            Some(adapter) => adapter
-                .balance(chain, address)
-                .await
-                .map(u128::from)
-                .map_err(|error| error.to_string()),
-            None => Err(NO_DATA_SOURCE.to_string()),
-        },
+        ChainKind::Utxo => {
+            let primary = UtxoAdapter::for_chain(client, chain, blockchair_key);
+            let mut last_error = None;
+            for adapter in
+                std::iter::once(primary).chain(chain.fallback_backend().map(|backend| {
+                    UtxoAdapter::from_backend(client, chain, backend, blockchair_key)
+                }))
+            {
+                let Some(adapter) = adapter else {
+                    continue;
+                };
+                match adapter.balance(chain, address).await {
+                    Ok(amount) => return Ok(u128::from(amount)),
+                    Err(error) => last_error = Some(error.to_string()),
+                }
+            }
+            Err(match last_error {
+                Some(message) => message,
+                None => NO_DATA_SOURCE.to_string(),
+            })
+        }
         ChainKind::Evm => EvmClient::new(client.clone(), chain.info().rpc)
             .balance(address)
             .await
@@ -466,11 +530,26 @@ pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
         .partition(|(_, account)| account.chain.info().kind == ChainKind::Cryptonote);
 
     let mut tasks = tokio::task::JoinSet::new();
+    let blockchair_key = state
+        .settings()
+        .ok()
+        .and_then(|settings| {
+            let key = settings.blockchair_api_key;
+            (!key.is_empty()).then_some(key)
+        })
+        .map(std::sync::Arc::new);
     for (id, account) in rest {
         let client = client.clone();
         let chain = account.chain;
+        let blockchair_key = blockchair_key.clone();
         tasks.spawn(async move {
-            let result = fetch_balance(&client, chain, &account.address).await;
+            let result = fetch_balance(
+                &client,
+                chain,
+                &account.address,
+                blockchair_key.as_deref().map(String::as_str),
+            )
+            .await;
             (id, chain, account.address, result)
         });
     }
@@ -603,6 +682,29 @@ fn legacy_fee_levels(chain: ChainId) -> [(&'static str, u64, &'static str); 3] {
     ]
 }
 
+/// UTXO feed with the same multi-source fallback as `fetch_balance`. Returns
+/// the adapter that answered, so the caller broadcasts through the same source
+/// it built the transaction from.
+async fn utxos_with_fallback(
+    client: &reqwest::Client,
+    chain: ChainId,
+    address: &str,
+    blockchair_key: Option<&str>,
+) -> ApiResult<(UtxoAdapter, Vec<lycoris_core::network::utxo::Utxo>)> {
+    let primary = UtxoAdapter::for_chain(client, chain, blockchair_key);
+    let fallback = chain
+        .fallback_backend()
+        .and_then(|backend| UtxoAdapter::from_backend(client, chain, backend, blockchair_key));
+    let mut last_error = None;
+    for adapter in [primary, fallback].into_iter().flatten() {
+        match adapter.utxos(chain, address).await {
+            Ok(utxos) => return Ok((adapter, utxos)),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| ApiError::new("UNSUPPORTED", NO_DATA_SOURCE)))
+}
+
 /// Quote for Dogecoin / Bitcoin Cash: legacy P2PKH spends priced in
 /// satoshis per byte.
 async fn legacy_utxo_quote(
@@ -613,10 +715,7 @@ async fn legacy_utxo_quote(
     blockchair_key: Option<&str>,
 ) -> ApiResult<QuoteFees> {
     let info = chain.info();
-    let Some(adapter) = UtxoAdapter::for_chain(client, chain, blockchair_key) else {
-        return Err(ApiError::new("UNSUPPORTED", NO_DATA_SOURCE));
-    };
-    let utxos = adapter.utxos(chain, address).await?;
+    let (_adapter, utxos) = utxos_with_fallback(client, chain, address, blockchair_key).await?;
     let inputs: Vec<UtxoInput> = utxos
         .iter()
         .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))
@@ -673,11 +772,8 @@ async fn utxo_quote(
     if chain.legacy_utxo() {
         return legacy_utxo_quote(client, chain, address, amount, blockchair_key).await;
     }
-    let Some(adapter) = UtxoAdapter::for_chain(client, chain, blockchair_key) else {
-        return Err(ApiError::new("UNSUPPORTED", NO_DATA_SOURCE));
-    };
+    let (adapter, utxos) = utxos_with_fallback(client, chain, address, blockchair_key).await?;
     let fees = adapter.fees(chain).await?;
-    let utxos = adapter.utxos(chain, address).await?;
     let inputs: Vec<UtxoInput> = utxos
         .iter()
         .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))
@@ -1078,12 +1174,9 @@ async fn send_utxo(
     if chain.legacy_utxo() {
         return send_legacy_utxo(state, chain, address, to, amount, level).await;
     }
-    let Some(adapter) = UtxoAdapter::for_chain(&client, chain, None) else {
-        return Err(ApiError::new("UNSUPPORTED", NO_DATA_SOURCE));
-    };
+    let (adapter, utxos) = utxos_with_fallback(&client, chain, address, None).await?;
     let fees = adapter.fees(chain).await?;
     let fee_rate = fee_rate_for_level(&fees, level);
-    let utxos = adapter.utxos(chain, address).await?;
     let inputs: Vec<UtxoInput> = utxos
         .iter()
         .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))
@@ -1140,20 +1233,19 @@ async fn send_legacy_utxo(
     let _info = chain.info();
     let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
-    let Some(adapter) = UtxoAdapter::for_chain(
+    let (adapter, utxos) = utxos_with_fallback(
         &client,
         chain,
+        address,
         Some(state.settings()?.blockchair_api_key.as_str()),
-    ) else {
-        return Err(ApiError::new("UNSUPPORTED", NO_DATA_SOURCE));
-    };
+    )
+    .await?;
     let fee_rate = legacy_fee_levels(chain)
         .iter()
         .find(|(name, _, _)| *name == level)
         .map(|(_, rate, _)| *rate)
         .unwrap_or_else(|| chain.default_fee_rate());
 
-    let utxos = adapter.utxos(chain, address).await?;
     let inputs: Vec<UtxoInput> = utxos
         .iter()
         .map(|utxo| UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed))

@@ -257,8 +257,8 @@ export function SettingsView() {
           <div className="section-title"><h2>网络</h2></div>
           <div className="setting-row">
             <div className="text">
-              <div className="name">Blockchair API Key</div>
-              <div className="desc">Dogecoin 与 Bitcoin Cash 的余额、报价和广播经 Blockchair；无需密钥也可用，但限额下数据可能不全。</div>
+              <div className="name">Blockchair API Key（可选）</div>
+              <div className="desc">余额查询默认走免密钥的公共数据源，失败时自动回退 Blockchair；填 Key 可提高回退源的配额。</div>
             </div>
             <span className="chip">{s.blockchairApiKey ? `${s.blockchairApiKey.slice(0, 4)}????${s.blockchairApiKey.slice(-4)}` : "未设置"}</span>
           </div>

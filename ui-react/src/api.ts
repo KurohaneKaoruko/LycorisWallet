@@ -8,6 +8,7 @@ import { mockCall } from "./mock/mock";
 
 import type {
   AccountDetailView,
+  ActivitySyncReport,
   AddressReport,
   ApiErrorLike,
   BatchRequest,
@@ -155,6 +156,8 @@ export const api = {
   deleteWallet: (id: string, password: string) =>
     call("delete_wallet", { id, password }) as Promise<WalletView>,
   refreshPortfolio: (): Promise<Portfolio> => call("refresh_portfolio") as Promise<Portfolio>,
+  refreshActivity: (): Promise<ActivitySyncReport> =>
+    call("refresh_activity") as Promise<ActivitySyncReport>,
   quoteSend: (request: unknown) => call("quote_send", { request }) as Promise<SendQuote>,
   sendTransaction: (request: unknown) => call("send_transaction", { request }) as Promise<SendResult>,
   saveContact: (contact: Partial<Contact>) => call("save_contact", { contact }) as Promise<Contact[]>,

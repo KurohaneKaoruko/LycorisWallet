@@ -83,6 +83,7 @@ pub fn run() {
             commands::rename_aggregate_key,
             commands::change_password,
             commands::refresh_portfolio,
+            commands::refresh_activity,
             commands::quote_send,
             commands::send_transaction,
             commands::save_contact,

@@ -57,10 +57,23 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 > Dogecoin 与 Bitcoin Cash 的收款、余额与转账均已可用：前者用 legacy P2PKH 传统 sighash，后者用
 > BIP-143 + SIGHASH-FORKID，交易字节与 libsecp256k1 独立实现逐字节一致。
 > 两条链的链上数据走 Blockchair，现在需要 API Key，可在「设置 → 网络」里填写（保存在加密钱包文件里）。
-> 新增的十条链：地址派生、校验与收款即时可用；余额/转账依赖对应 blockbook 端点的可用性
-> （部分小链的公共实例可能不稳定，失败时仅显示「余额未查询」并不影响资产管理）。
+> 新增的十条链按数据源分三类：Viacoin / Feathercoin / Groestlcoin / Dash 走 trezor Blockbook 端点
+> （余额、转账、交易历史全可用），Bitcoin SV 走 WhatsOnChain（余额、转账可用）；
+> Namecoin / Litecoin Cash / Potcoin / e-Gulden / Vertcoin 暂无公共索引 API，仅提供地址派生、
+> 校验与浏览器链接（余额显示「该链暂无公共数据源」，不影响资产管理）。
 > Monero 的收款地址派生、余额与转账均已可用：RingCT 签名由本地的 `monero-wallet-rpc` 完成，
 > 配置见下方「Monero 转账」一节。
+
+### 链上数据源
+
+| 链 | 余额/转账 | 交易历史 |
+| --- | --- | --- |
+| BTC / LTC | mempool.space / litecoinspace（esplora） | 同左，打开「交易记录」自动同步 |
+| DOGE / BCH | Blockchair（建议配置 API Key） | —（Blockchair 免费档不提供地址历史） |
+| BSV | WhatsOnChain | — |
+| VIA / FTC / GRS / DASH | trezor Blockbook（`/api/v2`） | 同左，含收款入账与确认状态 |
+| NMC / LCC / POT / EFL / VTC | 暂无公共索引 API | — |
+| ETH / ETC / BSC / POL / SOL / XMR | JSON-RPC / 本地 wallet-rpc | —（待接索引器） |
 
 ### 口令派生规则
 
@@ -249,8 +262,9 @@ python tools/verify_qr_svg.py out/mock-qr-fixtures.txt
 
 ## 已知限制
 
-- 交易记录目前只记录本机发起的转账，不索引收款；余额来自公开节点/接口。
-- 状态不会自动刷新（记录停留在「待确认」），请以区块浏览器为准。
+- 交易记录：本机发起的转账自动记录；UTXO 链的收款会在打开「交易记录」时从链上索引同步
+  （BTC/LTC/VIA/FTC/GRS/DASH），EVM/Solana/Monero 的收款索引待接公共索引器。
+- 待确认状态会在同步时自动更新为已确认；两条链之间的浏览器链接始终可用。
 - Monero 余额与转账依赖本地 `monero-wallet-rpc`；首次扫描需要时间，恢复高度留 0 会从创世块扫起。
 - 尚无硬件钱包、多账户、隔离见证找零以外的 UTXO 管理。
 - 价格来自 CoinGecko 公共接口，可在设置里关闭。

@@ -38,6 +38,18 @@ function corePreview(secret) {
   return preview;
 }
 
+/** Smallest-unit integer → trimmed decimal string, like Rust's format_amount. */
+function trimDecimal(units, decimals) {
+  const negative = units.startsWith("-");
+  const digits = negative ? units.slice(1) : units;
+  const padded = digits.padStart(decimals + 1, "0");
+  const whole = padded.slice(0, padded.length - decimals);
+  let frac = decimals > 0 ? padded.slice(padded.length - decimals) : "";
+  frac = frac.replace(/0+$/, "");
+  const text = frac ? `${whole}.${frac}` : whole;
+  return negative ? `-${text}` : text;
+}
+
 const CHAINS = [
   { id: "bitcoin", name: "Bitcoin", symbol: "BTC", decimals: 8, accent: "#F7931A", kind: "utxo" },
   { id: "litecoin", name: "Litecoin", symbol: "LTC", decimals: 8, accent: "#345D9D", kind: "utxo" },
@@ -1831,6 +1843,50 @@ export async function mockCall(command, args = {}) {
 
     case "refresh_portfolio":
       return portfolio();
+
+    case "refresh_activity": {
+      // Demo sync: pending sends confirm, and a fresh receive drops in for
+      // chains the demo wallet tracks — enough to showcase the flow.
+      const wallet = activeWallet();
+      wallet.activity = wallet.activity ?? [];
+      let confirmedItems = 0;
+      for (const item of wallet.activity) {
+        if (item.status === "pending") {
+          item.status = "confirmed";
+          confirmedItems += 1;
+        }
+      }
+      let newItems = 0;
+      if (wallet.activity.length < 30) {
+        const chain = CHAINS.find((item) => item.id === "bitcoin") ?? CHAINS[0];
+        const decimals = chain.decimals ?? 8;
+        // 0.0002 in smallest-unit notation, trimmed like the Rust side does.
+        const amount = trimDecimal((2 * 10 ** (decimals - 4)).toString(), decimals);
+        wallet.activity.unshift({
+          id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+          chain: chain.id,
+          direction: "receive",
+          amount,
+          symbol: chain.symbol,
+          counterparty: "bc1q…demo-incoming",
+          txid: Array.from({ length: 64 }, () =>
+            "0123456789abcdef"[Math.floor(Math.random() * 16)],
+          ).join(""),
+          status: Math.random() > 0.3 ? "confirmed" : "pending",
+          fee: "",
+          timestamp: Math.floor(Date.now() / 1000) - Math.floor(Math.random() * 3600),
+          explorerUrl: "https://mempool.space/tx/demo",
+        });
+        newItems = 1;
+      }
+      wallet.activity = wallet.activity.slice(0, 500);
+      persist();
+      return {
+        newItems,
+        confirmedItems,
+        failedChains: [],
+      };
+    }
 
     case "quote_send":
       return quoteFor(args.request ?? {});

@@ -9,7 +9,7 @@ import { api, isMock } from "../api";
 import { useSession, type ViewId } from "./session";
 import { Icon } from "../ui/Icon";
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 const TOUCH_INTERVAL = 20_000; // ms between session touches
 const AUTO_REFRESH_INTERVAL = 120_000; // ms
 

@@ -252,10 +252,12 @@ impl ChainId {
                 bip44_coin: 7,
                 derivation_path: "m/44'/7'/0'/0/0",
                 accent: "#186C9D",
-                explorer: "https://nmc.blockbook.trezor.io",
-                explorer_tx: "https://nmc.blockbook.trezor.io/tx/",
-                explorer_address: "https://nmc.blockbook.trezor.io/address/",
-                rpc: "https://nmc.blockbook.trezor.io/api",
+                explorer: "https://namecha.in/",
+                explorer_tx: "https://namecha.in/tx/",
+                explorer_address: "https://namecha.in/address/",
+                // No public index API: balance/history gracefully report
+                // "no data source"; the explorer link above still works.
+                rpc: "",
                 price_id: "namecoin",
                 send_note: "Legacy P2PKH（经典 sighash）",
             },
@@ -269,10 +271,11 @@ impl ChainId {
                 bip44_coin: 192,
                 derivation_path: "m/44'/192'/0'/0/0",
                 accent: "#BEBEBE",
-                explorer: "https://explorer.litecoinca.sh",
-                explorer_tx: "https://explorer.litecoinca.sh/tx/",
-                explorer_address: "https://explorer.litecoinca.sh/address/",
-                rpc: "https://explorer.litecoinca.sh/api",
+                explorer: "https://chainz.cryptoid.info/lcc/",
+                explorer_tx: "https://chainz.cryptoid.info/lcc/tx.dws?h=",
+                explorer_address: "https://chainz.cryptoid.info/lcc/address.dws?u=",
+                // No public index API (chainz is explorer-only).
+                rpc: "",
                 price_id: "litecoin-cash",
                 send_note: "Legacy P2PKH（经典 sighash）",
             },
@@ -286,10 +289,10 @@ impl ChainId {
                 bip44_coin: 8,
                 derivation_path: "m/44'/8'/0'/0/0",
                 accent: "#C6E4EE",
-                explorer: "https://ftc.blockbook.trezor.io",
-                explorer_tx: "https://ftc.blockbook.trezor.io/tx/",
-                explorer_address: "https://ftc.blockbook.trezor.io/address/",
-                rpc: "https://ftc.blockbook.trezor.io/api",
+                explorer: "https://explorer.feathercoin.com",
+                explorer_tx: "https://explorer.feathercoin.com/tx/",
+                explorer_address: "https://explorer.feathercoin.com/address/",
+                rpc: "https://explorer.feathercoin.com",
                 price_id: "feathercoin",
                 send_note: "Legacy P2PKH（经典 sighash）",
             },
@@ -303,10 +306,10 @@ impl ChainId {
                 bip44_coin: 14,
                 derivation_path: "m/44'/14'/0'/0/0",
                 accent: "#404E82",
-                explorer: "https://via.blockbook.trezor.io",
-                explorer_tx: "https://via.blockbook.trezor.io/tx/",
-                explorer_address: "https://via.blockbook.trezor.io/address/",
-                rpc: "https://via.blockbook.trezor.io/api",
+                explorer: "https://blockbook.viacoin.org",
+                explorer_tx: "https://blockbook.viacoin.org/tx/",
+                explorer_address: "https://blockbook.viacoin.org/address/",
+                rpc: "https://blockbook.viacoin.org",
                 price_id: "viacoin",
                 send_note: "Native SegWit (Bech32)",
             },
@@ -320,10 +323,11 @@ impl ChainId {
                 bip44_coin: 81,
                 derivation_path: "m/44'/81'/0'/0/0",
                 accent: "#3F8C48",
-                explorer: "https://chainz.cryptoid.info/pot",
-                explorer_tx: "https://chainz.cryptoid.info/pot/tx.dws?",
-                explorer_address: "https://chainz.cryptoid.info/pot/address.dws?",
-                rpc: "https://potcoin1.blockbook.trezor.io",
+                explorer: "https://chainz.cryptoid.info/pot/",
+                explorer_tx: "https://chainz.cryptoid.info/pot/tx.dws?h=",
+                explorer_address: "https://chainz.cryptoid.info/pot/address.dws?u=",
+                // No public index API (chainz is explorer-only).
+                rpc: "",
                 price_id: "potcoin",
                 send_note: "Legacy P2PKH（经典 sighash）",
             },
@@ -337,10 +341,11 @@ impl ChainId {
                 bip44_coin: 78,
                 derivation_path: "m/44'/78'/0'/0/0",
                 accent: "#F4812F",
-                explorer: "https://efl.blockbook.trezor.io",
-                explorer_tx: "https://efl.blockbook.trezor.io/tx/",
-                explorer_address: "https://efl.blockbook.trezor.io/address/",
-                rpc: "https://efl.blockbook.trezor.io/api",
+                explorer: "https://bitinfocharts.com/e-gulden/explorer/",
+                explorer_tx: "https://bitinfocharts.com/e-gulden/explorer/",
+                explorer_address: "https://bitinfocharts.com/e-gulden/explorer/",
+                // No public index API (bitinfocharts is explorer-only).
+                rpc: "",
                 price_id: "e-gulden",
                 send_note: "Legacy P2PKH（经典 sighash）",
             },
@@ -357,7 +362,7 @@ impl ChainId {
                 explorer: "https://blockbook.dash.zelcore.io",
                 explorer_tx: "https://blockbook.dash.zelcore.io/tx/",
                 explorer_address: "https://blockbook.dash.zelcore.io/address/",
-                rpc: "https://blockbook.dash.zelcore.io/api",
+                rpc: "https://blockbook.dash.zelcore.io",
                 price_id: "dash",
                 send_note: "Legacy P2PKH（经典 sighash）",
             },
@@ -371,10 +376,10 @@ impl ChainId {
                 bip44_coin: 17,
                 derivation_path: "m/44'/17'/0'/0/0",
                 accent: "#36855A",
-                explorer: "https://grs.blockbook.trezor.io",
-                explorer_tx: "https://grs.blockbook.trezor.io/tx/",
-                explorer_address: "https://grs.blockbook.trezor.io/address/",
-                rpc: "https://grs.blockbook.trezor.io/api",
+                explorer: "https://blockbook.groestlcoin.org",
+                explorer_tx: "https://blockbook.groestlcoin.org/tx/",
+                explorer_address: "https://blockbook.groestlcoin.org/address/",
+                rpc: "https://blockbook.groestlcoin.org",
                 price_id: "groestlcoin",
                 send_note: "Native SegWit (Bech32)",
             },
@@ -388,10 +393,11 @@ impl ChainId {
                 bip44_coin: 28,
                 derivation_path: "m/44'/28'/0'/0/0",
                 accent: "#5BB5A0",
-                explorer: "https://vtc.blockbook.trezor.io",
-                explorer_tx: "https://vtc.blockbook.trezor.io/tx/",
-                explorer_address: "https://vtc.blockbook.trezor.io/address/",
-                rpc: "https://vtc.blockbook.trezor.io/api",
+                explorer: "https://bitinfocharts.com/vertcoin/explorer/",
+                explorer_tx: "https://bitinfocharts.com/vertcoin/explorer/",
+                explorer_address: "https://bitinfocharts.com/vertcoin/explorer/",
+                // No public index API (bitinfocharts is explorer-only).
+                rpc: "",
                 price_id: "vertcoin",
                 send_note: "Native SegWit (Bech32)",
             },
@@ -455,6 +461,23 @@ impl ChainId {
         match self {
             ChainId::BitcoinCash => crate::tx::utxo::LegacySighash::ForkId,
             _ => crate::tx::utxo::LegacySighash::Classic,
+        }
+    }
+
+    /// Which index API serves this UTXO chain. Drives balance/UTXO/broadcast/
+    /// history routing in the Tauri layer.
+    pub fn utxo_backend(self) -> UtxoBackend {
+        match self {
+            ChainId::Dogecoin | ChainId::BitcoinCash => UtxoBackend::Blockchair,
+            ChainId::Bitcoin | ChainId::Litecoin => UtxoBackend::Esplora,
+            ChainId::BitcoinSv => UtxoBackend::WhatsOnChain,
+            ChainId::Viacoin | ChainId::Feathercoin | ChainId::Groestlcoin | ChainId::Dash => {
+                UtxoBackend::Blockbook
+            }
+            // Explorer-only chains (chainz & bitinfocharts) degrade
+            // gracefully: address derivation works, balance reports the
+            // "no public data source" error.
+            _ => UtxoBackend::None,
         }
     }
 
@@ -620,6 +643,22 @@ impl fmt::Display for ChainId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
+}
+
+/// The index API dialect a UTXO chain speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UtxoBackend {
+    /// mempool.space-style `/address/…` endpoints.
+    Esplora,
+    /// trezor Blockbook `/api/v2/…` endpoints.
+    Blockbook,
+    /// Blockchair dashboards (API key recommended).
+    Blockchair,
+    /// WhatsOnChain REST API (BSV).
+    WhatsOnChain,
+    /// No public index API here; only address derivation and explorer links
+    /// work, balance queries report a friendly error instead.
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

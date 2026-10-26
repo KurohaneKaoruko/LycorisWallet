@@ -46,6 +46,13 @@ export interface AggregateEntryView {
 export type DerivationMode = "isolated" | "strict";
 export type BatchStrategy = "path" | "salted" | "iterated";
 export type Direction = "send" | "receive";
+
+/** Outcome of an on-chain activity sync. */
+export interface ActivitySyncReport {
+  newItems: number;
+  confirmedItems: number;
+  failedChains: string[];
+}
 export type ActivityStatus = "pending" | "confirmed" | "failed";
 
 export interface Settings {

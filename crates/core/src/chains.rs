@@ -985,4 +985,3 @@ mod tests {
         assert_eq!(ChainId::Fujicoin.info().bip44_coin, 75);
     }
 }
-

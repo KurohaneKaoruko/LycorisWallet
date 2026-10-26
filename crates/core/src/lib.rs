@@ -16,6 +16,7 @@ pub mod models;
 pub mod network;
 pub mod qr;
 pub mod slip10;
+pub mod tools;
 pub mod tx;
 pub mod units;
 #[cfg(feature = "vault")]

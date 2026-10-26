@@ -15,6 +15,7 @@ import { WalletsView } from "../views/Wallets";
 import { SettingsView } from "../views/Settings";
 import { ActivityView } from "../views/Activity";
 import { ContactsView } from "../views/Contacts";
+import { ToolsView } from "../views/Tools";
 import { ReceiveView } from "../views/Receive";
 import { SendView } from "../views/Send";
 import { AssetView } from "../views/Asset";
@@ -32,6 +33,8 @@ function CurrentView() {
       return <ActivityView />;
     case "contacts":
       return <ContactsView />;
+    case "tools":
+      return <ToolsView />;
     case "receive":
       return <ReceiveView />;
     case "send":

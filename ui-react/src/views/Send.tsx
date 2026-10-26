@@ -434,6 +434,16 @@ function accentFor(chain: ChainId): string {
       bitcoincash: "#0ac18e",
       monero: "#ff6600",
       solana: "#9945ff",
+      bitcoinsv: "#eab300",
+      namecoin: "#186c9d",
+      litecoincash: "#bebebe",
+      feathercoin: "#c6e4ee",
+      viacoin: "#404e82",
+      potcoin: "#3f8c48",
+      egulden: "#f4812f",
+      dash: "#008de4",
+      groestlcoin: "#36855a",
+      vertcoin: "#5bb5a0",
     } as Record<string, string>)[chain] ?? "#8a7cff"
   );
 }

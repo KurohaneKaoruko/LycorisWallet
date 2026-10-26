@@ -28,6 +28,7 @@ const RAIL_GROUPS: Array<{ label: string; items: Array<{ id: ViewId; label: stri
     items: [
       { id: "wallets", label: "钱包管理", icon: "wallet" },
       { id: "contacts", label: "联系人", icon: "contacts" },
+      { id: "tools", label: "工具箱", icon: "wrench" },
       { id: "settings", label: "设置", icon: "settings" },
     ],
   },

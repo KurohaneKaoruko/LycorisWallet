@@ -8,18 +8,26 @@ import { mockCall } from "./mock/mock";
 
 import type {
   AccountDetailView,
+  AddressReport,
   ApiErrorLike,
   BatchRequest,
   ChainAddressView,
   ChainId,
   Contact,
   DerivationPreview,
+  DigestOutput,
+  EncodingOutput,
   KeySlotKind,
+  MessageSignature,
+  MnemonicCheck,
+  ParsedUri,
   Portfolio,
   SendQuote,
   SendResult,
   Settings,
+  UnitConversion,
   VaultStatus,
+  VerifyResult,
   WalletView,
 } from "./types";
 
@@ -162,4 +170,27 @@ export const api = {
   windowMinimize: () => call("window_minimize") as Promise<void>,
   windowToggleMaximize: () => call("window_toggle_maximize") as Promise<void>,
   windowClose: () => call("window_close") as Promise<void>,
+  /* ---------------------------------------------------------------- 工具箱 */
+  toolInspectAddress: (address: string) =>
+    call("tool_inspect_address", { address }) as Promise<AddressReport>,
+  toolConvertUnits: (chain: ChainId, value: string, fromSmallest: boolean) =>
+    call("tool_convert_units", { chain, value, fromSmallest }) as Promise<UnitConversion>,
+  toolCheckMnemonic: (mnemonic: string) =>
+    call("tool_check_mnemonic", { mnemonic }) as Promise<MnemonicCheck>,
+  toolHash: (algorithm: string, input: string) =>
+    call("tool_hash", { algorithm, input }) as Promise<DigestOutput>,
+  toolEncode: (input: string) => call("tool_encode", { input }) as Promise<EncodingOutput>,
+  toolParseUri: (uri: string) => call("tool_parse_uri", { uri }) as Promise<ParsedUri>,
+  toolComposeUri: (
+    chain: ChainId,
+    address: string,
+    amount: string | null,
+    label: string | null,
+    message: string | null,
+  ) =>
+    call("tool_compose_uri", { chain, address, amount, label, message }) as Promise<string>,
+  toolSignMessage: (chain: ChainId, message: string, password: string) =>
+    call("tool_sign_message", { chain, message, password }) as Promise<MessageSignature>,
+  toolVerifyMessage: (chain: ChainId, message: string, signature: string) =>
+    call("tool_verify_message", { chain, message, signature }) as Promise<VerifyResult>,
 };

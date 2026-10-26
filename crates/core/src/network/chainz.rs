@@ -43,7 +43,7 @@ impl ChainzClient {
             return Err(Error::Network(format!("balance: HTTP {status}")));
         }
         // Plain decimal coin units, e.g. "1234.5678" (no quotes, no object).
-        parse_decimal(&text.trim(), self.decimals)
+        parse_decimal(text.trim(), self.decimals)
             .ok_or_else(|| Error::Network(format!("balance: unexpected payload {text:?}")))
     }
 }

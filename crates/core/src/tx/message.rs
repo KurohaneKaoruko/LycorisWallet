@@ -73,14 +73,8 @@ pub fn evm_verify_message(message: &str, signature_hex: &str) -> Result<String> 
     let signature = Signature::from_bytes(&sig_bytes.into())
         .map_err(|e| Error::Crypto(format!("invalid signature: {e}")))?;
     let digest = keccak256(&eip191_payload(message.as_bytes()));
-    let recovered = VerifyingKey::recover_from_prehash(
-        &digest,
-        &signature
-            .try_into()
-            .map_err(|e| Error::Crypto(format!("ecdsa signature conversion failed: {e}")))?,
-        recovery_id,
-    )
-    .map_err(|e| Error::Crypto(format!("ecrecover failed: {e}")))?;
+    let recovered = VerifyingKey::recover_from_prehash(&digest, &signature, recovery_id)
+        .map_err(|e| Error::Crypto(format!("ecrecover failed: {e}")))?;
     let pubkey = recovered.to_encoded_point(false);
     let address = crate::address::evm_address(pubkey.as_bytes())?;
     Ok(address)
@@ -144,14 +138,8 @@ pub fn btc_verify_message(message: &str, signature_b64: &str) -> Result<String> 
     let signature = Signature::from_bytes(&sig_bytes.into())
         .map_err(|e| Error::Crypto(format!("invalid signature: {e}")))?;
     let digest = crate::address::double_sha256(&bip137_payload(message));
-    let recovered = VerifyingKey::recover_from_prehash(
-        &digest,
-        &signature
-            .try_into()
-            .map_err(|e| Error::Crypto(format!("ecdsa signature conversion failed: {e}")))?,
-        recovery_id,
-    )
-    .map_err(|e| Error::Crypto(format!("recovery failed: {e}")))?;
+    let recovered = VerifyingKey::recover_from_prehash(&digest, &signature, recovery_id)
+        .map_err(|e| Error::Crypto(format!("recovery failed: {e}")))?;
     let point = recovered.to_encoded_point(compressed);
     // The app only ever produces P2WPKH addresses; BIP-137 headers 31..=34
     // cover the same compressed key.

@@ -245,11 +245,7 @@ pub struct MnemonicWordState {
 pub fn check_mnemonic(input: &str) -> Result<MnemonicCheck> {
     use bip39::Mnemonic;
 
-    let normalised: String = input
-        .trim()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let normalised: String = input.split_whitespace().collect::<Vec<_>>().join(" ");
     if normalised.is_empty() {
         return Err(Error::InvalidMnemonic("mnemonic is empty".into()));
     }
@@ -355,7 +351,7 @@ fn decode_input(input: &str) -> Result<Vec<u8>> {
     if let Some(hex_body) = text.strip_prefix("0x") {
         return hex::decode(hex_body).map_err(|e| Error::Message(format!("hex decode: {e}")));
     }
-    if text.len() % 2 == 0 && text.chars().all(|c| c.is_ascii_hexdigit()) {
+    if text.len().is_multiple_of(2) && text.chars().all(|c| c.is_ascii_hexdigit()) {
         return hex::decode(text).map_err(|e| Error::Message(format!("hex decode: {e}")));
     }
     Ok(text.as_bytes().to_vec())

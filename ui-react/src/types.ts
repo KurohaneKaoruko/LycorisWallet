@@ -24,7 +24,10 @@ export type ChainId =
   | "egulden"
   | "dash"
   | "groestlcoin"
-  | "vertcoin";
+  | "vertcoin"
+  | "ravencoin"
+  | "monacoin"
+  | "fujicoin";
 
 export type FiatCurrency = "usd" | "cny";
 export type Theme = "system" | "light" | "dark";

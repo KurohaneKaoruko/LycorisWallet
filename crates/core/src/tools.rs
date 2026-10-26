@@ -629,6 +629,9 @@ pub fn compose_payment_uri(
         ChainId::Dash => "dash",
         ChainId::Groestlcoin => "groestlcoin",
         ChainId::Vertcoin => "vertcoin",
+        ChainId::Ravencoin => "ravencoin",
+        ChainId::Monacoin => "monacoin",
+        ChainId::Fujicoin => "fujicoin",
         ChainId::Monero => {
             return Err(Error::Message(
                 "Monero 的 payment URI 由 monero-wallet-rpc 生成，此处不构造。".into(),

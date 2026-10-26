@@ -170,7 +170,10 @@ pub fn validate_address(chain: ChainId, address: &str) -> Result<()> {
         | ChainId::EGulden
         | ChainId::Dash
         | ChainId::Groestlcoin
-        | ChainId::Vertcoin => validate_utxo_address(chain, address),
+        | ChainId::Vertcoin
+        | ChainId::Ravencoin
+        | ChainId::Monacoin
+        | ChainId::Fujicoin => validate_utxo_address(chain, address),
         ChainId::Monero => {
             if crate::cryptonote::monero_address_validate(address) {
                 Ok(())

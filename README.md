@@ -49,11 +49,16 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | Dash | DASH | SHA-256 | `m/44'/5'/0'/0/0` | base58（P2PKH） |
 | Groestlcoin | GRS | SHA-256 | `m/44'/17'/0'/0/0` | bech32（P2WPKH） |
 | Vertcoin | VTC | SHA-256 | `m/44'/28'/0'/0/0` | bech32（P2WPKH） |
+| Ravencoin | RVN | SHA-256 | `m/44'/175'/0'/0/0` | base58（P2PKH） |
+| Monacoin | MONA | SHA-256 | `m/84'/22'/0'/0/0` | bech32（P2WPKH） |
+| Fujicoin | FJC | SHA-256 | `m/84'/75'/0'/0/0` | bech32（P2WPKH） |
 
 > Dogecoin 与 Bitcoin Cash 的收款、余额与转账均已可用：前者用 legacy P2PKH 传统 sighash，后者用
 > BIP-143 + SIGHASH-FORKID，交易字节与 libsecp256k1 独立实现逐字节一致。
 > 余额查询开箱即用、无需任何 API Key：DOGE/BCH/VIA/FTC/GRS/DASH 走 trezor 公共 Blockbook
 > （`doge.trezor.io` 等官方实例），BSV 走 WhatsOnChain，BTC/LTC 走 mempool.space / litecoinspace；
+> RVN/MONA/FJC 走社区公共 Blockbook（ravencoin.org / electrum-mona.org / fujicoin.org 官方实例，
+> 余额、转账、历史实测可用）；
 > Blockchair 只作自动回退源，可在「设置 → 网络」里填 Key 提高回退配额（可选）。
 > Namecoin / Litecoin Cash / Potcoin / e-Gulden / Vertcoin 通过 Chainz（cryptoid.info）免 Key 接口查询余额，
 > 暂无公共 UTXO/广播端点，转账不可用（地址派生、校验与浏览器链接不受影响）。
@@ -68,6 +73,7 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | DOGE / BCH | trezor Blockbook（`doge/bch.trezor.io`，免 Key）→ Blockchair 回退 | 同左（Blockbook 地址历史） |
 | BSV | WhatsOnChain | — |
 | VIA / FTC / GRS / DASH | trezor/社区 Blockbook（`/api/v2`）→ Blockchair 回退 | 同左，含收款入账与确认状态 |
+| RVN / MONA / FJC | 社区官方 Blockbook（实测在线） | 同左（Blockbook 地址历史） |
 | NMC / LCC / POT / EFL / VTC | Chainz（cryptoid.info，免 Key，仅余额） | — |
 | ETH / ETC / BSC / POL / SOL / XMR | JSON-RPC / 本地 wallet-rpc | —（待接索引器） |
 

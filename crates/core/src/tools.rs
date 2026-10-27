@@ -241,7 +241,9 @@ pub struct MnemonicWordState {
     pub valid: bool,
 }
 
-/// Check BIP-39 words + checksum without deriving anything.
+/// Check mnemonic words + checksum without deriving anything. Accepts both
+/// supported formats: BIP-39 (12/15/18/21/24 words) and Monero-native
+/// (24/25 words). The verdict names the detected format.
 pub fn check_mnemonic(input: &str) -> Result<MnemonicCheck> {
     use bip39::Mnemonic;
 
@@ -263,6 +265,32 @@ pub fn check_mnemonic(input: &str) -> Result<MnemonicCheck> {
             word: (*word).to_string(),
             index,
             valid,
+        });
+    }
+
+    // Monero-native first: 24/25 words that decode cleanly (word list +
+    // CRC checksum) are reported as Monero format. The BIP-39 path then
+    // only sees phrases that are not valid Monero seeds.
+    let monero_ok = words.len() >= 24 && crate::cryptonote_mnemonic::decode(&normalised).is_ok();
+    if monero_ok {
+        for state in &mut states {
+            state.valid = true;
+        }
+        let monero_words = crate::cryptonote_mnemonic::words_in_list(&normalised);
+        let valid = monero_words.iter().all(|in_list| *in_list);
+        for (state, in_list) in states.iter_mut().zip(monero_words) {
+            state.valid = in_list;
+        }
+        let verdict = if valid {
+            "Monero 原生 25 词助记词：CRC 校验通过，可直接恢复官方 Monero 钱包。".to_string()
+        } else {
+            "存在不在 Monero 词表里的单词（已标红）。".to_string()
+        };
+        return Ok(MnemonicCheck {
+            valid,
+            word_count: words.len(),
+            verdict,
+            words: states,
         });
     }
 

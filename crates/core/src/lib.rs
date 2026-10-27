@@ -8,6 +8,8 @@ pub mod address;
 pub mod bip32;
 pub mod chains;
 pub mod cryptonote;
+pub mod cryptonote_mnemonic;
+pub mod cryptonote_words;
 pub mod derive;
 pub mod error;
 pub mod hash;

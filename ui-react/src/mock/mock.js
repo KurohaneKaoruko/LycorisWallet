@@ -10,6 +10,7 @@
 
 import { BIP39_WORDS } from "./bip39-words.js?v=23";
 import { loadCore } from "./core.js?v=23";
+import { MONERO_WORDS } from "./monero-words.js?v=23";
 
 // The desktop build has a Rust backend already; only the browser demo needs
 // the wasm copy (1.2 MB, skipped entirely when Tauri is present).
@@ -32,7 +33,17 @@ function corePreview(secret) {
   const key = JSON.stringify(secret);
   const cached = PREVIEW_CACHE.get(key);
   if (cached) return cached;
-  const preview = core.preview(secret);
+  let preview = null;
+  try {
+    preview = core.preview(secret);
+  } catch (error) {
+    // 旧版 wasm 不认识 Monero 原生助记词:这种情况回退到演示数据。
+    // 其他校验错误(如 BIP-39 校验和不对)必须照常冒泡。
+    if (!(secret.mode === "mnemonic" && isMoneroSeed(String(secret.mnemonic ?? "")))) {
+      throw error;
+    }
+    preview = null;
+  }
   if (PREVIEW_CACHE.size >= 24) PREVIEW_CACHE.clear();
   PREVIEW_CACHE.set(key, preview);
   return preview;
@@ -516,8 +527,16 @@ function accountsFor(secret) {
       decimals: chain.decimals,
     };
   };
+  // Monero 原生助记词只携带 XMR 账户(官方单账户模型),演示回退也只显示 XMR。
+  if (secret.mode === "mnemonic" && isMoneroSeed(secret.mnemonic)) {
+    return [demo(CHAINS.find((c) => c.id === "monero"))];
+  }
   if (!preview) return CHAINS.map(demo);
   const known = new Set(preview.accounts.map((account) => account.chain));
+  // Monero 原生助记词只携带 XMR 账户,演示模式不补其他链的假地址。
+  if (secret.mode === "mnemonic" && isMoneroSeed(secret.mnemonic)) {
+    return preview.accounts;
+  }
   return [...preview.accounts, ...CHAINS.filter((c) => !known.has(c.id)).map(demo)];
 }
 
@@ -1118,6 +1137,59 @@ async function generateMnemonic(wordCount) {
   return words.join(" ");
 }
 
+/** Monero native seed detector: 24/25 words, all in the official list,
+ * CRC checksum word correct (mirrors core's `is_monero_mnemonic`). */
+export function isMoneroSeed(text) {
+  const words = String(text ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length !== 24 && words.length !== 25) return false;
+  const data = words.slice(0, 24);
+  for (const word of data) {
+    if (!MONERO_WORDS.some((x) => x.startsWith(word.slice(0, 3)))) return false;
+  }
+  if (words.length === 24) return true;
+  const prefixBytes = data.map((w) => w.slice(0, 3)).join("");
+  const expect = crc32(new TextEncoder().encode(prefixBytes)) % 24;
+  return words[24].slice(0, 3) === data[expect].slice(0, 3);
+}
+
+/** CRC-32/ISO-HDLC (the boost::crc_32_type Monero uses for seed checksums). */
+const CRC32_TABLE = (() => {  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/** Monero native 25-word generator (spend seed → base-1626 → CRC checksum word). */
+async function generateMoneroMnemonic() {
+  const seed = new Uint8Array(32);
+  crypto.getRandomValues(seed);
+  const BASE = 1626;
+  const words = [];
+  for (let group = 0; group < 8; group += 1) {
+    const val =
+      seed[group * 4] | (seed[group * 4 + 1] << 8) | (seed[group * 4 + 2] << 16) | (seed[group * 4 + 3] << 24);
+    const w1 = ((val % BASE) + BASE) % BASE;
+    const w2 = ((Math.floor(val / BASE) + w1) % BASE + BASE) % BASE;
+    const w3 = ((Math.floor(val / BASE / BASE) + w2) % BASE + BASE) % BASE;
+    words.push(MONERO_WORDS[w1], MONERO_WORDS[w2], MONERO_WORDS[w3]);
+  }
+  // Official checksum: CRC-32 over the 3-byte unique prefixes, index into
+  // the 24 data words — the 25th word repeats one of them.
+  const prefixBytes = words.map((w) => w.slice(0, 3)).join("");
+  const checksum = crc32(new TextEncoder().encode(prefixBytes)) % 24;
+  words.push(words[checksum]);
+  return words.join(" ");
+}
+
 /* ------------------------------------------------------------------ dispatch */
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1193,9 +1265,11 @@ export async function mockCall(command, args = {}) {
       const secret = normaliseStoredSecret(normaliseAggregateSecret(request.secret ?? {}));
       if (core) corePreview(secret);
       if (secret.mode === "mnemonic") {
-        const words = String(secret.mnemonic ?? "").trim().split(/\s+/).filter(Boolean);
-        if (words.length !== 12 && words.length !== 24) {
-          throw { code: "INVALID_MNEMONIC", message: "助记词需要 12 或 24 个单词" };
+        if (!isMoneroSeed(String(secret.mnemonic ?? ""))) {
+          const words = String(secret.mnemonic ?? "").trim().split(/\s+/).filter(Boolean);
+          if (words.length !== 12 && words.length !== 24) {
+            throw { code: "INVALID_MNEMONIC", message: "助记词需要 12 / 24(BIP-39)或 24 / 25(Monero)个单词" };
+          }
         }
       } else if (secret.mode !== "private_key" && secret.mode !== "aggregate" && !String(secret.phrase ?? "").trim()) {
         throw { code: "INVALID_PASSPHRASE", message: "口令不能为空" };
@@ -1630,6 +1704,7 @@ export async function mockCall(command, args = {}) {
     case "generate_mnemonic":
       // Real BIP-39: 128/256 bits of entropy plus a SHA-256 checksum. The
       // wasm core accepts the result, so the demo never creates an invalid wallet.
+      if (args.format === "monero") return generateMoneroMnemonic();
       return generateMnemonic(args.wordCount === 24 ? 24 : 12);
 
     case "preview_derivation": {
@@ -1652,9 +1727,11 @@ export async function mockCall(command, args = {}) {
       const preview = corePreview(secret);
       if (preview) return preview;
       if (secret.mode === "mnemonic") {
-        const words = String(secret.mnemonic ?? "").trim().split(/\s+/).filter(Boolean);
-        if (words.length !== 12 && words.length !== 24) {
-          throw { code: "INVALID_MNEMONIC", message: "助记词需要 12 或 24 个单词" };
+        if (!isMoneroSeed(String(secret.mnemonic ?? ""))) {
+          const words = String(secret.mnemonic ?? "").trim().split(/\s+/).filter(Boolean);
+          if (words.length !== 12 && words.length !== 24) {
+            throw { code: "INVALID_MNEMONIC", message: "助记词需要 12 / 24(BIP-39)或 24 / 25(Monero)个单词" };
+          }
         }
       } else if (!String(secret.phrase ?? "").trim()) {
         throw { code: "INVALID_PASSPHRASE", message: "口令不能为空" };
@@ -2153,6 +2230,23 @@ export async function mockCall(command, args = {}) {
       const text = String(args.mnemonic ?? "").trim();
       if (!text) throw { code: "INVALID_MNEMONIC", message: "助记词是空的" };
       const words = text.split(/\s+/);
+      // Monero native 24/25-word seeds: word list + CRC checksum word.
+      if (words.length === 24 || words.length === 25) {
+        const data = words.slice(0, 24);
+        const resolved = data.map((w) => MONERO_WORDS.find((x) => x.startsWith(w.slice(0, 3))));
+        if (resolved.every(Boolean) && words[24] !== undefined) {
+          const prefixBytes = data.map((w) => w.slice(0, 3)).join("");
+          const expect = crc32(new TextEncoder().encode(prefixBytes)) % 24;
+          const ok = words[24].slice(0, 3) === data[expect].slice(0, 3);
+          if (ok)
+            return {
+              valid: true,
+              wordCount: words.length,
+              verdict: "Monero 原生 25 词助记词：CRC 校验通过，可恢复官方 Monero 钱包。",
+              words: words.map((word, index) => ({ word, index, valid: true })),
+            };
+        }
+      }
       const valid = words.length === 12 || words.length === 24;
       return {
         valid,

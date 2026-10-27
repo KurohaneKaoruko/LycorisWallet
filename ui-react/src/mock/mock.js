@@ -57,6 +57,7 @@ const CHAINS = [
   { id: "bitcoincash", name: "Bitcoin Cash", symbol: "BCH", decimals: 8, accent: "#8DC351", kind: "utxo" },
   { id: "ethereum", name: "Ethereum", symbol: "ETH", decimals: 18, accent: "#627EEA", kind: "evm" },
   { id: "ethereum-classic", name: "Ethereum Classic", symbol: "ETC", decimals: 18, accent: "#3AB83A", kind: "evm" },
+  { id: "ethw", name: "EthereumPoW", symbol: "ETHW", decimals: 18, accent: "#9C6CE8", kind: "evm" },
   { id: "bsc", name: "BNB Chain", symbol: "BNB", decimals: 18, accent: "#F3BA2F", kind: "evm" },
   { id: "polygon", name: "Polygon", symbol: "POL", decimals: 18, accent: "#8247E5", kind: "evm" },
   { id: "solana", name: "Solana", symbol: "SOL", decimals: 9, accent: "#14F195", kind: "ed25519" },
@@ -83,6 +84,7 @@ const PRICES = {
   bitcoincash: { usd: 486.7, cny: 3500.2 },
   ethereum: { usd: 3182.7, cny: 22880.4 },
   "ethereum-classic": { usd: 24.18, cny: 173.8 },
+  ethw: { usd: 1.87, cny: 13.45 },
   bsc: { usd: 642.18, cny: 4616.9 },
   polygon: { usd: 0.5124, cny: 3.683 },
   solana: { usd: 187.63, cny: 1348.9 },
@@ -109,6 +111,7 @@ const BALANCES = {
   bitcoincash: 1_260_000_000n,
   ethereum: 512_400_000_000_000_000n,
   "ethereum-classic": 96_200_000_000_000_000_000n,
+  ethw: 3_180_000_000_000_000_000n,
   bsc: 1_240_000_000_000_000_000n,
   polygon: 486_000_000_000_000_000_000n,
   solana: 8_420_000_000n,
@@ -135,6 +138,7 @@ const ALGOS = {
   bitcoincash: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
   ethereum: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   "ethereum-classic": ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
+  ethw: ["Keccak-256", "Etchash PoW 链 · EVM 兼容"],
   bsc: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   polygon: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
   solana: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
@@ -161,6 +165,7 @@ const PATHS = {
   bitcoincash: "m/44'/145'/0'/0/0",
   ethereum: "m/44'/60'/0'/0/0",
   "ethereum-classic": "m/44'/61'/0'/0/0",
+  ethw: "m/44'/10001'/0'/0/0",
   bsc: "m/44'/60'/0'/0/0",
   polygon: "m/44'/60'/0'/0/0",
   solana: "m/44'/501'/0'/0'",
@@ -189,6 +194,7 @@ const COIN_TYPES = {
   bitcoincash: 145,
   ethereum: 60,
   "ethereum-classic": 61,
+  ethw: 10001,
   bsc: 60,
   polygon: 60,
   solana: 501,
@@ -214,6 +220,7 @@ const TX_EXPLORERS = {  bitcoin: "https://mempool.space/tx/",
   bitcoincash: "https://bch.trezor.io/tx/",
   ethereum: "https://etherscan.io/tx/",
   "ethereum-classic": "https://blockscout.com/etc/mainnet/tx/",
+  ethw: "https://www.oklink.com/ethw/tx/",
   bsc: "https://bscscan.com/tx/",
   polygon: "https://polygonscan.com/tx/",
   solana: "https://solscan.io/tx/",
@@ -2067,7 +2074,7 @@ export async function mockCall(command, args = {}) {
       const lower = text.toLowerCase();
       if (/^0x[0-9a-f]{40}$/i.test(text) || /^[0-9a-f]{40}$/i.test(text)) {
         const checksummed = text.startsWith("0x") ? text : `0x${text}`;
-        for (const id of ["ethereum", "ethereum-classic", "bsc", "polygon"]) {
+        for (const id of ["ethereum", "ethereum-classic", "ethw", "bsc", "polygon"]) {
           matches.push({
             chain: id,
             chainName: CHAINS.find((c) => c.id === id)?.name ?? id,
@@ -2246,7 +2253,7 @@ export async function mockCall(command, args = {}) {
       if (args.amount) parts.push(`amount=${args.amount}`);
       if (args.label) parts.push(`label=${encodeURIComponent(args.label)}`);
       if (args.message) parts.push(`message=${encodeURIComponent(args.message)}`);
-      const scheme = { "ethereum-classic": "ethereum" }[chain.id] ?? chain.id;
+      const scheme = { "ethereum-classic": "ethereum", ethw: "ethereum" }[chain.id] ?? chain.id;
       return `${scheme}:${args.address}${parts.length ? `?${parts.join("&")}` : ""}`;
     }
 

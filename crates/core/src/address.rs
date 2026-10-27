@@ -153,9 +153,11 @@ pub fn parse_evm_address(address: &str) -> Result<[u8; 20]> {
 
 pub fn validate_address(chain: ChainId, address: &str) -> Result<()> {
     match chain {
-        ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => {
-            parse_evm_address(address).map(|_| ())
-        }
+        ChainId::Ethereum
+        | ChainId::EthereumClassic
+        | ChainId::Ethw
+        | ChainId::Bsc
+        | ChainId::Polygon => parse_evm_address(address).map(|_| ()),
         ChainId::Solana => parse_solana_address(address).map(|_| ()),
         ChainId::Bitcoin
         | ChainId::Litecoin

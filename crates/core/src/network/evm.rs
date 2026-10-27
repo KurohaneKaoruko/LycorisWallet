@@ -76,7 +76,13 @@ impl EvmClient {
 
     pub async fn gas_price(&self) -> Result<u128> {
         let value = self.call("eth_gasPrice", json!([])).await?;
-        hex_u128(value.as_str().unwrap_or("0x0"))
+        let price = hex_u128(value.as_str().unwrap_or("0x0"))?;
+        if price > 0 {
+            return Ok(price);
+        }
+        // Some PoW chains (ETHW) answer eth_gasPrice with 0; their real
+        // floor is the block base fee.
+        Ok(self.latest_base_fee().await?.unwrap_or(0))
     }
 
     pub async fn max_priority_fee(&self) -> Result<Option<u128>> {

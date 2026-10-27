@@ -1066,9 +1066,11 @@ fn account_from_secp(
                 params.hrp,
             )?
         }
-        ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => {
-            evm_address(&uncompressed_pubkey(key))?
-        }
+        ChainId::Ethereum
+        | ChainId::EthereumClassic
+        | ChainId::Ethw
+        | ChainId::Bsc
+        | ChainId::Polygon => evm_address(&uncompressed_pubkey(key))?,
         ChainId::Solana | ChainId::Monero => {
             return Err(Error::UnsupportedChain(chain.to_string()))
         }
@@ -2257,7 +2259,7 @@ mod tests {
         let accounts = derive_accounts(&from_wif).unwrap();
         // secp 链(原 8 条 + 2026 追加的 10 条 UTXO 链 + 2026 二批的
         // RVN/MONA/FJC),无 Solana/Monero(钥匙环只导入了 secp 槽)。
-        assert_eq!(accounts.len(), 21);
+        assert_eq!(accounts.len(), 22);
         assert!(accounts.iter().all(|a| a.chain != ChainId::Solana));
         assert!(accounts.iter().all(|a| a.chain != ChainId::Monero));
         // 私钥 1 的以太坊地址是众所周知的向量。

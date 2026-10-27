@@ -35,6 +35,7 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | Bitcoin Cash | BCH | SHA-256 | `m/44'/145'/0'/0/0` | cashaddr |
 | Ethereum | ETH | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 | Ethereum Classic | ETC | Keccak-256 | `m/44'/61'/0'/0/0` | EIP-55 |
+| EthereumPoW | ETHW | Keccak-256 | `m/44'/10001'/0'/0/0` | EIP-55 |
 | BNB Chain | BNB | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 | Polygon | POL | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 | Solana | SOL | SHA-256 → ed25519 | `m/44'/501'/0'/0'` | base58 |
@@ -80,7 +81,7 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | VIA / FTC / GRS / DASH | trezor/社区 Blockbook（`/api/v2`）→ Blockchair 回退 | 同左，含收款入账与确认状态 |
 | RVN / MONA / FJC | 社区官方 Blockbook（实测在线） | 同左（Blockbook 地址历史） |
 | NMC / LCC / POT / EFL / VTC | Chainz（cryptoid.info，免 Key，仅余额） | — |
-| ETH / ETC / BSC / POL / SOL / XMR | JSON-RPC / 本地 wallet-rpc | —（待接索引器） |
+| ETH / ETC / ETHW / BSC / POL / SOL / XMR | JSON-RPC / 本地 wallet-rpc（ETHW 为官方 `mainnet.ethereumpow.org`） | —（待接索引器） |
 
 ### 口令派生规则
 

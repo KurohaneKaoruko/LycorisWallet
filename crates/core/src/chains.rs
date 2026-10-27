@@ -13,6 +13,8 @@ pub enum ChainId {
     Ethereum,
     #[serde(rename = "ethereum-classic")]
     EthereumClassic,
+    #[serde(rename = "ethw")]
+    Ethw,
     Bsc,
     Polygon,
     Solana,
@@ -33,7 +35,7 @@ pub enum ChainId {
 }
 
 impl ChainId {
-    pub const ALL: [ChainId; 23] = [
+    pub const ALL: [ChainId; 24] = [
         ChainId::Bitcoin,
         ChainId::Litecoin,
         ChainId::Dogecoin,
@@ -57,6 +59,7 @@ impl ChainId {
         ChainId::Ravencoin,
         ChainId::Monacoin,
         ChainId::Fujicoin,
+        ChainId::Ethw,
     ];
 
     pub fn info(self) -> ChainInfo {
@@ -198,6 +201,27 @@ impl ChainId {
                 rpc: "https://etc.rubypass.workers.dev",
                 price_id: "ethereum-classic",
                 send_note: "Legacy gas · EIP-155 replay protection",
+            },
+            ChainId::Ethw => ChainInfo {
+                id: self,
+                name: "EthereumPoW",
+                symbol: "ETHW",
+                decimals: 18,
+                kind: ChainKind::Evm,
+                hash: HashAlgorithm::Keccak256,
+                // SLIP-44 registered 10001 for ETHW; the EVM chain id is the
+                // same number (the merge fork chose 10001).
+                bip44_coin: 10001,
+                derivation_path: "m/44'/10001'/0'/0/0",
+                accent: "#9C6CE8",
+                explorer: "https://www.oklink.com/ethw",
+                explorer_tx: "https://www.oklink.com/ethw/tx/",
+                explorer_address: "https://www.oklink.com/ethw/address/",
+                // Official public RPC (ethereumpow.org), verified live:
+                // eth_chainId → 0x2711 (10001), balance/block/gas answer.
+                rpc: "https://mainnet.ethereumpow.org",
+                price_id: "ethereum-pow",
+                send_note: "Legacy gas · Etchash PoW 链",
             },
             ChainId::Solana => ChainInfo {
                 id: self,
@@ -478,6 +502,7 @@ impl ChainId {
             ChainId::BitcoinCash => "bitcoincash",
             ChainId::Ethereum => "ethereum",
             ChainId::EthereumClassic => "ethereum-classic",
+            ChainId::Ethw => "ethw",
             ChainId::Bsc => "bsc",
             ChainId::Polygon => "polygon",
             ChainId::Solana => "solana",
@@ -607,9 +632,11 @@ impl ChainId {
             ChainId::Ravencoin => "渡鸦",
             ChainId::Monacoin => "萌",
             ChainId::Fujicoin => "富士",
-            ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Bsc | ChainId::Polygon => {
-                "gwei"
-            }
+            ChainId::Ethereum
+            | ChainId::EthereumClassic
+            | ChainId::Ethw
+            | ChainId::Bsc
+            | ChainId::Polygon => "gwei",
             ChainId::Solana => "lamports",
             ChainId::Monero => "piconero",
         }
@@ -643,6 +670,7 @@ impl ChainId {
         match self {
             ChainId::Ethereum => Some(1),
             ChainId::EthereumClassic => Some(61),
+            ChainId::Ethw => Some(10001),
             ChainId::Bsc => Some(56),
             ChainId::Polygon => Some(137),
             _ => None,
@@ -954,6 +982,17 @@ mod tests {
             assert_eq!(chain.utxo_backend(), UtxoBackend::Blockbook);
             assert_eq!(chain.info().rpc, base);
         }
+    }
+
+    #[test]
+    fn ethw_is_a_legacy_gas_evm_fork() {
+        // EVM chain id 10001 (0x2711), verified live against the official
+        // RPC mainnet.ethereumpow.org.
+        assert_eq!(ChainId::Ethw.evm_chain_id(), Some(10001));
+        // ETHW kept legacy gas pricing; only ETH/POL use EIP-1559 here.
+        assert!(!ChainId::Ethw.supports_eip1559());
+        assert_eq!(ChainId::Ethw.info().bip44_coin, 10001);
+        assert_eq!(ChainId::Ethw.info().price_id, "ethereum-pow");
     }
 
     #[test]

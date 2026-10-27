@@ -18,6 +18,7 @@ const CHAIN_LABELS: Record<ChainId, string> = {
   bitcoincash: "Bitcoin Cash",
   ethereum: "Ethereum",
   "ethereum-classic": "Ethereum Classic",
+  ethw: "EthereumPoW",
   bsc: "BNB Smart Chain",
   polygon: "Polygon",
   solana: "Solana",

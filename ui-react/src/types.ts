@@ -11,6 +11,7 @@ export type ChainId =
   | "bitcoincash"
   | "ethereum"
   | "ethereum-classic"
+  | "ethw"
   | "bsc"
   | "polygon"
   | "solana"

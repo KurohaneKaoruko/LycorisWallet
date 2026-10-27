@@ -615,7 +615,7 @@ pub fn compose_payment_uri(
         ChainId::Litecoin => "litecoin",
         ChainId::Dogecoin => "dogecoin",
         ChainId::BitcoinCash => "bitcoincash",
-        ChainId::Ethereum | ChainId::EthereumClassic => "ethereum",
+        ChainId::Ethereum | ChainId::EthereumClassic | ChainId::Ethw => "ethereum",
         ChainId::Bsc => "bsc",
         ChainId::Polygon => "polygon",
         ChainId::Solana => "solana",

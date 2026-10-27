@@ -230,6 +230,7 @@ function explorerUrlFor(chain: ChainId, address: string, accountExplorer?: strin
     bitcoincash: "https://bch.trezor.io/address/",
     ethereum: "https://etherscan.io/address/",
     "ethereum-classic": "https://blockscout.com/etc/mainnet/address/",
+    ethw: "https://www.oklink.com/ethw/address/",
     bsc: "https://bscscan.com/address/",
     polygon: "https://polygonscan.com/address/",
     solana: "https://solscan.io/account/",

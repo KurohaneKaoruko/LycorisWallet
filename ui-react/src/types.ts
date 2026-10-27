@@ -28,7 +28,13 @@ export type ChainId =
   | "vertcoin"
   | "ravencoin"
   | "monacoin"
-  | "fujicoin";
+  | "fujicoin"
+  | "zcash"
+  | "firo"
+  | "neurai"
+  | "clore"
+  | "zephyr"
+  | "octaspace";
 
 export type FiatCurrency = "usd" | "cny";
 export type Theme = "system" | "light" | "dark";
@@ -71,6 +77,8 @@ export interface Settings {
   moneroRpcUrl: string;
   moneroRpcUser: string;
   moneroRpcPassword: string;
+  /** 本地 zephyr-wallet-rpc 地址（与 monero-wallet-rpc 协议相同、端口独立）。 */
+  zephyrRpcUrl: string;
   moneroRestoreHeight: number;
 }
 

@@ -36,6 +36,12 @@ const CHAIN_LABELS: Record<ChainId, string> = {
   ravencoin: "Ravencoin",
   monacoin: "Monacoin",
   fujicoin: "Fujicoin",
+  zcash: "Zcash",
+  firo: "Firo",
+  neurai: "Neurai",
+  clore: "Clore.ai",
+  zephyr: "Zephyr Protocol",
+  octaspace: "OctaSpace",
 };
 
 const ACCENTS: Partial<Record<ChainId, string>> = {
@@ -306,6 +312,16 @@ export function SettingsView() {
             <input className="input" placeholder="http://127.0.0.1:18083/json_rpc" autoComplete="off" style={{ flex: 2, minWidth: 240 }} value={s.moneroRpcUrl} onChange={(event) => void save({ moneroRpcUrl: event.target.value })} />
             <input className="input" placeholder="RPC 用户名（可选）" autoComplete="off" style={{ flex: 1, minWidth: 140 }} value={s.moneroRpcUser} onChange={(event) => void save({ moneroRpcUser: event.target.value })} />
             <input className="input" type="password" placeholder="RPC 密码（可选）" autoComplete="new-password" style={{ flex: 1, minWidth: 140 }} value={s.moneroRpcPassword} onChange={(event) => void save({ moneroRpcPassword: event.target.value })} />
+          </div>
+          <div className="setting-row" style={{ marginTop: 20 }}>
+            <div className="text">
+              <div className="name">Zephyr 钱包 RPC</div>
+              <div className="desc">ZEPH 与 Monero 同为 CryptoNote（RingCT 签名），经由官方 zephyr-wallet-rpc 签名，端口默认 19797，凭据与 Monero RPC 共享。</div>
+            </div>
+            <span className="chip">独立端口</span>
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <input className="input" placeholder="http://127.0.0.1:19797/json_rpc" autoComplete="off" style={{ flex: 2, minWidth: 240 }} value={s.zephyrRpcUrl} onChange={(event) => void save({ zephyrRpcUrl: event.target.value })} />
           </div>
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <input

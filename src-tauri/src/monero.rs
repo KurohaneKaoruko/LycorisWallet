@@ -80,6 +80,25 @@ fn rpc(settings: &Settings) -> MoneroRpc {
     )
 }
 
+/// Zephyr speaks the identical wallet-rpc protocol through its own daemon
+/// stack; credentials are shared with the Monero entry for simplicity.
+fn zephyr_rpc(settings: &Settings) -> MoneroRpc {
+    MoneroRpc::new(
+        http(),
+        endpoint(&settings.zephyr_rpc_url),
+        settings.monero_rpc_user.trim(),
+        settings.monero_rpc_password.trim(),
+    )
+}
+
+/// The wallet-rpc handle for a CryptoNote chain.
+fn rpc_for(settings: &Settings, chain: ChainId) -> MoneroRpc {
+    match chain {
+        ChainId::Zephyr => zephyr_rpc(settings),
+        _ => rpc(settings),
+    }
+}
+
 /// Stable wallet-file name for an address. `monero-wallet-rpc` stores it in
 /// its own `--wallet-dir`.
 fn wallet_name(address: &str) -> String {
@@ -112,10 +131,17 @@ pub fn monero_error(error: Error) -> ApiError {
 /// ready RPC handle.
 async fn connect(state: &AppState, chain: ChainId, address: &str) -> ApiResult<MoneroRpc> {
     let settings = state.settings()?;
-    if settings.monero_rpc_url.trim().is_empty() {
+    let rpc_url = match chain {
+        ChainId::Zephyr => settings.zephyr_rpc_url.as_str(),
+        _ => settings.monero_rpc_url.as_str(),
+    };
+    if rpc_url.trim().is_empty() {
         return Err(ApiError::new(
             "MONERO_RPC",
-            "未配置 monero-wallet-rpc 地址（设置 → 网络）",
+            match chain {
+                ChainId::Zephyr => "未配置 zephyr-wallet-rpc 地址（设置 → 网络）",
+                _ => "未配置 monero-wallet-rpc 地址（设置 → 网络）",
+            },
         ));
     }
     let secret = state.active_secret()?;
@@ -133,7 +159,7 @@ async fn connect(state: &AppState, chain: ChainId, address: &str) -> ApiResult<M
         view_key: &view,
         restore_height: settings.monero_restore_height,
     };
-    let rpc = rpc(&settings);
+    let rpc = rpc_for(&settings, chain);
     rpc.ensure_wallet(&import).await.map_err(monero_error)?;
     Ok(rpc)
 }

@@ -154,7 +154,8 @@ fn classify_non_evm(chain: ChainId, text: &str) -> Result<AddressMatch> {
                 "p2wpkh (bech32)"
             } else if let Some(params) = other.utxo_params() {
                 if let Ok(raw) = address::decode_base58check(text) {
-                    if raw.first() == Some(&params.p2sh_version) {
+                    let vlen = params.p2sh_version.len().max(params.p2pkh_version.len());
+                    if raw.len() > vlen && raw[..vlen] == *params.p2sh_version {
                         "p2sh"
                     } else {
                         "p2pkh (legacy)"
@@ -660,10 +661,16 @@ pub fn compose_payment_uri(
         ChainId::Ravencoin => "ravencoin",
         ChainId::Monacoin => "monacoin",
         ChainId::Fujicoin => "fujicoin",
-        ChainId::Monero => {
-            return Err(Error::Message(
-                "Monero 的 payment URI 由 monero-wallet-rpc 生成，此处不构造。".into(),
-            ))
+        ChainId::Zcash => "zcash",
+        ChainId::Firo => "firo",
+        ChainId::Neurai => "neurai",
+        ChainId::Clore => "clore",
+        ChainId::OctaSpace => "octaspace",
+        ChainId::Monero | ChainId::Zephyr => {
+            return Err(Error::Message(format!(
+                "{} 的 payment URI 由其钱包 RPC 生成，此处不构造。",
+                chain.info().name
+            )))
         }
     };
 

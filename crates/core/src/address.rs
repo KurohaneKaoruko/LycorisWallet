@@ -62,8 +62,16 @@ pub fn decode_base58check(address: &str) -> Result<Vec<u8>> {
         .map_err(|e| Error::InvalidAddress(e.to_string()))
 }
 
-pub fn p2pkh_address(pubkey: &[u8], version: u8) -> String {
-    base58check(version, &hash160(pubkey))
+pub fn p2pkh_address(pubkey: &[u8], version: &[u8]) -> String {
+    base58check_multibyte(version, &hash160(pubkey))
+}
+
+/// base58check with a multi-byte version prefix (Zcash t1… uses two).
+pub fn base58check_multibyte(version: &[u8], payload: &[u8]) -> String {
+    let mut data = Vec::with_capacity(version.len() + payload.len() + 4);
+    data.extend_from_slice(version);
+    data.extend_from_slice(payload);
+    bs58::encode(&data).with_check().into_string()
 }
 
 pub fn p2wpkh_address(pubkey: &[u8], hrp: &str) -> Result<String> {
@@ -153,12 +161,6 @@ pub fn parse_evm_address(address: &str) -> Result<[u8; 20]> {
 
 pub fn validate_address(chain: ChainId, address: &str) -> Result<()> {
     match chain {
-        ChainId::Ethereum
-        | ChainId::EthereumClassic
-        | ChainId::Ethw
-        | ChainId::Bsc
-        | ChainId::Polygon => parse_evm_address(address).map(|_| ()),
-        ChainId::Solana => parse_solana_address(address).map(|_| ()),
         ChainId::Bitcoin
         | ChainId::Litecoin
         | ChainId::Dogecoin
@@ -175,13 +177,36 @@ pub fn validate_address(chain: ChainId, address: &str) -> Result<()> {
         | ChainId::Vertcoin
         | ChainId::Ravencoin
         | ChainId::Monacoin
-        | ChainId::Fujicoin => validate_utxo_address(chain, address),
+        | ChainId::Fujicoin
+        | ChainId::Zcash
+        | ChainId::Firo
+        | ChainId::Neurai
+        | ChainId::Clore => validate_utxo_address(chain, address),
+        ChainId::Ethereum
+        | ChainId::EthereumClassic
+        | ChainId::Ethw
+        | ChainId::Bsc
+        | ChainId::Polygon
+        | ChainId::OctaSpace => parse_evm_address(address).map(|_| ()),
+        ChainId::Solana => parse_solana_address(address).map(|_| ()),
         ChainId::Monero => {
             if crate::cryptonote::monero_address_validate(address) {
                 Ok(())
             } else {
                 Err(Error::InvalidAddress(
                     "不是有效的 Monero 主网地址（长度 / 校验和不符）".into(),
+                ))
+            }
+        }
+        ChainId::Zephyr => {
+            if crate::cryptonote::cryptonote_address_validate(
+                address,
+                &crate::cryptonote::ZEPHYR_PREFIX_BYTES,
+            ) {
+                Ok(())
+            } else {
+                Err(Error::InvalidAddress(
+                    "不是有效的 Zephyr 主网地址（长度 / 校验和不符）".into(),
                 ))
             }
         }
@@ -227,16 +252,17 @@ pub fn validate_utxo_address(chain: ChainId, address: &str) -> Result<()> {
         return Ok(());
     }
     let payload = decode_base58check(address)?;
-    if payload.len() != 21 {
-        return Err(Error::InvalidAddress(
-            "invalid base58 address length".into(),
-        ));
+    // Base58 payload = version prefix (1 or 2 bytes) + 20-byte hash. Try
+    // each configured prefix so two-byte networks (Zcash t1…) validate.
+    let mut matched = false;
+    for version in [params.p2pkh_version, params.p2sh_version] {
+        if payload.len() == version.len() + 20 && payload[..version.len()] == *version {
+            matched = true;
+            break;
+        }
     }
-    let version = payload[0];
-    if version != params.p2pkh_version && version != params.p2sh_version {
-        return Err(Error::InvalidAddress(format!(
-            "unexpected address version 0x{version:02x}"
-        )));
+    if !matched {
+        return Err(Error::InvalidAddress("wrong network or length".into()));
     }
     Ok(())
 }
@@ -282,18 +308,22 @@ pub fn utxo_output_script(chain: ChainId, address: &str) -> Result<Vec<u8>> {
         return Ok(script);
     }
     let payload = decode_base58check(address)?;
-    if payload.len() != 21 {
-        return Err(Error::InvalidAddress("invalid base58 address".into()));
+    // Base58 payload = version prefix (1 or 2 bytes) + 20-byte hash.
+    let p2pkh = payload.len() == params.p2pkh_version.len() + 20
+        && payload[..params.p2pkh_version.len()] == *params.p2pkh_version;
+    let p2sh = payload.len() == params.p2sh_version.len() + 20
+        && payload[..params.p2sh_version.len()] == *params.p2sh_version;
+    if !p2pkh && !p2sh {
+        return Err(Error::InvalidAddress("wrong network or length".into()));
     }
-    let version = payload[0];
-    let hash = &payload[1..];
-    if version == params.p2pkh_version {
+    let hash = &payload[payload.len() - 20..];
+    if p2pkh {
         let mut script = Vec::with_capacity(25);
         script.extend_from_slice(&[0x76, 0xa9, 0x14]);
         script.extend_from_slice(hash);
         script.extend_from_slice(&[0x88, 0xac]);
         Ok(script)
-    } else if version == params.p2sh_version {
+    } else if p2sh {
         let mut script = Vec::with_capacity(23);
         script.extend_from_slice(&[0xa9, 0x14]);
         script.extend_from_slice(hash);

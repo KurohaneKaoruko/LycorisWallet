@@ -248,6 +248,12 @@ function explorerUrlFor(chain: ChainId, address: string, accountExplorer?: strin
     ravencoin: "https://blockbook.ravencoin.org/address/",
     monacoin: "https://blockbook.electrum-mona.org/address/",
     fujicoin: "https://explorer.fujicoin.org/address/",
+    zcash: "https://blockbook.zec.zelcore.io/address/",
+    firo: "https://blockbook.firo.org/address/",
+    neurai: "https://blockbook.neurai.org/address/",
+    clore: "https://blockbook.clore.zelcore.io/address/",
+    zephyr: "https://explorer.zephyrprotocol.com/",
+    octaspace: "https://explorer.octa.space/address/",
   };
   const base = accountExplorer?.startsWith("http") ? accountExplorer : table[chain] ?? table.bitcoin;
   // xmrchain search is a query URL; every other explorer is a path prefix.

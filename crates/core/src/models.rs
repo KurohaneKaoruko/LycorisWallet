@@ -51,6 +51,11 @@ pub struct Settings {
     pub monero_rpc_user: String,
     #[serde(default)]
     pub monero_rpc_password: String,
+    /// Local `zephyr-wallet-rpc` endpoint. Zephyr is a CryptoNote fork with
+    /// its own daemon/wallet stack (default port 19797), so it needs a
+    /// separate setting even though the wallet-rpc protocol is identical.
+    #[serde(default = "default_zephyr_rpc_url")]
+    pub zephyr_rpc_url: String,
     /// Block height the wallet scans from when `monero-wallet-rpc` creates the
     /// wallet file. 0 scans the whole chain (slow); the height at which the
     /// wallet was created is the useful value.
@@ -60,6 +65,11 @@ pub struct Settings {
 
 pub fn default_monero_rpc_url() -> String {
     "http://127.0.0.1:18083/json_rpc".to_string()
+}
+
+/// zephyr-wallet-rpc's default JSON-RPC port is 19797.
+pub fn default_zephyr_rpc_url() -> String {
+    "http://127.0.0.1:19797/json_rpc".to_string()
 }
 
 impl Default for Settings {
@@ -75,6 +85,7 @@ impl Default for Settings {
             monero_rpc_url: default_monero_rpc_url(),
             monero_rpc_user: String::new(),
             monero_rpc_password: String::new(),
+            zephyr_rpc_url: default_zephyr_rpc_url(),
             monero_restore_height: 0,
         }
     }

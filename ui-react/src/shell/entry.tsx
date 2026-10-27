@@ -538,7 +538,7 @@ export function OnboardingView() {
           <div className="card card-pad stack">
             <div>
               <h2>导入助记词</h2>
-              <p className="hint">支持 12 / 24 个英文单词（BIP-39）。请输入完整助记词，单词之间用空格分隔。</p>
+              <p className="hint">支持 BIP-39 12/24 词或 Monero 原生 25 词（自动识别）。请输入完整助记词，单词之间用空格分隔。</p>
             </div>
             <div className="field">
               <label htmlFor="import-words">助记词</label>

@@ -114,7 +114,10 @@ pub fn wallet(state: State<'_, crate::state::AppState>) -> ApiResult<WalletView>
 }
 
 #[tauri::command]
-pub fn generate_mnemonic(word_count: Option<usize>) -> ApiResult<String> {
+pub fn generate_mnemonic(word_count: Option<usize>, format: Option<String>) -> ApiResult<String> {
+    if format.as_deref() == Some("monero") {
+        return Ok(lycoris_core::derive::generate_monero_mnemonic()?);
+    }
     Ok(fresh_mnemonic(word_count.unwrap_or(12))?)
 }
 
@@ -135,6 +138,12 @@ pub fn reveal_mnemonic(
         return Err(ApiError::from(lycoris_core::Error::IncorrectPassword));
     }
     let secret = state.active_secret()?;
+    // Monero 原生助记词没有 BIP-39 语义,但备份必须原样回显存储的词组。
+    if secret.mnemonic_format() == Some(lycoris_core::derive::MnemonicFormat::Monero) {
+        if let lycoris_core::derive::WalletSecret::Mnemonic { mnemonic } = &secret {
+            return Ok(mnemonic.clone());
+        }
+    }
     let mnemonic = secret.mnemonic()?;
     Ok(mnemonic.to_string())
 }

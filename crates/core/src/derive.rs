@@ -320,11 +320,27 @@ impl Drop for WalletSecret {
 }
 
 impl WalletSecret {
+    /// 导入助记词。同时支持两种格式:BIP-39(12/15/18/21/24 词)与
+    /// Monero 原生(24/25 词 + CRC 校验)。先按 BIP-39 解析,失败后
+    /// 尝试 Monero 格式;两种都不行时报 BIP-39 的错误(最常见输入)。
     pub fn new_mnemonic(input: &str) -> Result<Self> {
-        let mnemonic = parse_mnemonic(input)?;
-        Ok(Self::Mnemonic {
-            mnemonic: mnemonic.to_string(),
-        })
+        let normalized = normalize_words(input);
+        if normalized.is_empty() {
+            return Err(Error::InvalidMnemonic("mnemonic is empty".into()));
+        }
+        if let Ok(mnemonic) = Mnemonic::parse_normalized(&normalized) {
+            return Ok(Self::Mnemonic {
+                mnemonic: mnemonic.to_string(),
+            });
+        }
+        // 24/25 词且全部在 Monero 词表内 → 按原生格式存储(保留原文,
+        // 不做词形归一,以便原样回显);否则回退到 BIP-39 的报错。
+        if is_monero_mnemonic(&normalized) {
+            return Ok(Self::Mnemonic {
+                mnemonic: normalized,
+            });
+        }
+        Err(parse_mnemonic(&normalized).unwrap_err())
     }
 
     pub fn new_passphrase(input: &str, derivation: DerivationMode) -> Result<Self> {
@@ -406,7 +422,15 @@ impl WalletSecret {
 
     pub fn mnemonic(&self) -> Result<Mnemonic> {
         match self {
-            Self::Mnemonic { mnemonic } => parse_mnemonic(mnemonic),
+            Self::Mnemonic { mnemonic } => {
+                if is_monero_mnemonic(mnemonic) {
+                    Err(Error::InvalidMnemonic(
+                        "Monero 原生助记词没有 BIP-39 语义".into(),
+                    ))
+                } else {
+                    parse_mnemonic(mnemonic)
+                }
+            }
             Self::Passphrase { .. } | Self::PrivateKey { .. } | Self::Aggregate { .. } => Err(
                 Error::InvalidMnemonic("wallet is not a mnemonic wallet".into()),
             ),
@@ -430,8 +454,13 @@ impl WalletSecret {
     pub fn validate(&self) -> Result<()> {
         match self {
             Self::Mnemonic { mnemonic } => {
-                parse_mnemonic(mnemonic)?;
-                Ok(())
+                // BIP-39 或 Monero 原生格式,任一通过即可。
+                if is_monero_mnemonic(mnemonic) {
+                    Ok(())
+                } else {
+                    parse_mnemonic(mnemonic)?;
+                    Ok(())
+                }
             }
             Self::Passphrase { phrase, .. } => {
                 crate::hash::canonical_phrase(phrase)?;
@@ -587,15 +616,75 @@ fn parse_imported_private_key(input: &str) -> std::result::Result<String, String
 }
 
 fn parse_mnemonic(input: &str) -> Result<Mnemonic> {
-    let normalized = input
+    let normalized = normalize_words(input);
+    Mnemonic::parse_normalized(&normalized).map_err(|e| Error::InvalidMnemonic(e.to_string()))
+}
+
+/// 助记词的格式。绝大多数链走 BIP-39;Monero 生态另有原生 25 词
+/// 格式(1626 词表 + CRC-32 校验词),两种格式可同时存在于一组输入。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MnemonicFormat {
+    /// BIP-39(12/15/18/21/24 词,2048 词表)。
+    Bip39,
+    /// Monero 原生 25 词(1626 词表,第 25 词为校验词)。
+    Monero,
+}
+
+impl MnemonicFormat {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Bip39 => "BIP-39",
+            Self::Monero => "Monero 25 词",
+        }
+    }
+}
+
+/// 归一化助记词输入:任意空白折叠为单空格,小写,去首尾。
+fn normalize_words(input: &str) -> String {
+    input
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-        .to_lowercase();
-    if normalized.is_empty() {
-        return Err(Error::InvalidMnemonic("mnemonic is empty".into()));
+        .to_lowercase()
+}
+
+/// 检测一组词是否为合法的 Monero 原生助记词(24 或 25 词,全部在
+/// 词表内且 CRC-32 校验通过)。BIP-39 词组不会误判:两词表仅 425 个
+/// 完整词重叠,12/24 词组全部落在 Monero 词表内且校验通过的概率
+/// 可忽略(且官方前缀 3 字符唯一,重叠更少)。
+pub fn is_monero_mnemonic(input: &str) -> bool {
+    let words: Vec<&str> = input.split_whitespace().collect();
+    if !matches!(words.len(), 24 | 25) {
+        return false;
     }
-    Mnemonic::parse_normalized(&normalized).map_err(|e| Error::InvalidMnemonic(e.to_string()))
+    crate::cryptonote_mnemonic::decode(input).is_ok()
+}
+
+impl WalletSecret {
+    /// 助记词钱包的格式(BIP-39 或 Monero 原生)。
+    pub fn mnemonic_format(&self) -> Option<MnemonicFormat> {
+        match self {
+            Self::Mnemonic { mnemonic } => {
+                if is_monero_mnemonic(mnemonic) {
+                    Some(MnemonicFormat::Monero)
+                } else {
+                    Some(MnemonicFormat::Bip39)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Monero 原生助记词 → 32 字节 spend 种子(内部已含 sc_reduce32)。
+    fn monero_spend_seed(&self) -> Result<[u8; 32]> {
+        match self {
+            Self::Mnemonic { mnemonic } => crate::cryptonote_mnemonic::decode(mnemonic),
+            _ => Err(Error::InvalidMnemonic(
+                "wallet is not a mnemonic wallet".into(),
+            )),
+        }
+    }
 }
 
 /// Generate a fresh BIP-39 mnemonic. Not available in the WebAssembly build,
@@ -608,6 +697,16 @@ pub fn generate_mnemonic(word_count: usize) -> Result<String> {
     Mnemonic::generate_in(Language::English, word_count)
         .map(|m| m.to_string())
         .map_err(|e| Error::InvalidMnemonic(e.to_string()))
+}
+
+/// Generate a fresh Monero-native 25-word mnemonic (spend seed → words).
+#[cfg(feature = "vault")]
+pub fn generate_monero_mnemonic() -> Result<String> {
+    let mut seed = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut seed);
+    let words = crate::cryptonote_mnemonic::encode(&seed);
+    seed.zeroize();
+    Ok(words)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1153,6 +1252,23 @@ fn account_from_monero(
 pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
     secret.validate()?;
     match secret {
+        WalletSecret::Mnemonic { .. }
+            if secret.mnemonic_format() == Some(MnemonicFormat::Monero) =>
+        {
+            // Monero 原生助记词:25 词只编码 XMR 的 spend 种子,不派生
+            // 其他链(官方钱包同此语义)。view = reduce(Keccak(spend))。
+            let spend = secret.monero_spend_seed()?;
+            let keys = crate::cryptonote::MoneroKeys::from_spend_seed(&spend);
+            let account = account_from_monero(
+                ChainId::Monero,
+                &keys,
+                "m/monero-native",
+                "Monero 25 词原生助记词",
+                "Keccak-256 · CryptoNote",
+                "spend = 助记词解码 · view = reduce(Keccak(spend))",
+            )?;
+            Ok(vec![account])
+        }
         WalletSecret::Mnemonic { .. } => {
             let mnemonic = secret.mnemonic()?;
             let seed = mnemonic.to_seed("");
@@ -1586,6 +1702,15 @@ pub fn derive_chain_account(
     index: u32,
 ) -> Result<Account> {
     match secret {
+        WalletSecret::Mnemonic { .. }
+            if secret.mnemonic_format() == Some(MnemonicFormat::Monero) =>
+        {
+            // Monero 原生助记词在官方钱包中就是单账户模型:25 词只对应
+            // 一个主地址,子地址是另一套体系(需要额外密钥),不在此列。
+            Err(Error::Message(
+                "Monero 原生助记词钱包只有主地址,不支持批量派生地址".into(),
+            ))
+        }
         WalletSecret::Mnemonic { .. } => match strategy {
             BatchStrategy::Path => {
                 let seed = secret.mnemonic()?.to_seed("");
@@ -1945,6 +2070,23 @@ pub fn derive_private_key(secret: &WalletSecret, chain: ChainId) -> Result<Priva
                 .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
             entry_key_material(entry)
         }
+        WalletSecret::Mnemonic { .. }
+            if secret.mnemonic_format() == Some(MnemonicFormat::Monero) =>
+        {
+            // Monero 原生助记词:只携带 XMR 的 spend 种子。
+            if chain != ChainId::Monero {
+                return Err(Error::UnsupportedChain(format!(
+                    "{chain}:Monero 原生助记词只包含 Monero 账户"
+                )));
+            }
+            let spend = secret.monero_spend_seed()?;
+            Ok(PrivateKeyMaterial {
+                chain,
+                inner: PrivateKeyInner::Monero(crate::cryptonote::MoneroKeys::from_spend_seed(
+                    &spend,
+                )),
+            })
+        }
         WalletSecret::Mnemonic { .. } => {
             let mnemonic = secret.mnemonic()?;
             let seed = mnemonic.to_seed("");
@@ -2022,6 +2164,11 @@ pub fn preview_derivation(secret: &WalletSecret) -> Result<DerivationPreview> {
     let mode = secret.mode();
     let derivation = secret.derivation_mode();
     let formula = match secret {
+        WalletSecret::Mnemonic { .. }
+            if secret.mnemonic_format() == Some(MnemonicFormat::Monero) =>
+        {
+            "Monero 25 词原生助记词 → spend/view 双钥 → CryptoNote 地址".to_string()
+        }
         WalletSecret::Mnemonic { .. } => {
             "BIP-39 mnemonic → 512-bit seed → BIP-32 / SLIP-0010 paths".to_string()
         }
@@ -2054,6 +2201,82 @@ pub fn preview_derivation(secret: &WalletSecret) -> Result<DerivationPreview> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 真实官方钱包向量(monero.how 恢复教程):25 词恢复出文档记载的
+    /// spend/view/地址。整个钱包只有一个 XMR 账户,其他链不可派生。
+    #[test]
+    fn monero_native_mnemonic_restores_official_wallet() {
+        let mnemonic = "locker welders womanly lodge gumball selfish altitude dewdrop terminal nagged exit acquire hookup ashtray wobbly nineteen duration duties javelin patio baffles ambush bamboo bite nineteen";
+        let secret = WalletSecret::new_mnemonic(mnemonic).unwrap();
+        assert_eq!(secret.mnemonic_format(), Some(MnemonicFormat::Monero));
+        secret.validate().unwrap();
+
+        let accounts = derive_accounts(&secret).unwrap();
+        assert_eq!(accounts.len(), 1, "Monero 原生助记词只派生 XMR");
+        assert_eq!(accounts[0].chain, ChainId::Monero);
+        assert_eq!(
+            accounts[0].address,
+            "47CL7FiNtW417VjzWt9Zse8Z8URhaHaA2L9jJq6rrLtDhiYK9PfbCavhhMKws9xEdKHBeGcQtJmPt4uEMivooNztC5UkHLD"
+        );
+        assert!(accounts[0].derivation.contains("Monero 25 词"));
+
+        // XMR 私钥导出 = spend 种子;其他链被明确拒绝。
+        let material = derive_private_key(&secret, ChainId::Monero).unwrap();
+        let exported = material.export().unwrap();
+        assert!(
+            exported.contains("31f05304122efc67e9c5e8a629510fbdb51256e921d36a00dd79c17285a65d05")
+        );
+        assert!(derive_private_key(&secret, ChainId::Bitcoin).is_err());
+
+        // 批量派生地址不支持(官方单地址模型)。
+        assert!(derive_chain_account(&secret, BatchStrategy::Path, ChainId::Monero, 1).is_err());
+    }
+
+    /// BIP-39 词组不会被误判为 Monero 格式,行为与从前完全一致。
+    #[test]
+    fn bip39_mnemonics_are_not_misdetected_as_monero() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        assert!(!is_monero_mnemonic(mnemonic));
+        let secret = WalletSecret::new_mnemonic(mnemonic).unwrap();
+        assert_eq!(secret.mnemonic_format(), Some(MnemonicFormat::Bip39));
+        let accounts = derive_accounts(&secret).unwrap();
+        assert_eq!(accounts.len(), ChainId::ALL.len());
+    }
+
+    /// 25 个 BIP-39 词表内但 CRC 校验不过的词组 → 拒绝,不会静默成为钱包。
+    #[test]
+    fn monero_mnemonic_with_bad_checksum_is_rejected() {
+        let words: Vec<&str> = vec![
+            "velvet",
+            "lymph",
+            "giddy",
+            "number",
+            "token",
+            "physics",
+            "poetry",
+            "unquoted",
+            "nibs",
+            "useful",
+            "sabotage",
+            "limits",
+            "benches",
+            "lifestyle",
+            "eden",
+            "nitrogen",
+            "anvil",
+            "fewest",
+            "avoid",
+            "batch",
+            "vials",
+            "washing",
+            "fences",
+            "goat",
+            "velvet",
+        ];
+        // 校验词位置错误(velvet ≠ 期望的 unquoted)。
+        assert!(!is_monero_mnemonic(&words.join(" ")));
+        assert!(WalletSecret::new_mnemonic(&words.join(" ")).is_err());
+    }
 
     #[test]
     fn batch_path_bumps_the_bip32_address_index() {

@@ -104,6 +104,20 @@ Monero 口令模式的派生：`spend = sc_reduce32(Keccak-256(message))`、`vie
 地址为 CryptoNote 双公钥 + Keccak-4 校验的 Monero base58（与 bip_utils 独立实现互相验证）；
 助记词模式走 SLIP-10 kholaw（ed25519 非强化变体）`m/44'/128'/0'/0/0`，`spend = sc_reduce32(Keccak-256(kL ‖ kR))`。
 
+### 双助记词格式
+
+助记词钱包同时接受两种格式（导入时自动识别）：
+
+| 格式 | 词数 | 覆盖范围 | 与官方钱包互通 |
+| --- | --- | --- | --- |
+| BIP-39 | 12 / 24 | 全部 24 条链 | BTC/LTC/ETH/SOL 等与主流钱包一致；**XMR 账户是本钱包自定义派生（SLIP-10 kholaw），不能用 BIP-39 词组在官方 Monero 软件恢复**，跨钱包迁移请导出 XMR 私钥（spend‖view hex） |
+| Monero 原生 | 25（第 25 词为 CRC-32 校验词，1626 词表） | 仅 XMR | 与 monero-wallet-cli / GUI / Feather / Cake 完全一致，25 词可直接互恢复 |
+
+Monero 原生格式遵循 monero-project 的 Electrum-words 规范（4 字节 → 3 词 base-1626 进位链编码、
+3 字符唯一前缀 CRC-32 校验、恢复时 `sc_reduce32` 归约），并用官方仓库单测向量与真实钱包
+（25 词 → spend key → view key → 主地址）做过端到端验证。此类钱包只有一个 XMR 账户，
+不支持批量派生地址（官方模型即单地址 + 子地址体系）。
+
 ## 工具箱
 
 「工具箱」视图（侧栏 → 工具箱）收纳日常小工具，全部本地计算：
@@ -112,7 +126,7 @@ Monero 口令模式的派生：`spend = sc_reduce32(Keccak-256(message))`、`vie
 | --- | --- |
 | 地址体检 | 粘贴任意地址，自动识别属于哪条链（含跨链同源格式提示）、地址类型（P2PKH/P2WPKH/cashaddr/evm/ed25519）与 EIP-55 校验和状态。 |
 | 单位换算 | 二十条链的显示单位 ↔ 最小单位（聪/wei/lamport/piconero…）互转，输入即算。 |
-| 助记词校验 | BIP-39 词表逐词检查（错词标红）+ 校验和判定；不派生地址、不落盘。 |
+| 助记词校验 | 双格式：BIP-39 词表逐词检查（错词标红）+ 校验和判定；Monero 原生 25 词做词表 + CRC-32 校验词检查。不派生地址、不落盘。 |
 | 哈希 / 编码 | SHA-256、SHA-512、SHA-256d、Keccak-256、HASH160、RIPEMD-160；同一输入并排给出 hex / base64 / base58。 |
 | 消息签名 | 用当前钱包密钥签名（EVM 走 EIP-191 `personal_sign`，Bitcoin 走 BIP-137，Solana 走 ed25519）；验签恢复签名者地址。签名需要密码确认，密钥不出 Rust 侧。 |
 | 支付 URI | BIP-21 / EIP-681（含 `value=1e18` 科学计数法）/ Solana Pay 的解析与构造，解析结果可一键带入转账。 |

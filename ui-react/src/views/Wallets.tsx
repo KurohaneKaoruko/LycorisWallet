@@ -576,12 +576,28 @@ function AddWalletDialog({
                   <Icon name="refresh" />
                   生成 24 词
                 </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    try {
+                      setMnemonic(await api.generateMnemonic(25, "monero"));
+                      setPreview(null);
+                    } catch (e) {
+                      toast((e as Error).message, "error");
+                    }
+                  }}
+                >
+                  <Icon name="refresh" />
+                  Monero 25 词
+                </button>
               </div>
             </div>
             <textarea
               className="textarea"
               id="wallet-mnemonic"
-              placeholder="粘贴已有的 12 / 24 个英文单词,或点上方按钮随机生成"
+              placeholder="粘贴 BIP-39 12/24 词,或 Monero 原生 25 词(自动识别);也可点上方按钮随机生成"
               spellCheck={false}
               autoComplete="off"
               value={mnemonic}

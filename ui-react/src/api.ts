@@ -118,8 +118,8 @@ export const api = {
   unlockVault: (password: string) => call("unlock_vault", { password }) as Promise<WalletView>,
   lockVault: () => call("lock_vault") as Promise<void>,
   wallet: (): Promise<WalletView> => call("wallet") as Promise<WalletView>,
-  generateMnemonic: (wordCount = 12) =>
-    call("generate_mnemonic", { wordCount }) as Promise<string>,
+  generateMnemonic: (wordCount = 12, format?: "bip39" | "monero") =>
+    call("generate_mnemonic", { wordCount, format }) as Promise<string>,
   previewDerivation: (secret: unknown) =>
     call("preview_derivation", { secret }) as Promise<DerivationPreview>,
   revealMnemonic: (password: string) =>

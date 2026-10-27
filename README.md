@@ -15,9 +15,10 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 - **多钱包管理**：同一个加密文件里可以保存多个钱包（助记词 / 口令混搭），共用一个本地密码；
   支持新建、导入、重命名、切换与删除（删除需密码确认），交易记录按钱包隔离，地址簿与设置全局共享。
   旧版单钱包文件在解锁时自动迁移到新格式。
-- **二十条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Solana、Monero，
-  以及 Bitcoin SV、Namecoin、Litecoin Cash、Feathercoin、Viacoin、Potcoin、e-Gulden、Dash、Groestlcoin、Vertcoin。
-- **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 / UTXO P2WPKH 与 legacy P2PKH / Solana 系统转账 / Monero CryptoNote）、交易记录、地址簿。
+- **三十条链**：Bitcoin、Litecoin、Dogecoin、Bitcoin Cash、Ethereum、Ethereum Classic、BNB Chain、Polygon、Solana、Monero，
+  以及 Bitcoin SV、Namecoin、Litecoin Cash、Feathercoin、Viacoin、Potcoin、e-Gulden、Dash、Groestlcoin、Vertcoin、
+  Ravencoin、Monacoin、Fujicoin，与 2miners 批次新增的 Zcash、Firo、Neurai、Clore.ai、Zephyr Protocol、OctaSpace。
+- **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 与 legacy gas / UTXO P2WPKH 与 legacy P2PKH / Zcash ZIP-243 / Solana 系统转账 / CryptoNote）、交易记录、地址簿。
 - **工具箱**：地址体检（自动识别链 + 校验和）、单位换算（聪/wei/lamport ↔ 显示单位）、BIP-39 助记词校验、
   哈希与编码（SHA-256/512、Keccak-256、HASH160、RIPEMD-160 与 hex/base64/base58）、
   消息签名与验签（EVM EIP-191 / Bitcoin BIP-137 / Solana ed25519）、支付 URI（BIP-21 / EIP-681 / Solana Pay 解析与构造）。
@@ -53,23 +54,33 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | Ravencoin | RVN | SHA-256* | `m/44'/175'/0'/0/0` | base58（P2PKH） |
 | Monacoin | MONA | SHA-256* | `m/84'/22'/0'/0/0` | bech32（P2WPKH） |
 | Fujicoin | FJC | SHA-256* | `m/84'/75'/0'/0/0` | bech32（P2WPKH） |
+| Zcash | ZEC | SHA-256* | `m/44'/133'/0'/0/0` | base58（t1 透明 P2PKH） |
+| Firo | FIRO | SHA-256* | `m/44'/136'/0'/0/0` | base58（P2PKH） |
+| Neurai | XNA | SHA-256* | `m/44'/733'/0'/0/0` | base58（P2PKH） |
+| Clore.ai | CLORE | SHA-256* | `m/44'/899'/0'/0/0` | base58（P2PKH） |
+| Zephyr Protocol | ZEPH | Keccak-256 → CryptoNote | `m/44'/128'/0'/0/0`（SLIP-10 kholaw） | CryptoNote base58（双公钥） |
+| OctaSpace | OCTA | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 
-> 带 * 的六条链（Dash 的 X11、Groestlcoin 的 Groestl、Vertcoin/Monacoin/Fujicoin 的 Lyra2RE、
-> Ravencoin 的 KawPow）在口令模式下使用
+> 带 * 的九条链（Dash 的 X11、Groestlcoin 的 Groestl、Vertcoin/Monacoin/Fujicoin 的 Lyra2RE、
+> Ravencoin 的 KawPow、Zcash 的 Equihash、Firo/Neurai/Clore 的 PoW 哈希）在口令模式下使用
 > 域分隔的 SHA-256 替代原生 PoW 哈希级联（`lycoris/pow-fallback/v1/`），保证派生稳定可审计；
 > 助记词钱包不受影响（走 BIP-32）。
 >
 > Dogecoin 与 Bitcoin Cash 的收款、余额与转账均已可用：前者用 legacy P2PKH 传统 sighash，后者用
 > BIP-143 + SIGHASH-FORKID，交易字节与 libsecp256k1 独立实现逐字节一致。
+> Zcash 同样可用：透明 t1… 地址（P2PKH），签名走 ZIP-243（BLAKE2b 个性化摘要 + NU6.2 branch id），
+> 摘要算法已用两笔真实主网交易（SIGHASH_ALL 与 SIGHASH_SINGLE 各一）端到端验证。
 > 余额查询开箱即用、无需任何 API Key：DOGE/BCH/VIA/FTC/GRS/DASH 走 trezor 公共 Blockbook
 > （`doge.trezor.io` 等官方实例），BSV 走 WhatsOnChain，BTC/LTC 走 mempool.space / litecoinspace；
-> RVN/MONA/FJC 走社区公共 Blockbook（ravencoin.org / electrum-mona.org / fujicoin.org 官方实例，
-> 余额、转账、历史实测可用）；
-> Blockchair 只作自动回退源，可在「设置 → 网络」里填 Key 提高回退配额（可选）。
+> RVN/MONA/FJC 走社区公共 Blockbook（ravencoin.org / electrum-mona.org / fujicoin.org 官方实例），
+> ZEC/FIRO/XNA/CLORE 走 zelcore/社区 Blockbook（`blockbook.zec.zelcore.io` / `blockbook.firo.org` /
+> `blockbook.neurai.org` / `blockbook.clore.zelcore.io`，实测在线）；
+> Blockchair 只作自动回退源（ZEC 已实测支持），可在「设置 → 网络」里填 Key 提高回退配额（可选）。
 > Namecoin / Litecoin Cash / Potcoin / e-Gulden / Vertcoin 通过 Chainz（cryptoid.info）免 Key 接口查询余额，
 > 暂无公共 UTXO/广播端点，转账不可用（地址派生、校验与浏览器链接不受影响）。
-> Monero 的收款地址派生、余额与转账均已可用：RingCT 签名由本地的 `monero-wallet-rpc` 完成，
-> 配置见下方「Monero 转账」一节。
+> Monero 与 Zephyr 的收款地址派生、余额与转账均已可用：RingCT 签名由本地的 `monero-wallet-rpc` /
+> `zephyr-wallet-rpc` 完成（两者协议相同、端口独立，配置见下方「Monero 转账」一节）。
+> OctaSpace 是 EVM 链（chain id 800001，官方 `rpc.octa.space`），走 legacy gas 转账。
 
 ### 链上数据源
 
@@ -80,8 +91,10 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | BSV | WhatsOnChain | — |
 | VIA / FTC / GRS / DASH | trezor/社区 Blockbook（`/api/v2`）→ Blockchair 回退 | 同左，含收款入账与确认状态 |
 | RVN / MONA / FJC | 社区官方 Blockbook（实测在线） | 同左（Blockbook 地址历史） |
+| ZEC / FIRO / XNA / CLORE | zelcore/社区 Blockbook（`/api/v2`）→ ZEC 另有 Blockchair 回退 | 同左（Blockbook 地址历史） |
 | NMC / LCC / POT / EFL / VTC | Chainz（cryptoid.info，免 Key，仅余额） | — |
-| ETH / ETC / ETHW / BSC / POL / SOL / XMR | JSON-RPC / 本地 wallet-rpc（ETHW 为官方 `mainnet.ethereumpow.org`） | —（待接索引器） |
+| ETH / ETC / ETHW / BSC / POL / OCTA | JSON-RPC（OCTA 为官方 `rpc.octa.space`） | —（待接索引器） |
+| XMR / ZEPH | 本地 wallet-rpc（18083 / 19797） | — |
 
 ### 口令派生规则
 
@@ -131,34 +144,36 @@ Monero 原生格式遵循 monero-project 的 Electrum-words 规范（4 字节 �
 | 消息签名 | 用当前钱包密钥签名（EVM 走 EIP-191 `personal_sign`，Bitcoin 走 BIP-137，Solana 走 ed25519）；验签恢复签名者地址。签名需要密码确认，密钥不出 Rust 侧。 |
 | 支付 URI | BIP-21 / EIP-681（含 `value=1e18` 科学计数法）/ Solana Pay 的解析与构造，解析结果可一键带入转账。 |
 
-## Monero 转账
+## Monero / Zephyr 转账
 
-Monero 的每笔转账都需要 CLSAG 环签名和 Bulletproofs+ 范围证明。自己实现风险太高，因此
-Lycoris 把签名交给 Monero 官方的 `monero-wallet-rpc`（与 Feather Wallet 相同的架构），
-密钥仍由本应用从当前口令派生。
+Monero 与 Zephyr 的每笔转账都需要 CLSAG 环签名和 Bulletproofs+ 范围证明。自己实现风险太高，因此
+Lycoris 把签名交给官方的 `monero-wallet-rpc` / `zephyr-wallet-rpc`（与 Feather Wallet 相同的架构，
+两者协议完全相同、端口独立），密钥仍由本应用从当前口令派生。
 
 1. 启动本地 RPC（`--wallet-dir` 指向一个专用目录；`--disable-rpc-login` 只适合本机监听）：
 
 ```bash
 monero-wallet-rpc --rpc-bind-port 18083 --disable-rpc-login \
   --wallet-dir ~/.lycoris/monero
+zephyr-wallet-rpc --rpc-bind-port 19797 --disable-rpc-login \
+  --wallet-dir ~/.lycoris/zephyr
 ```
 
-2. 在「设置 → 网络 → Monero 钱包 RPC」里确认地址（默认 `http://127.0.0.1:18083/json_rpc`）、
-   可选的 RPC 用户名/密码，以及**恢复高度**。填创建钱包时的大致区块高度可以避免从创世块
-   扫描；留 0 会从头扫描，非常慢。
+2. 在「设置 → 网络 → Monero / Zephyr 钱包 RPC」里确认地址（默认 `http://127.0.0.1:18083/json_rpc`
+   与 `http://127.0.0.1:19797/json_rpc`）、可选的 RPC 用户名/密码（两者共享），以及**恢复高度**。
+   填创建钱包时的大致区块高度可以避免从创世块扫描；留 0 会从头扫描，非常慢。
 3. 首次查询余额或转账时，应用会用当前钱包的 spend/view key 在 `--wallet-dir` 下创建钱包文件：
    文件名 `lycoris-<地址哈希前 16 位 hex>`，钱包密码是 `keccak256(spend_key)` 的 hex。
    两者都不落盘保存，每次都从当前口令重新计算。
 
 手续费按 Monero 动态费率估算：典型 1 入 2 出交易约 1.6 KB，费率下限 20,000 piconero/字节，
-快速 / 标准 / 经济对应优先级 3 / 2 / 1（20× / 4× / 1×）；实际费用以 RPC 返回为准。
-「全部」使用 `sweep_all`，手续费由 Monero 自己扣除。
+快速 / 标准 / 经济对应优先级 3 / 2 / 1（20× / 4× / 1×）；实际费用以 RPC 返回为准（Zephyr 同构）。
+「全部」使用 `sweep_all`，手续费由协议自己扣除。
 
-> `monero-wallet-rpc` 能接触视图密钥与花费密钥，请只连接本机或完全信任的节点，
+> `monero-wallet-rpc` / `zephyr-wallet-rpc` 能接触视图密钥与花费密钥，请只连接本机或完全信任的节点，
 > 不要把 RPC 端口暴露到公网。
 >
-> 删除 Lycoris 的本机钱包文件不会删除 `--wallet-dir` 里的 Monero 钱包文件；需要彻底
+> 删除 Lycoris 的本机钱包文件不会删除 `--wallet-dir` 里的钱包文件；需要彻底
 > 清理时请手动删除该目录。
 
 ## 仓库结构
@@ -290,10 +305,23 @@ python tools/verify_qr_svg.py out/mock-qr-fixtures.txt
 - NMC/LCC/POT/EFL/VTC 仅有 Chainz 免 Key 余额查询（只读），无公共 UTXO/广播端点，转账不可用。
 - 余额查询带自动多源回退（主源失败依次尝试 Blockchair 回退），无需配置即可用；回退源被限速时
   可在「设置 → 网络」填 Blockchair Key。
-- Monero 余额与转账依赖本地 `monero-wallet-rpc`；首次扫描需要时间，恢复高度留 0 会从创世块扫起。
+- Monero/Zephyr 余额与转账依赖本地 `monero-wallet-rpc` / `zephyr-wallet-rpc`（两者协议相同、
+  端口分别为 18083 / 19797）；首次扫描需要时间，恢复高度留 0 会从创世块扫起。
 - 尚无硬件钱包、多账户、隔离见证找零以外的 UTXO 管理。
 - 价格来自 CoinGecko 公共接口，可在设置里关闭。
 - `crates/cli` 仍是占位。
+
+### 暂不支持的 2miners 在架币种
+
+按「独立链 + 公共数据源可实测」的准入标准，以下 2miners 在架币种暂不支持：
+
+- **自定义签名体系（工程量极大）**：KAS/KLS/PYI/NEXA/QTC/PRL（schnorr 签名族或自研脚本系统）、
+  QUAI（原生多链分片）、KDA（Chainweb 多链）、CKB（Cell 模型）、ERG（Autolykos + ErgoTree）、
+  ALPH（alephium 的字节码合约模型）。
+- **MimbleWimble 无地址模型**：GRIN / MWC / BEAM——交互式交易需要双方在线协商盲因子，
+  与「单机收款地址」的钱包模型不兼容。
+- **数据源不可实测**：BTG（ElectrumX 实例长期离线）、FLUX（FluxOS 端点需注册）。
+- **2miners 已下架**：NEOX / CTXC（2026-06 移除），链本身仍在但不在本次目标集合内。
 
 ## 安全
 

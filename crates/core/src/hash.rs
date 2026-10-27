@@ -116,7 +116,9 @@ fn hash_message(message: &[u8], chain: ChainId) -> Result<[u8; 32]> {
         HashAlgorithm::X11
         | HashAlgorithm::Groestl
         | HashAlgorithm::Lyra2re
-        | HashAlgorithm::KawPow => {
+        | HashAlgorithm::KawPow
+        | HashAlgorithm::Equihash
+        | HashAlgorithm::RandomX => {
             let mut hasher = Sha256::new();
             hasher.update(format!("lycoris/pow-fallback/v1/{}\0", chain.as_str()));
             hasher.update(message);

@@ -25,6 +25,15 @@ pub const MAINNET_INTEGRATED_PREFIX: u8 = 0x13;
 /// Subaddress (`0x2a`): what exchanges hand out for deposits.
 pub const MAINNET_SUBADDRESS_PREFIX: u8 = 0x2a;
 
+/// The network prefix varint + the payload sizes a CryptoNote address takes
+/// for a given leading prefix byte.
+///
+/// Zephyr's primary prefix (`0x6241d18c0`, spells "ZEPHYR" in base58) is a
+/// multi-byte varint, so prefixes are matched on their decoded leading bytes
+/// rather than a single byte.
+pub const MONERO_PREFIX_BYTES: [u8; 1] = [MAINNET_ADDRESS_PREFIX];
+pub const ZEPHYR_PREFIX_BYTES: [u8; 5] = [0xc0, 0xb1, 0xf4, 0xa0, 0x62];
+
 const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 /// Monero's `sc_reduce32`: little-endian integer mod the group order.
@@ -49,6 +58,8 @@ pub struct MoneroKeys {
     pub private_view: [u8; 32],
     pub public_spend: [u8; 32],
     pub public_view: [u8; 32],
+    /// Network byte(s) the primary address starts with (varint).
+    pub network_prefix: &'static [u8],
 }
 
 impl std::fmt::Debug for MoneroKeys {
@@ -71,8 +82,14 @@ impl Drop for MoneroKeys {
 }
 
 impl MoneroKeys {
-    /// Derive from a private spend seed (`spend = reduce(seed)`).
+    /// Derive from a private spend seed (`spend = reduce(seed)`) with the
+    /// Monero mainnet prefix.
     pub fn from_spend_seed(seed: &[u8; 32]) -> Self {
+        Self::with_prefix(seed, &MONERO_PREFIX_BYTES)
+    }
+
+    /// Derive with an explicit network prefix varint (Zephyr etc.).
+    pub fn with_prefix(seed: &[u8; 32], network_prefix: &'static [u8]) -> Self {
         let private_spend = sc_reduce32(seed);
         let private_view = sc_reduce32(&keccak256(&private_spend));
         let public_spend = point_mul(&private_spend);
@@ -82,6 +99,7 @@ impl MoneroKeys {
             private_view,
             public_spend,
             public_view,
+            network_prefix,
         }
     }
 
@@ -92,10 +110,10 @@ impl MoneroKeys {
         Self::from_spend_seed(&keccak256(key))
     }
 
-    /// The primary (index 0/0) address in Monero base58.
+    /// The primary (index 0/0) address in CryptoNote base58.
     pub fn primary_address(&self) -> String {
         let mut data = Vec::with_capacity(69);
-        data.push(MAINNET_ADDRESS_PREFIX);
+        data.extend_from_slice(self.network_prefix);
         data.extend_from_slice(&self.public_spend);
         data.extend_from_slice(&self.public_view);
         // CryptoNote checksum: first 4 bytes of Keccak-0 (original, not
@@ -150,6 +168,7 @@ pub fn monero_base58_encode(data: &[u8]) -> String {
 /// All three are valid recipients; subaddresses are what most exchanges hand
 /// out for deposits, so accepting only primary addresses would reject a large
 /// share of real destinations.
+/// Validate a Monero mainnet address (primary / integrated / subaddress).
 pub fn monero_address_validate(address: &str) -> bool {
     let decoded = match monero_base58_decode(address.trim()) {
         Some(bytes) => bytes,
@@ -165,6 +184,24 @@ pub fn monero_address_validate(address: &str) -> bool {
     // checksum: Keccak-4 over every byte before it
     let checksum = keccak256(&decoded[..length - 4]);
     decoded[length - 4..] == checksum[..4]
+}
+
+/// Validate a CryptoNote address for a network whose primary prefix is a
+/// multi-byte varint (Zephyr): the decoded payload must start with the
+/// prefix and carry a valid Keccak-4 checksum. Only primary addresses are
+/// accepted; integrated/subaddress forms are out of scope.
+pub fn cryptonote_address_validate(address: &str, primary_prefix: &[u8]) -> bool {
+    let decoded = match monero_base58_decode(address.trim()) {
+        Some(bytes) => bytes,
+        None => return false,
+    };
+    let expected_len = primary_prefix.len() + 68;
+    if decoded.len() != expected_len || !decoded.starts_with(primary_prefix) {
+        return false;
+    }
+    // checksum: Keccak-4 over every byte before it
+    let checksum = keccak256(&decoded[..expected_len - 4]);
+    decoded[expected_len - 4..] == checksum[..4]
 }
 
 /// Decode Monero base58 back into raw bytes (checksum not verified here).

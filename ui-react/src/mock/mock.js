@@ -86,6 +86,12 @@ const CHAINS = [
   { id: "ravencoin", name: "Ravencoin", symbol: "RVN", decimals: 8, accent: "#B7B7B7", kind: "utxo" },
   { id: "monacoin", name: "Monacoin", symbol: "MONA", decimals: 8, accent: "#B78C33", kind: "utxo" },
   { id: "fujicoin", name: "Fujicoin", symbol: "FJC", decimals: 8, accent: "#B7472A", kind: "utxo" },
+  { id: "zcash", name: "Zcash", symbol: "ZEC", decimals: 8, accent: "#F4B728", kind: "utxo" },
+  { id: "firo", name: "Firo", symbol: "FIRO", decimals: 8, accent: "#FF7A00", kind: "utxo" },
+  { id: "neurai", name: "Neurai", symbol: "XNA", decimals: 8, accent: "#00B3E6", kind: "utxo" },
+  { id: "clore", name: "Clore.ai", symbol: "CLORE", decimals: 8, accent: "#3B6EF3", kind: "utxo" },
+  { id: "zephyr", name: "Zephyr Protocol", symbol: "ZEPH", decimals: 12, accent: "#5E8B7E", kind: "cryptonote" },
+  { id: "octaspace", name: "OctaSpace", symbol: "OCTA", decimals: 18, accent: "#8A5CF6", kind: "evm" },
 ];
 
 const PRICES = {
@@ -113,6 +119,12 @@ const PRICES = {
   ravencoin: { usd: 0.0217, cny: 0.156 },
   monacoin: { usd: 0.384, cny: 2.76 },
   fujicoin: { usd: 0.0129, cny: 0.0928 },
+  zcash: { usd: 41.26, cny: 296.7 },
+  firo: { usd: 1.142, cny: 8.21 },
+  neurai: { usd: 0.00281, cny: 0.0202 },
+  clore: { usd: 0.0473, cny: 0.34 },
+  zephyr: { usd: 0.316, cny: 2.27 },
+  octaspace: { usd: 0.0891, cny: 0.641 },
 };
 
 const BALANCES = {
@@ -140,6 +152,12 @@ const BALANCES = {
   ravencoin: 1_842_600_000_000n,
   monacoin: 7_640_000_000n,
   fujicoin: 124_800_000_000n,
+  zcash: 384_200_000n,
+  firo: 86_400_000_000n,
+  neurai: 128_600_000_000n,
+  clore: 946_200_000_000n,
+  zephyr: 2_512_400_000_000n,
+  octaspace: 31_280_000_000_000_000_000n,
 };
 
 const ALGOS = {
@@ -167,6 +185,12 @@ const ALGOS = {
   ravencoin: ["KawPow", "Ravencoin PoW 哈希 · progpow 变体"],
   monacoin: ["Lyra2RE", "Lyra2RE(v2) 哈希链"],
   fujicoin: ["Lyra2RE", "Lyra2RE(v2) 哈希链"],
+  zcash: ["Equihash", "Equihash(200,9) · BLAKE2b 入口哈希"],
+  firo: ["Lyra2RE", "Firo (Zcoin) · MTP 已弃用，现为 Lyra2z 系"],
+  neurai: ["KawPow", "Neurai PoW 哈希 · Ravencoin 家族"],
+  clore: ["KawPow", "Clore.ai PoW 哈希 · Ravencoin 家族"],
+  zephyr: ["RandomX", "CryptoNote · RandomX PoW 哈希"],
+  octaspace: ["Keccak-256", "Ethash PoW 链 · EVM 兼容"],
 };
 
 const PATHS = {
@@ -194,6 +218,12 @@ const PATHS = {
   ravencoin: "m/44'/175'/0'/0/0",
   monacoin: "m/84'/22'/0'/0/0",
   fujicoin: "m/84'/75'/0'/0/0",
+  zcash: "m/44'/133'/0'/0/0",
+  firo: "m/44'/136'/0'/0/0",
+  neurai: "m/44'/733'/0'/0/0",
+  clore: "m/44'/899'/0'/0/0",
+  zephyr: "m/44'/128'/0'/0/0",
+  octaspace: "m/44'/60'/0'/0/0",
 };
 
 /* BIP-44 coin types: chains with the same coin type share one key in
@@ -223,6 +253,12 @@ const COIN_TYPES = {
   ravencoin: 175,
   monacoin: 22,
   fujicoin: 75,
+  zcash: 133,
+  firo: 136,
+  neurai: 733,
+  clore: 899,
+  zephyr: 128,
+  octaspace: 60,
 };
 
 const TX_EXPLORERS = {  bitcoin: "https://mempool.space/tx/",
@@ -249,6 +285,12 @@ const TX_EXPLORERS = {  bitcoin: "https://mempool.space/tx/",
   ravencoin: "https://blockbook.ravencoin.org/tx/",
   monacoin: "https://blockbook.electrum-mona.org/tx/",
   fujicoin: "https://explorer.fujicoin.org/tx/",
+  zcash: "https://blockbook.zec.zelcore.io/tx/",
+  firo: "https://blockbook.firo.org/tx/",
+  neurai: "https://blockbook.neurai.org/tx/",
+  clore: "https://blockbook.clore.zelcore.io/tx/",
+  zephyr: "https://explorer.zephyrprotocol.com/tx/",
+  octaspace: "https://explorer.octa.space/tx/",
 };
 
 /* ------------------------------------------------------------------- random */
@@ -423,6 +465,7 @@ const store = {
     moneroRpcUrl: "http://127.0.0.1:18083/json_rpc",
     moneroRpcUser: "",
     moneroRpcPassword: "",
+    zephyrRpcUrl: "http://127.0.0.1:19797/json_rpc",
     moneroRestoreHeight: 0,
   },
   contacts: [],

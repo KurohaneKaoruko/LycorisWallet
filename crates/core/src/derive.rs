@@ -1154,7 +1154,13 @@ fn account_from_secp(
         | ChainId::EGulden
         | ChainId::Dash
         // Ravencoin never activated SegWit: plain P2PKH, R… prefix.
-        | ChainId::Ravencoin => {
+        // Firo / Neurai / Clore are the same story (a… / X… / c…),
+        // and Zcash transparent t1… is base58 P2PKH too.
+        | ChainId::Ravencoin
+        | ChainId::Zcash
+        | ChainId::Firo
+        | ChainId::Neurai
+        | ChainId::Clore => {
             let params = chain.utxo_params().expect("utxo params");
             p2pkh_address(&compressed_pubkey(key), params.p2pkh_version)
         }
@@ -1169,8 +1175,9 @@ fn account_from_secp(
         | ChainId::EthereumClassic
         | ChainId::Ethw
         | ChainId::Bsc
-        | ChainId::Polygon => evm_address(&uncompressed_pubkey(key))?,
-        ChainId::Solana | ChainId::Monero => {
+        | ChainId::Polygon
+        | ChainId::OctaSpace => evm_address(&uncompressed_pubkey(key))?,
+        ChainId::Solana | ChainId::Monero | ChainId::Zephyr => {
             return Err(Error::UnsupportedChain(chain.to_string()))
         }
     };
@@ -1220,6 +1227,16 @@ fn account_from_ed25519(
         send_supported: info.send_supported(),
         decimals: info.decimals,
     })
+}
+
+/// kholaw 扩展密钥 → CryptoNote 钥匙,按链选网络前缀
+/// (Monero 0x12 / Zephyr 0x6241d18c0 varint)。
+fn kholaw_monero_keys(chain: ChainId, k64: &[u8; 64]) -> crate::cryptonote::MoneroKeys {
+    let prefix: &'static [u8] = match chain {
+        ChainId::Zephyr => &crate::cryptonote::ZEPHYR_PREFIX_BYTES,
+        _ => &crate::cryptonote::MONERO_PREFIX_BYTES,
+    };
+    crate::cryptonote::MoneroKeys::with_prefix(&crate::address::keccak256(k64), prefix)
 }
 
 fn account_from_monero(
@@ -1317,7 +1334,7 @@ pub fn derive_accounts(secret: &WalletSecret) -> Result<Vec<Account>> {
                             &seed,
                             info.derivation_path,
                         )?);
-                        let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+                        let keys = kholaw_monero_keys(chain, &k64);
                         k64.zeroize();
                         accounts.push(account_from_monero(
                             chain,
@@ -1521,7 +1538,7 @@ fn mnemonic_account_at_index(seed: &[u8; 64], chain: ChainId, index: u32) -> Res
             let _ = index;
             let mut k64 = [0u8; 64];
             k64.copy_from_slice(&crate::slip10::derive_kholaw_path(seed, base)?);
-            let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+            let keys = kholaw_monero_keys(chain, &k64);
             k64.zeroize();
             account_from_monero(
                 chain,
@@ -1617,7 +1634,7 @@ fn mnemonic_iterated_digest(seed: &[u8; 64], chain: ChainId, index: u32) -> Resu
             // Anchor to the base account's actual spend key, the same value
             // `from_kholaw_key` reduces to for the base address.
             let mut k64 = slip10::derive_kholaw_path(seed, chain.info().derivation_path)?;
-            let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+            let keys = kholaw_monero_keys(chain, &k64);
             k64.zeroize();
             keys.private_spend
         }
@@ -1846,7 +1863,7 @@ pub fn derive_chain_private_key_for_spec(
                     let base = chain.info().derivation_path;
                     let mut k64 = [0u8; 64];
                     k64.copy_from_slice(&crate::slip10::derive_kholaw_path(&seed, base)?);
-                    let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+                    let keys = kholaw_monero_keys(chain, &k64);
                     k64.zeroize();
                     Ok(PrivateKeyMaterial {
                         chain,
@@ -1879,7 +1896,7 @@ pub fn derive_chain_private_key_for_spec(
                     let base = chain.info().derivation_path;
                     let mut k64 = [0u8; 64];
                     k64.copy_from_slice(&crate::slip10::derive_kholaw_path(&seed, base)?);
-                    let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+                    let keys = kholaw_monero_keys(chain, &k64);
                     k64.zeroize();
                     Ok(PrivateKeyMaterial {
                         chain,
@@ -2109,7 +2126,7 @@ pub fn derive_private_key(secret: &WalletSecret, chain: ChainId) -> Result<Priva
                 ChainKind::Cryptonote => {
                     let mut k64 = [0u8; 64];
                     k64.copy_from_slice(&slip10::derive_kholaw_path(&seed, info.derivation_path)?);
-                    let keys = crate::cryptonote::MoneroKeys::from_kholaw_key(&k64);
+                    let keys = kholaw_monero_keys(chain, &k64);
                     k64.zeroize();
                     Ok(PrivateKeyMaterial {
                         chain,
@@ -2480,11 +2497,13 @@ mod tests {
         }
 
         let accounts = derive_accounts(&from_wif).unwrap();
-        // secp 链(原 8 条 + 2026 追加的 10 条 UTXO 链 + 2026 二批的
-        // RVN/MONA/FJC),无 Solana/Monero(钥匙环只导入了 secp 槽)。
-        assert_eq!(accounts.len(), 22);
+        // secp 链(原 8 条 + 2026 追加的 10 条 UTXO 链 + RVN/MONA/FJC +
+        // 2miners 批次的 ZEC/FIRO/XNA/CLORE/OCTA),无 Solana/Monero/Zephyr
+        // (钥匙环只导入了 secp 槽)。
+        assert_eq!(accounts.len(), 27);
         assert!(accounts.iter().all(|a| a.chain != ChainId::Solana));
         assert!(accounts.iter().all(|a| a.chain != ChainId::Monero));
+        assert!(accounts.iter().all(|a| a.chain != ChainId::Zephyr));
         // 私钥 1 的以太坊地址是众所周知的向量。
         let eth = accounts
             .iter()
@@ -3003,6 +3022,10 @@ mod tests {
             ChainId::Ravencoin,
             ChainId::Monacoin,
             ChainId::Fujicoin,
+            ChainId::Zcash,
+            ChainId::Firo,
+            ChainId::Neurai,
+            ChainId::Clore,
         ] {
             let value = address(chain);
             assert!(

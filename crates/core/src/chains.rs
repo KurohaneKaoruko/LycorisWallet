@@ -32,10 +32,16 @@ pub enum ChainId {
     Ravencoin,
     Monacoin,
     Fujicoin,
+    Zcash,
+    Firo,
+    Neurai,
+    Clore,
+    Zephyr,
+    OctaSpace,
 }
 
 impl ChainId {
-    pub const ALL: [ChainId; 24] = [
+    pub const ALL: [ChainId; 30] = [
         ChainId::Bitcoin,
         ChainId::Litecoin,
         ChainId::Dogecoin,
@@ -60,6 +66,12 @@ impl ChainId {
         ChainId::Monacoin,
         ChainId::Fujicoin,
         ChainId::Ethw,
+        ChainId::Zcash,
+        ChainId::Firo,
+        ChainId::Neurai,
+        ChainId::Clore,
+        ChainId::Zephyr,
+        ChainId::OctaSpace,
     ];
 
     pub fn info(self) -> ChainInfo {
@@ -484,6 +496,110 @@ impl ChainId {
                 price_id: "fujicoin",
                 send_note: "Native SegWit (Bech32 fc)",
             },
+            ChainId::Zcash => ChainInfo {
+                id: self,
+                name: "Zcash",
+                symbol: "ZEC",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Equihash,
+                bip44_coin: 133,
+                // 透明地址(非屏蔽)。主源 zelcore Blockbook(索引透明池),
+                // Blockchair 兜底。签名走 ZIP-243(见 tx::utxo)。
+                derivation_path: "m/44'/133'/0'/0/0",
+                accent: "#F4B728",
+                explorer: "https://blockbook.zec.zelcore.io",
+                explorer_tx: "https://blockbook.zec.zelcore.io/tx/",
+                explorer_address: "https://blockbook.zec.zelcore.io/address/",
+                rpc: "https://blockbook.zec.zelcore.io",
+                price_id: "zcash",
+                send_note: "透明地址 t1… (P2PKH, ZIP-243 签名)",
+            },
+            ChainId::Firo => ChainInfo {
+                id: self,
+                name: "Firo",
+                symbol: "FIRO",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::Sha256,
+                bip44_coin: 136,
+                derivation_path: "m/44'/136'/0'/0/0",
+                accent: "#7C4DFF",
+                explorer: "https://blockbook.firo.org",
+                explorer_tx: "https://blockbook.firo.org/tx/",
+                explorer_address: "https://blockbook.firo.org/address/",
+                rpc: "https://blockbook.firo.org",
+                price_id: "zcoin",
+                send_note: "Legacy P2PKH (Base58 a…)",
+            },
+            ChainId::Neurai => ChainInfo {
+                id: self,
+                name: "Neurai",
+                symbol: "XNA",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::KawPow,
+                bip44_coin: 733,
+                derivation_path: "m/44'/733'/0'/0/0",
+                accent: "#00C2A8",
+                explorer: "https://blockbook.neurai.org",
+                explorer_tx: "https://blockbook.neurai.org/tx/",
+                explorer_address: "https://blockbook.neurai.org/address/",
+                rpc: "https://blockbook.neurai.org",
+                price_id: "neurai",
+                send_note: "Legacy P2PKH (Base58 X…)",
+            },
+            ChainId::Clore => ChainInfo {
+                id: self,
+                name: "Clore.ai",
+                symbol: "CLORE",
+                decimals: 8,
+                kind: ChainKind::Utxo,
+                hash: HashAlgorithm::KawPow,
+                bip44_coin: 899,
+                derivation_path: "m/44'/899'/0'/0/0",
+                accent: "#33A6FF",
+                explorer: "https://blockbook.clore.zelcore.io",
+                explorer_tx: "https://blockbook.clore.zelcore.io/tx/",
+                explorer_address: "https://blockbook.clore.zelcore.io/address/",
+                rpc: "https://blockbook.clore.zelcore.io",
+                price_id: "clore",
+                send_note: "Legacy P2PKH (Base58 c…)",
+            },
+            ChainId::Zephyr => ChainInfo {
+                id: self,
+                name: "Zephyr Protocol",
+                symbol: "ZEPH",
+                decimals: 12,
+                kind: ChainKind::Cryptonote,
+                hash: HashAlgorithm::RandomX,
+                bip44_coin: 0,
+                derivation_path: "m/44'/128'/0'/0/0",
+                accent: "#5E8B7E",
+                explorer: "https://explorer.zephyrprotocol.com",
+                explorer_tx: "https://explorer.zephyrprotocol.com/tx/",
+                explorer_address: "https://explorer.zephyrprotocol.com/",
+                rpc: "http://127.0.0.1:19797",
+                price_id: "zephyr-protocol",
+                send_note: "CryptoNote 双公钥 · 隐私币",
+            },
+            ChainId::OctaSpace => ChainInfo {
+                id: self,
+                name: "OctaSpace",
+                symbol: "OCTA",
+                decimals: 18,
+                kind: ChainKind::Evm,
+                hash: HashAlgorithm::Keccak256,
+                bip44_coin: 60,
+                derivation_path: "m/44'/60'/0'/0/0",
+                accent: "#8A5CF6",
+                explorer: "https://explorer.octa.space",
+                explorer_tx: "https://explorer.octa.space/tx/",
+                explorer_address: "https://explorer.octa.space/address/",
+                rpc: "https://rpc.octa.space",
+                price_id: "octaspace",
+                send_note: "EVM · PoW (Ethash)",
+            },
         }
     }
 
@@ -520,6 +636,12 @@ impl ChainId {
             ChainId::Ravencoin => "ravencoin",
             ChainId::Monacoin => "monacoin",
             ChainId::Fujicoin => "fujicoin",
+            ChainId::Zcash => "zcash",
+            ChainId::Firo => "firo",
+            ChainId::Neurai => "neurai",
+            ChainId::Clore => "clore",
+            ChainId::Zephyr => "zephyr",
+            ChainId::OctaSpace => "octaspace",
         }
     }
 
@@ -543,6 +665,11 @@ impl ChainId {
                 // Ravencoin never activated SegWit; its R… addresses are
                 // plain P2PKH with the classic pre-BIP143 digest.
                 | ChainId::Ravencoin
+                // Firo / Neurai / Clore are Ravencoin-family forks that never
+                // activated SegWit either: plain P2PKH, classic digest.
+                | ChainId::Firo
+                | ChainId::Neurai
+                | ChainId::Clore
         )
     }
 
@@ -550,6 +677,7 @@ impl ChainId {
     pub fn legacy_sighash(self) -> crate::tx::utxo::LegacySighash {
         match self {
             ChainId::BitcoinCash => crate::tx::utxo::LegacySighash::ForkId,
+            ChainId::Zcash => crate::tx::utxo::LegacySighash::Zcash,
             _ => crate::tx::utxo::LegacySighash::Classic,
         }
     }
@@ -570,9 +698,19 @@ impl ChainId {
             // (verified live: balance, UTXO and history endpoints answer).
             | ChainId::Ravencoin
             | ChainId::Monacoin
-            | ChainId::Fujicoin => UtxoBackend::Blockbook,
+            | ChainId::Fujicoin
+            // Firo / Neurai / Clore community Blockbook instances
+            // (firo.org and neurai.org verified live; clore runs on
+            // zelcore's Blockbook fleet).
+            | ChainId::Firo
+            | ChainId::Neurai
+            | ChainId::Clore => UtxoBackend::Blockbook,
             ChainId::Bitcoin | ChainId::Litecoin => UtxoBackend::Esplora,
             ChainId::BitcoinSv => UtxoBackend::WhatsOnChain,
+            // Zcash transparent addresses: zelcore's Blockbook indexes the
+            // transparent pool; Blockchair (keyless, rate-limited) backs it
+            // up. Shielded pools are out of scope by design.
+            ChainId::Zcash => UtxoBackend::Blockbook,
             // Chainz-only chains: balance via the keyless cryptoid API.
             ChainId::Namecoin
             | ChainId::LitecoinCash
@@ -594,7 +732,8 @@ impl ChainId {
             | ChainId::Dash
             | ChainId::Groestlcoin
             | ChainId::Feathercoin
-            | ChainId::Viacoin => Some(UtxoBackend::Blockchair),
+            | ChainId::Viacoin
+            | ChainId::Zcash => Some(UtxoBackend::Blockchair),
             _ => None,
         }
     }
@@ -632,13 +771,18 @@ impl ChainId {
             ChainId::Ravencoin => "渡鸦",
             ChainId::Monacoin => "萌",
             ChainId::Fujicoin => "富士",
+            ChainId::Zcash => "zatoshi",
+            ChainId::Firo => "聪", // 比特币同构,社区无专名
+            ChainId::Neurai => "聪",
+            ChainId::Clore => "聪",
             ChainId::Ethereum
             | ChainId::EthereumClassic
             | ChainId::Ethw
             | ChainId::Bsc
-            | ChainId::Polygon => "gwei",
+            | ChainId::Polygon
+            | ChainId::OctaSpace => "gwei",
             ChainId::Solana => "lamports",
-            ChainId::Monero => "piconero",
+            ChainId::Monero | ChainId::Zephyr => "piconero",
         }
     }
 
@@ -673,6 +817,8 @@ impl ChainId {
             ChainId::Ethw => Some(10001),
             ChainId::Bsc => Some(56),
             ChainId::Polygon => Some(137),
+            // OctaSpace (docs.octa.space / chainlist 800001).
+            ChainId::OctaSpace => Some(800001),
             _ => None,
         }
     }
@@ -686,104 +832,104 @@ impl ChainId {
         match self {
             ChainId::Bitcoin => Some(UtxoParams {
                 hrp: "bc",
-                p2pkh_version: 0x00,
-                p2sh_version: 0x05,
+                p2pkh_version: &[0x00],
+                p2sh_version: &[0x05],
                 wif_version: 0x80,
             }),
             ChainId::Litecoin => Some(UtxoParams {
                 hrp: "ltc",
-                p2pkh_version: 0x30,
-                p2sh_version: 0x32,
+                p2pkh_version: &[0x30],
+                p2sh_version: &[0x32],
                 wif_version: 0xb0,
             }),
             ChainId::Dogecoin => Some(UtxoParams {
                 hrp: "doge",
-                p2pkh_version: 0x1e,
-                p2sh_version: 0x16,
+                p2pkh_version: &[0x1e],
+                p2sh_version: &[0x16],
                 wif_version: 0x9e,
             }),
             ChainId::BitcoinCash => Some(UtxoParams {
                 hrp: "bitcoincash",
-                p2pkh_version: 0x00,
-                p2sh_version: 0x05,
+                p2pkh_version: &[0x00],
+                p2sh_version: &[0x05],
                 wif_version: 0x80,
             }),
             // Same address version bytes as Bitcoin (BSV kept the legacy
             // format when it split from BCH).
             ChainId::BitcoinSv => Some(UtxoParams {
                 hrp: "bsv",
-                p2pkh_version: 0x00,
-                p2sh_version: 0x05,
+                p2pkh_version: &[0x00],
+                p2sh_version: &[0x05],
                 wif_version: 0x80,
             }),
             ChainId::Namecoin => Some(UtxoParams {
                 hrp: "nmc",
-                p2pkh_version: 0x34,
-                p2sh_version: 0x0d,
+                p2pkh_version: &[0x34],
+                p2sh_version: &[0x0d],
                 wif_version: 0xb4,
             }),
             ChainId::LitecoinCash => Some(UtxoParams {
                 hrp: "lcc",
-                p2pkh_version: 0x1c,
-                p2sh_version: 0x05,
+                p2pkh_version: &[0x1c],
+                p2sh_version: &[0x05],
                 wif_version: 0xb0,
             }),
             ChainId::Feathercoin => Some(UtxoParams {
                 hrp: "fc",
-                p2pkh_version: 0x0e,
-                p2sh_version: 0x05,
+                p2pkh_version: &[0x0e],
+                p2sh_version: &[0x05],
                 wif_version: 0x8e,
             }),
             ChainId::Viacoin => Some(UtxoParams {
                 hrp: "via",
-                p2pkh_version: 0x47,
-                p2sh_version: 0x21,
+                p2pkh_version: &[0x47],
+                p2sh_version: &[0x21],
                 wif_version: 0xc7,
             }),
             ChainId::Potcoin => Some(UtxoParams {
                 hrp: "pot",
-                p2pkh_version: 0x37,
-                p2sh_version: 0x05,
+                p2pkh_version: &[0x37],
+                p2sh_version: &[0x05],
                 wif_version: 0xb7,
             }),
             ChainId::EGulden => Some(UtxoParams {
                 hrp: "efl",
-                p2pkh_version: 0x30,
-                p2sh_version: 0x05,
+                p2pkh_version: &[0x30],
+                p2sh_version: &[0x05],
                 wif_version: 0xb0,
             }),
             ChainId::Dash => Some(UtxoParams {
                 hrp: "dash",
-                p2pkh_version: 0x4c,
-                p2sh_version: 0x10,
+                p2pkh_version: &[0x4c],
+                p2sh_version: &[0x10],
                 wif_version: 0xcc,
             }),
             ChainId::Groestlcoin => Some(UtxoParams {
                 hrp: "grs",
-                p2pkh_version: 0x24,
-                p2sh_version: 0x05,
+                p2pkh_version: &[0x24],
+                p2sh_version: &[0x05],
                 wif_version: 0x80,
             }),
             ChainId::Vertcoin => Some(UtxoParams {
                 hrp: "vtc",
-                p2pkh_version: 0x47,
-                p2sh_version: 0x05,
+                p2pkh_version: &[0x47],
+                p2sh_version: &[0x05],
                 wif_version: 0x80,
             }),
             // Ravencoin: PUBKEY=60 (R…), SCRIPT=122, SECRET=128 — verified
             // against Ravencoin's src/chainparams.cpp CMainParams.
             ChainId::Ravencoin => Some(UtxoParams {
                 hrp: "rvn",
-                p2pkh_version: 60,
-                p2sh_version: 122,
+                p2pkh_version: &[60],
+                p2sh_version: &[122],
                 wif_version: 0x80,
             }),
             // Monacoin: PUBKEY=50 (M…), SCRIPT=55 (P…), SECRET=176 — verified
             // against monacoin's src/chainparams.cpp CMainParams.
             ChainId::Monacoin => Some(UtxoParams {
                 hrp: "mona",
-                p2pkh_version: 50,
-                p2sh_version: 55,
+                p2pkh_version: &[50],
+                p2sh_version: &[55],
                 wif_version: 0xb0,
             }),
             // Fujicoin: PUBKEY=36 (F…), SCRIPT=16, bech32 "fc" — verified
@@ -792,9 +938,42 @@ impl ChainId {
             // fork default 0x80.
             ChainId::Fujicoin => Some(UtxoParams {
                 hrp: "fc",
-                p2pkh_version: 36,
-                p2sh_version: 16,
+                p2pkh_version: &[36],
+                p2sh_version: &[16],
                 wif_version: 0x80,
+            }),
+            // Zcash transparent addresses: PUBKEY=7352 (t1…), SCRIPT=7357
+            // (t3…) — verified against trezor defs and zcashd chainparams.
+            // No bech32: transparent pool is base58 only.
+            ChainId::Zcash => Some(UtxoParams {
+                hrp: "zc",
+                p2pkh_version: &[0x1c, 0xb8], // 7352 → t1…
+                p2sh_version: &[0x1c, 0xbd],  // 7357 → t3…
+                wif_version: 0x80,
+            }),
+            // Firo: PUBKEY=82 (a…), SCRIPT=7, SECRET=210 — verified against
+            // firoorg/firo src/chainparams.cpp CMainParams.
+            ChainId::Firo => Some(UtxoParams {
+                hrp: "firo",
+                p2pkh_version: &[82],
+                p2sh_version: &[7],
+                wif_version: 210,
+            }),
+            // Neurai: PUBKEY=53 (X…), SCRIPT=117, SECRET=128 — verified
+            // against neuraiproject/Neurai src/chainparams.cpp CMainParams.
+            ChainId::Neurai => Some(UtxoParams {
+                hrp: "xna",
+                p2pkh_version: &[53],
+                p2sh_version: &[117],
+                wif_version: 128,
+            }),
+            // Clore: PUBKEY=23 (c…), SCRIPT=122, SECRET=112 — verified
+            // against cloreai-public/clore src/chainparams.cpp CMainParams.
+            ChainId::Clore => Some(UtxoParams {
+                hrp: "clore",
+                p2pkh_version: &[23],
+                p2sh_version: &[122],
+                wif_version: 112,
             }),
             _ => None,
         }
@@ -856,6 +1035,8 @@ pub enum HashAlgorithm {
     Groestl,
     Lyra2re,
     KawPow,
+    Equihash,
+    RandomX,
 }
 
 impl HashAlgorithm {
@@ -868,6 +1049,8 @@ impl HashAlgorithm {
             HashAlgorithm::Groestl => "Groestl",
             HashAlgorithm::Lyra2re => "Lyra2RE",
             HashAlgorithm::KawPow => "KawPow",
+            HashAlgorithm::Equihash => "Equihash",
+            HashAlgorithm::RandomX => "RandomX",
         }
     }
 
@@ -880,6 +1063,8 @@ impl HashAlgorithm {
             HashAlgorithm::Groestl => "Groestl-512 → 前 32 字节",
             HashAlgorithm::Lyra2re => "Lyra2RE(v2) 哈希链",
             HashAlgorithm::KawPow => "Ravencoin PoW 哈希 · progpow 变体",
+            HashAlgorithm::Equihash => "Zcash PoW · 内存困难",
+            HashAlgorithm::RandomX => "Monero PoW · CPU 友好",
         }
     }
 }
@@ -914,8 +1099,9 @@ impl ChainInfo {
 #[derive(Debug, Clone, Copy)]
 pub struct UtxoParams {
     pub hrp: &'static str,
-    pub p2pkh_version: u8,
-    pub p2sh_version: u8,
+    /// Base58 version prefix bytes (Zcash needs two: 0x1c 0xb8 for t1…).
+    pub p2pkh_version: &'static [u8],
+    pub p2sh_version: &'static [u8],
     pub wif_version: u8,
 }
 
@@ -1002,17 +1188,17 @@ mod tests {
         let rvn = ChainId::Ravencoin.utxo_params().unwrap();
         assert_eq!(
             (rvn.p2pkh_version, rvn.p2sh_version, rvn.wif_version),
-            (60, 122, 0x80)
+            (&[60u8][..], &[122u8][..], 0x80)
         );
         let mona = ChainId::Monacoin.utxo_params().unwrap();
         assert_eq!(
             (mona.p2pkh_version, mona.p2sh_version, mona.wif_version),
-            (50, 55, 0xb0)
+            (&[50u8][..], &[55u8][..], 0xb0)
         );
         let fjc = ChainId::Fujicoin.utxo_params().unwrap();
         assert_eq!(
             (fjc.p2pkh_version, fjc.p2sh_version, fjc.wif_version),
-            (36, 16, 0x80)
+            (&[36u8][..], &[16u8][..], 0x80)
         );
         // Ravencoin is the only SegWit-less one of the three.
         assert!(ChainId::Ravencoin.legacy_utxo());
@@ -1022,5 +1208,46 @@ mod tests {
         assert_eq!(ChainId::Ravencoin.info().bip44_coin, 175);
         assert_eq!(ChainId::Monacoin.info().bip44_coin, 22);
         assert_eq!(ChainId::Fujicoin.info().bip44_coin, 75);
+    }
+
+    #[test]
+    fn two_miners_chains_route_and_parametrize() {
+        // Zcash: two-byte transparent prefixes straight out of zcashd.
+        let zec = ChainId::Zcash.utxo_params().unwrap();
+        assert_eq!(zec.p2pkh_version, &[0x1c, 0xb8]);
+        assert_eq!(zec.p2sh_version, &[0x1c, 0xbd]);
+        assert_eq!(ChainId::Zcash.utxo_backend(), UtxoBackend::Blockbook);
+        assert_eq!(
+            ChainId::Zcash.fallback_backend(),
+            Some(UtxoBackend::Blockchair)
+        );
+        assert!(!ChainId::Zcash.legacy_utxo(), "t1… P2PKH signs ZIP-243");
+        // Firo / Neurai / Clore: Ravencoin-family, SegWit-less, Blockbook.
+        for (chain, p2pkh, p2sh, wif) in [
+            (ChainId::Firo, &[82u8][..], &[7u8][..], 210u8),
+            (ChainId::Neurai, &[53u8][..], &[117u8][..], 128u8),
+            (ChainId::Clore, &[23u8][..], &[122u8][..], 112u8),
+        ] {
+            let params = chain.utxo_params().unwrap();
+            assert_eq!(
+                (
+                    params.p2pkh_version,
+                    params.p2sh_version,
+                    params.wif_version
+                ),
+                (p2pkh, p2sh, wif),
+                "{chain:?}"
+            );
+            assert!(chain.legacy_utxo(), "{chain:?}");
+            assert_eq!(chain.utxo_backend(), UtxoBackend::Blockbook, "{chain:?}");
+        }
+        // OctaSpace is a legacy-gas EVM chain (chain id 800001).
+        assert_eq!(ChainId::OctaSpace.evm_chain_id(), Some(800001));
+        assert!(!ChainId::OctaSpace.supports_eip1559());
+        // Zephyr validates against its own CryptoNote prefix family.
+        assert_eq!(
+            crate::cryptonote::ZEPHYR_PREFIX_BYTES,
+            [0xc0, 0xb1, 0xf4, 0xa0, 0x62]
+        );
     }
 }

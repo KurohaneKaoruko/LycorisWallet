@@ -727,10 +727,12 @@ async fn legacy_utxo_quote(
     let mut normal_fee = 0u128;
     for (level, rate, eta) in legacy_fee_levels(chain) {
         let fee = match target {
-            Some(value) => select_legacy_utxos(inputs.clone(), value, rate, chain.dust_limit())
-                .map(|selection| selection.fee)
-                .unwrap_or(0),
-            None => max_legacy_sendable(&inputs, rate, chain.dust_limit())
+            Some(value) => {
+                select_legacy_utxos(inputs.clone(), value, rate, chain.dust_limit(), chain)
+                    .map(|selection| selection.fee)
+                    .unwrap_or(0)
+            }
+            None => max_legacy_sendable(&inputs, rate, chain.dust_limit(), chain)
                 .map(|(_, fee)| fee)
                 .unwrap_or(0),
         };
@@ -748,9 +750,10 @@ async fn legacy_utxo_quote(
         });
     }
 
-    let max_amount = max_legacy_sendable(&inputs, chain.default_fee_rate(), chain.dust_limit())
-        .ok()
-        .map(|(value, _)| u128::from(value));
+    let max_amount =
+        max_legacy_sendable(&inputs, chain.default_fee_rate(), chain.dust_limit(), chain)
+            .ok()
+            .map(|(value, _)| u128::from(value));
     Ok(QuoteFees {
         options,
         normal_fee,
@@ -1252,7 +1255,7 @@ async fn send_legacy_utxo(
         .collect::<Result<_, _>>()?;
     let target = match amount {
         Some(value) => u64::try_from(value).map_err(|_| Error::InvalidAmount("金额过大".into()))?,
-        None => max_legacy_sendable(&inputs, fee_rate, chain.dust_limit())?.0,
+        None => max_legacy_sendable(&inputs, fee_rate, chain.dust_limit(), chain)?.0,
     };
     if target < chain.dust_limit() {
         return Err(Error::InvalidAmount(format!(
@@ -1262,7 +1265,7 @@ async fn send_legacy_utxo(
         ))
         .into());
     }
-    let selection = select_legacy_utxos(inputs, target, fee_rate, chain.dust_limit())?;
+    let selection = select_legacy_utxos(inputs, target, fee_rate, chain.dust_limit(), chain)?;
     let material = lycoris_core::derive::derive_private_key(&secret, chain)?;
     let key = material.secp()?;
     let pubkey = address::compressed_pubkey(key);

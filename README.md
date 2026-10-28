@@ -1,10 +1,8 @@
 <div align="center">
 
-<img src="src-tauri/icons/icon-512.png" alt="Lycoris" width="160"/>
+<img src="assets/lycoris-banner.svg" alt="Lycoris Wallet" width="720"/>
 
-<img src="assets/lycoris-wordmark.svg" alt="Lycoris Wallet" width="420"/>
-
-**彼岸花 · 钱包**
+**彼 岸 花 · 钱包**
 
 本地优先的多链钱包 · Rust 核心 · 30 条链
 
@@ -89,7 +87,7 @@ RingCT 环签名交给官方的本地 wallet-rpc 完成，密钥仍由本应用�
 | OctaSpace | OCTA | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 
 <details>
-<summary><strong>端口、前缀与签名变体说明</strong></summary>
+<summary><strong>端口说明</strong>（端口、前缀、灰名单与签名变体）</summary>
 
 > 带 * 的九条链（Dash 的 X11、Groestlcoin 的 Groestl、Vertcoin/Monacoin/Fujicoin 的 Lyra2RE、
 > Ravencoin 的 KawPow、Zcash 的 Equihash、Firo/Neurai/Clore 的 PoW 哈希）在口令模式下使用

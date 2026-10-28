@@ -1,11 +1,38 @@
-# Lycoris Wallet（彼岸花钱包）
+<div align="center">
 
-本地优先的多链钱包。除标准的 BIP-39 助记词钱包外，它提供一种「口令钱包」：输入任意一句话，
+<img src="src-tauri/icons/icon-512.png" alt="Lycoris" width="160"/>
+
+<img src="assets/lycoris-wordmark.svg" alt="Lycoris Wallet" width="420"/>
+
+**彼岸花 · 钱包**
+
+本地优先的多链钱包 · Rust 核心 · 30 条链
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-9d2a23.svg)](LICENSE)
+[![CI](https://github.com/KurohaneKaoruko/LycorisWallet/actions/workflows/ci.yml/badge.svg)](https://github.com/KurohaneKaoruko/LycorisWallet/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/KurohaneKaoruko/LycorisWallet?color=c0392f&label=release)](https://github.com/KurohaneKaoruko/LycorisWallet/releases/latest)
+[![Chains](https://img.shields.io/badge/chains-30-e0574a.svg)](#支持的网络)
+
+</div>
+
+---
+
+除标准的 BIP-39 助记词钱包外，Lycoris 提供一种「**口令钱包**」：输入任意一句话，
 由每条链地址管线使用的哈希算法直接派生该链私钥——比特币等 UTXO 链用 SHA-256、EVM 用
-Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
+Keccak-256、Solana 用 SHA-256 → ed25519。**一句话，管住全部钱包。**
 
-所有密钥、签名与网络请求都发生在 Rust 侧。Monero 是唯一例外：CryptoNote 的
-RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由本应用派生后交给它。
+所有密钥、签名与网络请求都发生在 Rust 侧。Monero 与 Zephyr 是唯一例外：CryptoNote 的
+RingCT 环签名交给官方的本地 wallet-rpc 完成，密钥仍由本应用派生后交给它。
+
+## 目录
+
+- [功能](#功能)
+- [支持的网络](#支持的网络) · [链上数据源](#链上数据源) · [口令派生规则](#口令派生规则)
+- [工具箱](#工具箱)
+- [Monero / Zephyr 转账](#monero--zephyr-转账)
+- [仓库结构](#仓库结构) · [构建与运行](#构建与运行)
+- [验证](#验证) · [已知限制](#已知限制)
+- [安全](#安全) · [License](#license)
 
 ## 功能
 
@@ -61,6 +88,9 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | Zephyr Protocol | ZEPH | Keccak-256 → CryptoNote | `m/44'/128'/0'/0/0`（SLIP-10 kholaw） | CryptoNote base58（双公钥） |
 | OctaSpace | OCTA | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 
+<details>
+<summary><strong>端口、前缀与签名变体说明</strong></summary>
+
 > Dogecoin 与 Bitcoin Cash 的收款、余额与转账均已可用：前者用 legacy P2PKH 传统 sighash，后者用
 > BIP-143 + SIGHASH-FORKID，交易字节与 libsecp256k1 独立实现逐字节一致。
 > Zcash 同样可用：透明 t1… 地址（P2PKH），签名走 ZIP-243（BLAKE2b 个性化摘要 + NU6.2 branch id），
@@ -90,6 +120,8 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | NMC / LCC / POT / EFL / VTC | Chainz（cryptoid.info，免 Key，仅余额） | — |
 | ETH / ETC / ETHW / BSC / POL / OCTA | JSON-RPC（OCTA 为官方 `rpc.octa.space`） | —（待接索引器） |
 | XMR / ZEPH | 本地 wallet-rpc（18083 / 19797） | — |
+
+</details>
 
 ### 口令派生规则
 
@@ -305,7 +337,6 @@ python tools/verify_qr_svg.py out/mock-qr-fixtures.txt
 - 尚无硬件钱包、多账户、隔离见证找零以外的 UTXO 管理。
 - 价格来自 CoinGecko 公共接口，可在设置里关闭。
 - `crates/cli` 仍是占位。
-
 
 ## 安全
 

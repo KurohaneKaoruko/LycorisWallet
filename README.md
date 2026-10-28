@@ -1,11 +1,38 @@
-# Lycoris Wallet（彼岸花钱包）
+<div align="center">
 
-本地优先的多链钱包。除标准的 BIP-39 助记词钱包外，它提供一种「口令钱包」：输入任意一句话，
+<img src="src-tauri/icons/icon-512.png" alt="Lycoris" width="160"/>
+
+<img src="assets/lycoris-wordmark.svg" alt="Lycoris Wallet" width="420"/>
+
+**彼岸花 · 钱包**
+
+本地优先的多链钱包 · Rust 核心 · 30 条链
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-9d2a23.svg)](LICENSE)
+[![CI](https://github.com/KurohaneKaoruko/LycorisWallet/actions/workflows/ci.yml/badge.svg)](https://github.com/KurohaneKaoruko/LycorisWallet/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/KurohaneKaoruko/LycorisWallet?color=c0392f&label=release)](https://github.com/KurohaneKaoruko/LycorisWallet/releases/latest)
+[![Chains](https://img.shields.io/badge/chains-30-e0574a.svg)](#支持的网络)
+
+</div>
+
+---
+
+除标准的 BIP-39 助记词钱包外，Lycoris 提供一种「**口令钱包**」：输入任意一句话，
 由每条链自己的原生哈希算法直接派生该链私钥——比特币用 SHA-256、莱特币用 scrypt、EVM 用
-Keccak-256、Solana 用 SHA-256 → ed25519。一句话，管住全部钱包。
+Keccak-256、Solana 用 SHA-256 → ed25519。**一句话，管住全部钱包。**
 
-所有密钥、签名与网络请求都发生在 Rust 侧。Monero 是唯一例外：CryptoNote 的
-RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由本应用派生后交给它。
+所有密钥、签名与网络请求都发生在 Rust 侧。Monero 与 Zephyr 是唯一例外：CryptoNote 的
+RingCT 环签名交给官方的本地 wallet-rpc 完成，密钥仍由本应用派生后交给它。
+
+## 目录
+
+- [功能](#功能)
+- [支持的网络](#支持的网络) · [链上数据源](#链上数据源) · [口令派生规则](#口令派生规则)
+- [工具箱](#工具箱)
+- [Monero / Zephyr 转账](#monero--zephyr-转账)
+- [仓库结构](#仓库结构) · [构建与运行](#构建与运行)
+- [验证](#验证) · [已知限制](#已知限制)
+- [安全](#安全) · [License](#license)
 
 ## 功能
 
@@ -61,6 +88,9 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | Zephyr Protocol | ZEPH | Keccak-256 → CryptoNote | `m/44'/128'/0'/0/0`（SLIP-10 kholaw） | CryptoNote base58（双公钥） |
 | OctaSpace | OCTA | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 
+<details>
+<summary><strong>端口、前缀与签名变体说明</strong></summary>
+
 > 带 * 的九条链（Dash 的 X11、Groestlcoin 的 Groestl、Vertcoin/Monacoin/Fujicoin 的 Lyra2RE、
 > Ravencoin 的 KawPow、Zcash 的 Equihash、Firo/Neurai/Clore 的 PoW 哈希）在口令模式下使用
 > 域分隔的 SHA-256 替代原生 PoW 哈希级联（`lycoris/pow-fallback/v1/`），保证派生稳定可审计；
@@ -95,6 +125,8 @@ RingCT 环签名交给官方的本地 `monero-wallet-rpc` 完成，密钥仍由�
 | NMC / LCC / POT / EFL / VTC | Chainz（cryptoid.info，免 Key，仅余额） | — |
 | ETH / ETC / ETHW / BSC / POL / OCTA | JSON-RPC（OCTA 为官方 `rpc.octa.space`） | —（待接索引器） |
 | XMR / ZEPH | 本地 wallet-rpc（18083 / 19797） | — |
+
+</details>
 
 ### 口令派生规则
 
@@ -311,7 +343,8 @@ python tools/verify_qr_svg.py out/mock-qr-fixtures.txt
 - 价格来自 CoinGecko 公共接口，可在设置里关闭。
 - `crates/cli` 仍是占位。
 
-### 暂不支持的 2miners 在架币种
+<details>
+<summary><strong>暂不支持的 2miners 在架币种（及原因）</strong></summary>
 
 按「独立链 + 公共数据源可实测」的准入标准，以下 2miners 在架币种暂不支持：
 
@@ -322,6 +355,8 @@ python tools/verify_qr_svg.py out/mock-qr-fixtures.txt
   与「单机收款地址」的钱包模型不兼容。
 - **数据源不可实测**：BTG（ElectrumX 实例长期离线）、FLUX（FluxOS 端点需注册）。
 - **2miners 已下架**：NEOX / CTXC（2026-06 移除），链本身仍在但不在本次目标集合内。
+
+</details>
 
 ## 安全
 

@@ -187,6 +187,17 @@ jobs:
             echo "NOTES_EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: 删除已存在的旧 Release（action 不覆盖正文，需重建）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', needs.version.outputs.version) }}"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "删除旧 Release $tag（保留 tag，下面重建并重新上传资产）"
+            gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes
+          fi
+
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         with:

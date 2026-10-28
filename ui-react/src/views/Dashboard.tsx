@@ -129,13 +129,6 @@ export function DashboardView() {
         </div>
       </div>
 
-      {wallet?.mode === "passphrase" ? (
-        <div className="note note-warn" style={{ marginTop: 16 }}>
-          <Icon name="warn" />
-          <div>口令钱包的安全性等于这句话的强度。请不要使用歌词、名言、短句，建议使用只有你自己知道的长句子。</div>
-        </div>
-      ) : null}
-
       {wallet?.mode === "private_key" ? (
         <div className="note note-warn" style={{ marginTop: 16 }}>
           <Icon name="warn" />

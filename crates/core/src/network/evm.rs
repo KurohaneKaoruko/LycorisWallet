@@ -5,14 +5,26 @@ use sha3::{Digest, Keccak256};
 #[derive(Clone)]
 pub struct EvmClient {
     client: reqwest::Client,
-    rpc: String,
+    /// RPC 候选列表(主源在前)。任一调用失败自动切换下一个, 全部失败才报错。
+    rpcs: Vec<String>,
 }
 
 impl EvmClient {
     pub fn new(client: reqwest::Client, rpc: impl Into<String>) -> Self {
         Self {
             client,
-            rpc: rpc.into(),
+            rpcs: vec![rpc.into()],
+        }
+    }
+
+    /// 多 RPC 回退:主源失败(网络不可达/限速/宕机)时依次尝试备用源。
+    pub fn with_fallbacks(
+        client: reqwest::Client,
+        rpcs: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            client,
+            rpcs: rpcs.into_iter().map(Into::into).collect(),
         }
     }
 
@@ -23,36 +35,55 @@ impl EvmClient {
             "method": method,
             "params": params,
         });
-        let response = self
-            .client
-            .post(&self.rpc)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| Error::Network(format!("{method}: {e}")))?;
-        let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|e| Error::Network(format!("{method}: invalid response: {e}")))?;
-        let value: Value = serde_json::from_str(&text)
-            .map_err(|e| Error::Network(format!("{method}: invalid JSON: {e}")))?;
-        if let Some(error) = value.get("error") {
-            return Err(Error::Network(format!(
-                "{method}: {}",
-                error
-                    .get("message")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("rpc error")
-            )));
+        let mut last_error = None;
+        for rpc in &self.rpcs {
+            let response = match self.client.post(rpc).json(&body).send().await {
+                Ok(response) => response,
+                Err(e) => {
+                    last_error =
+                        Some(Error::Network(format!("{method}: {rpc}: {e}")));
+                    continue;
+                }
+            };
+            let status = response.status();
+            let text = match response.text().await {
+                Ok(text) => text,
+                Err(e) => {
+                    last_error =
+                        Some(Error::Network(format!("{method}: invalid response: {e}")));
+                    continue;
+                }
+            };
+            let value: Value = match serde_json::from_str(&text) {
+                Ok(value) => value,
+                Err(e) => {
+                    last_error =
+                        Some(Error::Network(format!("{method}: invalid JSON: {e}")));
+                    continue;
+                }
+            };
+            if let Some(error) = value.get("error") {
+                // RPC 层错误(参数/状态问题)换源也一样的概率低, 但仍继续试下一源。
+                last_error = Some(Error::Network(format!(
+                    "{method}: {}",
+                    error
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("rpc error")
+                )));
+                continue;
+            }
+            if !status.is_success() {
+                last_error = Some(Error::Network(format!("{method}: HTTP {status}")));
+                continue;
+            }
+            return value
+                .get("result")
+                .cloned()
+                .ok_or_else(|| Error::Network(format!("{method}: missing result")));
         }
-        if !status.is_success() {
-            return Err(Error::Network(format!("{method}: HTTP {status}")));
-        }
-        value
-            .get("result")
-            .cloned()
-            .ok_or_else(|| Error::Network(format!("{method}: missing result")))
+        Err(last_error
+            .unwrap_or_else(|| Error::Network(format!("{method}: no RPC configured"))))
     }
 
     pub async fn chain_id(&self) -> Result<u64> {

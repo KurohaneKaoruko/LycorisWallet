@@ -1,10 +1,8 @@
 <div align="center">
 
-<img src="src-tauri/icons/icon-512.png" alt="Lycoris" width="160"/>
+<img src="assets/lycoris-banner.svg" alt="Lycoris Wallet" width="720"/>
 
-<img src="assets/lycoris-wordmark.svg" alt="Lycoris Wallet" width="420"/>
-
-**彼岸花 · 钱包**
+**彼 岸 花 · 钱包**
 
 本地优先的多链钱包 · Rust 核心 · 30 条链
 
@@ -89,7 +87,7 @@ RingCT 环签名交给官方的本地 wallet-rpc 完成，密钥仍由本应用�
 | OctaSpace | OCTA | Keccak-256 | `m/44'/60'/0'/0/0` | EIP-55 |
 
 <details>
-<summary><strong>端口、前缀与签名变体说明</strong></summary>
+<summary><strong>端口说明</strong>（端口、前缀、灰名单与签名变体）</summary>
 
 > Dogecoin 与 Bitcoin Cash 的收款、余额与转账均已可用：前者用 legacy P2PKH 传统 sighash，后者用
 > BIP-143 + SIGHASH-FORKID，交易字节与 libsecp256k1 独立实现逐字节一致。

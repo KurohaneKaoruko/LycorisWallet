@@ -41,8 +41,7 @@ impl SolanaClient {
             let response = match self.client.post(rpc).json(&body).send().await {
                 Ok(response) => response,
                 Err(e) => {
-                    last_error =
-                        Some(Error::Network(format!("{method}: {rpc}: {e}")));
+                    last_error = Some(Error::Network(format!("{method}: {rpc}: {e}")));
                     continue;
                 }
             };
@@ -50,16 +49,14 @@ impl SolanaClient {
             let text = match response.text().await {
                 Ok(text) => text,
                 Err(e) => {
-                    last_error =
-                        Some(Error::Network(format!("{method}: invalid response: {e}")));
+                    last_error = Some(Error::Network(format!("{method}: invalid response: {e}")));
                     continue;
                 }
             };
             let value: Value = match serde_json::from_str(&text) {
                 Ok(value) => value,
                 Err(e) => {
-                    last_error =
-                        Some(Error::Network(format!("{method}: invalid JSON: {e}")));
+                    last_error = Some(Error::Network(format!("{method}: invalid JSON: {e}")));
                     continue;
                 }
             };
@@ -82,8 +79,7 @@ impl SolanaClient {
                 .cloned()
                 .ok_or_else(|| Error::Network(format!("{method}: missing result")));
         }
-        Err(last_error
-            .unwrap_or_else(|| Error::Network(format!("{method}: no RPC configured"))))
+        Err(last_error.unwrap_or_else(|| Error::Network(format!("{method}: no RPC configured"))))
     }
 
     pub async fn balance(&self, address: &str) -> Result<u64> {

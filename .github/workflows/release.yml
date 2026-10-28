@@ -173,6 +173,26 @@ jobs:
       - name: 列出发行文件
         run: ls -lh dist
 
+      - name: 提取本版更新日志
+        id: notes
+        run: |
+          set -euo pipefail
+          version="${{ needs.version.outputs.version }}"
+          # CHANGELOG.md 里「## <version>（…）」到下一个「---」之间的段落
+          notes="$(python3 - "$version" <<'PY'
+          import re, sys
+          version = sys.argv[1]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(rf"^## {re.escape(version)}\b.*?(?=\n---)", text, re.M | re.S)
+          print(m.group(0) if m else "")
+          PY
+          )"
+          {
+            echo "body<<NOTES_EOF"
+            echo "$notes"
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -180,6 +200,10 @@ jobs:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', needs.version.outputs.version) }}
           body: |
             Lycoris Wallet v${{ needs.version.outputs.version }}
+
+            ${{ steps.notes.outputs.body }}
+
+            ---
 
             下载对应平台的安装包（文件名均带版本号）：
 

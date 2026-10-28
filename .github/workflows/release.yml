@@ -178,15 +178,9 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ needs.version.outputs.version }}"
-          # CHANGELOG.md 里「## <version>（…）」到下一个「---」之间的段落
-          notes="$(python3 - "$version" <<'PY'
-          import re, sys
-          version = sys.argv[1]
-          text = open("CHANGELOG.md", encoding="utf-8").read()
-          m = re.search(rf"^## {re.escape(version)}\b.*?(?=\n---)", text, re.M | re.S)
-          print(m.group(0) if m else "")
-          PY
-          )"
+          # CHANGELOG.md 里「## <version>（…）」到下一个「---」之间的段落。
+          # 单行 python -c：heredoc 的终止符会被 YAML 缩进破坏。
+          notes="$(python3 -c 'import re,sys; text=open("CHANGELOG.md",encoding="utf-8").read(); m=re.search(rf"^## {re.escape(sys.argv[1])}\b.*?(?=\n---)", text, re.M|re.S); print(m.group(0) if m else "")' "$version")"
           {
             echo "body<<NOTES_EOF"
             echo "$notes"

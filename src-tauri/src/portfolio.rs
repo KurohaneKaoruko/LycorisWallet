@@ -145,6 +145,21 @@ enum UtxoAdapter {
     Chainz(ChainzClient),
 }
 
+/// EVM/Ed25519 客户端构造:主源 + `rpc_fallbacks()` 备选,任一可用即成功。
+fn evm_with_fallbacks(client: &reqwest::Client, info: &ChainInfo) -> EvmClient {
+    let rpcs: Vec<&str> = std::iter::once(info.rpc)
+        .chain(info.rpc_fallbacks().iter().copied())
+        .collect();
+    EvmClient::with_fallbacks(client.clone(), rpcs)
+}
+
+fn solana_with_fallbacks(client: &reqwest::Client, info: &ChainInfo) -> SolanaClient {
+    let rpcs: Vec<&str> = std::iter::once(info.rpc)
+        .chain(info.rpc_fallbacks().iter().copied())
+        .collect();
+    SolanaClient::with_fallbacks(client.clone(), rpcs)
+}
+
 const NO_DATA_SOURCE: &str = "该链暂无公共数据源（浏览器链接仍可用）";
 
 /// Blockchair's per-chain base URL, used by the fallback backend only.
@@ -330,11 +345,11 @@ async fn fetch_balance(
                 None => NO_DATA_SOURCE.to_string(),
             })
         }
-        ChainKind::Evm => EvmClient::new(client.clone(), chain.info().rpc)
+        ChainKind::Evm => evm_with_fallbacks(client, &chain.info())
             .balance(address)
             .await
             .map_err(|error| error.to_string()),
-        ChainKind::Ed25519 => SolanaClient::new(client.clone(), chain.info().rpc)
+        ChainKind::Ed25519 => solana_with_fallbacks(client, &chain.info())
             .balance(address)
             .await
             .map(u128::from)
@@ -933,7 +948,7 @@ async fn evm_quote(
 ) -> ApiResult<QuoteFees> {
     let info = chain.info();
     address::parse_evm_address(to)?;
-    let adapter = EvmClient::new(client.clone(), info.rpc);
+    let adapter = evm_with_fallbacks(client, &info);
     let balance = adapter.balance(address).await?;
     let base_fee = if chain.supports_eip1559() {
         adapter.latest_base_fee().await?
@@ -991,7 +1006,7 @@ async fn solana_quote(
 ) -> ApiResult<QuoteFees> {
     let info = chain.info();
     address::parse_solana_address(to)?;
-    let adapter = SolanaClient::new(client.clone(), info.rpc);
+    let adapter = solana_with_fallbacks(client, &info);
     let balance = u128::from(adapter.balance(address).await?);
     let fee = u128::from(SOLANA_BASE_FEE);
     let _ = amount;
@@ -1303,7 +1318,7 @@ async fn send_evm(
     let info = chain.info();
     let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
-    let adapter = EvmClient::new(client.clone(), info.rpc);
+    let adapter = evm_with_fallbacks(&client, &info);
     let chain_id = chain
         .evm_chain_id()
         .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
@@ -1381,7 +1396,7 @@ async fn send_solana(
     let info = chain.info();
     let secret = state.active_secret()?;
     let client = lycoris_core::network::http_client();
-    let adapter = SolanaClient::new(client.clone(), info.rpc);
+    let adapter = solana_with_fallbacks(&client, &info);
     let balance = u128::from(adapter.balance(address).await?);
     let to_bytes = address::parse_solana_address(to)?;
     let blockhash = adapter.latest_blockhash().await?;

@@ -210,7 +210,7 @@ impl ChainId {
                 explorer: "https://blockscout.com/etc/mainnet",
                 explorer_tx: "https://blockscout.com/etc/mainnet/tx/",
                 explorer_address: "https://blockscout.com/etc/mainnet/address/",
-                rpc: "https://etc.rubypass.workers.dev",
+                rpc: "https://etc.etcdesktop.com",
                 price_id: "ethereum-classic",
                 send_note: "Legacy gas · EIP-155 replay protection",
             },
@@ -248,7 +248,7 @@ impl ChainId {
                 explorer: "https://solscan.io",
                 explorer_tx: "https://solscan.io/tx/",
                 explorer_address: "https://solscan.io/account/",
-                rpc: "https://api.mainnet-beta.solana.com",
+                rpc: "https://solana-rpc.publicnode.com",
                 price_id: "solana",
                 send_note: "Ed25519 · System transfer",
             },
@@ -1093,6 +1093,22 @@ impl ChainInfo {
         // Monero spends are signed by a local `monero-wallet-rpc`; when it is
         // not running the quote explains how to start it.
         true
+    }
+
+    /// EVM/Ed25519 链的 RPC 备选列表(主源 `rpc` 在前, 按 `#[cfg]` 之外的静态
+    /// 顺序依次回退)。全部端点均经主网实测;备用源覆盖主源限速/宕机/被墙场景。
+    pub fn rpc_fallbacks(&self) -> &'static [&'static str] {
+        match self.id {
+            ChainId::EthereumClassic => &["https://etc.etcdesktop.com"],
+            ChainId::Solana => &["https://solana-rpc.publicnode.com"],
+            ChainId::Ethereum => &[
+                "https://ethereum-rpc.publicnode.com",
+                "https://cloudflare-eth.com",
+            ],
+            ChainId::Bsc => &["https://bsc-rpc.publicnode.com"],
+            ChainId::Polygon => &["https://polygon-bor-rpc.publicnode.com"],
+            _ => &[],
+        }
     }
 }
 

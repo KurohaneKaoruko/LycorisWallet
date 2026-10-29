@@ -725,15 +725,27 @@ impl ChainId {
 
     /// Secondary source tried when the primary backend fails, so balance
     /// queries keep working without any user configuration.
+    /// Balance with automatic multi-source fallback. Sources are tried in
+    /// order: primary backend first, then `fallback_backend()`, then
+    /// `final_backend()` — so out-of-the-box wallets never need an API key,
+    /// and a chain stays usable when its primary fleet is unreachable.
     pub fn fallback_backend(self) -> Option<UtxoBackend> {
         match self {
-            ChainId::Dogecoin
-            | ChainId::BitcoinCash
-            | ChainId::Dash
+            ChainId::Dogecoin | ChainId::Dash => Some(UtxoBackend::Blockcypher),
+            ChainId::BitcoinCash
             | ChainId::Groestlcoin
             | ChainId::Feathercoin
             | ChainId::Viacoin
             | ChainId::Zcash => Some(UtxoBackend::Blockchair),
+            _ => None,
+        }
+    }
+
+    /// Last-resort backend after `fallback_backend()` also fails.
+    pub fn final_backend(self) -> Option<UtxoBackend> {
+        match self {
+            // DOGE/DASH: Blockcypher first, Blockchair behind it.
+            ChainId::Dogecoin | ChainId::Dash => Some(UtxoBackend::Blockchair),
             _ => None,
         }
     }
@@ -993,6 +1005,8 @@ pub enum UtxoBackend {
     Esplora,
     /// trezor Blockbook `/api/v2/…` endpoints.
     Blockbook,
+    /// Blockcypher v1 API (DOGE/DASH keyless fallback).
+    Blockcypher,
     /// Blockchair dashboards (API key recommended).
     Blockchair,
     /// WhatsOnChain REST API (BSV).
@@ -1149,7 +1163,10 @@ mod tests {
                 "{chain:?} should not depend on a Blockchair key"
             );
             if let Some(fallback) = chain.fallback_backend() {
-                assert_eq!(fallback, UtxoBackend::Blockchair);
+                assert!(
+                    fallback == UtxoBackend::Blockchair || fallback == UtxoBackend::Blockcypher,
+                    "{chain:?} fallback must be keyless (Blockchair/Blockcypher)"
+                );
             }
         }
     }

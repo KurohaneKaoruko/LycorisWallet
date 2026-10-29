@@ -14,8 +14,9 @@ use lycoris_core::models::{
     SendQuote, SendResult,
 };
 use lycoris_core::network::{
-    blockbook::BlockbookClient, blockchair::BlockchairClient, chainz::ChainzClient, evm::EvmClient,
-    history, prices, solana::SolanaClient, utxo::UtxoClient, woc::WocClient,
+    blockbook::BlockbookClient, blockchair::BlockchairClient, blockcypher::BlockcypherClient,
+    chainz::ChainzClient, evm::EvmClient, history, prices, solana::SolanaClient, utxo::UtxoClient,
+    woc::WocClient,
 };
 use lycoris_core::tx::evm::{sign_transaction, EvmCall, EvmFee};
 use lycoris_core::tx::solana::build_transfer;
@@ -140,6 +141,7 @@ fn asset_from(
 enum UtxoAdapter {
     Esplora(UtxoClient),
     Blockbook(BlockbookClient),
+    Blockcypher(BlockcypherClient),
     Blockchair(BlockchairClient),
     Woc(WocClient),
     Chainz(ChainzClient),
@@ -175,6 +177,14 @@ fn blockchair_base(chain: ChainId) -> &'static str {
     }
 }
 
+fn blockcypher_base(chain: ChainId) -> &'static str {
+    match chain {
+        ChainId::Dogecoin => "https://api.blockcypher.com/v1/doge/main",
+        ChainId::Dash => "https://api.blockcypher.com/v1/dash/main",
+        _ => "https://api.blockcypher.com/v1/btc/main",
+    }
+}
+
 impl UtxoAdapter {
     fn from_backend(
         client: &reqwest::Client,
@@ -185,6 +195,11 @@ impl UtxoAdapter {
         let info = chain.info();
         match backend {
             UtxoBackend::Esplora => Some(Self::Esplora(UtxoClient::new(client.clone(), info.rpc))),
+            UtxoBackend::Blockcypher => Some(Self::Blockcypher(BlockcypherClient::new(
+                client.clone(),
+                blockcypher_base(chain),
+                info.decimals,
+            ))),
             UtxoBackend::Blockbook => Some(Self::Blockbook(BlockbookClient::new(
                 client.clone(),
                 info.rpc,
@@ -230,6 +245,7 @@ impl UtxoAdapter {
                 .balance(address, chain.info().decimals)
                 .await
                 .map_err(Into::into),
+            Self::Blockcypher(client) => client.balance(address).await.map_err(Into::into),
             Self::Blockchair(client) => client.balance(address).await.map_err(Into::into),
             Self::Woc(client) => client.balance(address).await.map_err(Into::into),
             Self::Chainz(client) => client.balance(address).await.map_err(Into::into),
@@ -247,6 +263,7 @@ impl UtxoAdapter {
                 .utxos(address, chain.info().decimals)
                 .await
                 .map_err(Into::into),
+            Self::Blockcypher(client) => client.utxos(address).await.map_err(Into::into),
             Self::Blockchair(client) => client.utxos(address).await.map_err(Into::into),
             Self::Woc(client) => client.utxos(address).await.map_err(Into::into),
             Self::Chainz(_) => Err(ApiError::new(
@@ -260,6 +277,7 @@ impl UtxoAdapter {
         match self {
             Self::Esplora(client) => client.fees().await.map_err(Into::into),
             Self::Blockbook(client) => client.fees(chain.info().decimals).await.map_err(Into::into),
+            Self::Blockcypher(client) => client.fees().await.map_err(Into::into),
             // Blockchair/WoC/Chainz have no free recommended-fee endpoint:
             // fall back to the chain's documented default rate.
             Self::Blockchair(_) | Self::Woc(_) | Self::Chainz(_) => Ok(default_fees(chain)),
@@ -270,6 +288,7 @@ impl UtxoAdapter {
         match self {
             Self::Esplora(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Blockbook(client) => client.broadcast(raw_hex).await.map_err(Into::into),
+            Self::Blockcypher(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Blockchair(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Woc(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Chainz(_) => Err(ApiError::new(
@@ -298,6 +317,9 @@ impl UtxoAdapter {
                 .transactions(chain, address)
                 .await
                 .map_err(ApiError::from),
+            Self::Blockcypher(client) => {
+                client.history(chain, address).await.map_err(ApiError::from)
+            }
             Self::Blockchair(_) | Self::Woc(_) | Self::Chainz(_) => Ok(Vec::new()),
         }
     }
@@ -326,9 +348,11 @@ async fn fetch_balance(
     match chain.info().kind {
         ChainKind::Utxo => {
             let primary = UtxoAdapter::for_chain(client, chain, blockchair_key);
+            let backends = std::iter::once(chain.fallback_backend())
+                .chain(std::iter::once(chain.final_backend()));
             let mut last_error = None;
             for adapter in
-                std::iter::once(primary).chain(chain.fallback_backend().map(|backend| {
+                std::iter::once(primary).chain(backends.flatten().map(|backend| {
                     UtxoAdapter::from_backend(client, chain, backend, blockchair_key)
                 }))
             {
@@ -707,11 +731,14 @@ async fn utxos_with_fallback(
     blockchair_key: Option<&str>,
 ) -> ApiResult<(UtxoAdapter, Vec<lycoris_core::network::utxo::Utxo>)> {
     let primary = UtxoAdapter::for_chain(client, chain, blockchair_key);
-    let fallback = chain
+    let backends = chain
         .fallback_backend()
-        .and_then(|backend| UtxoAdapter::from_backend(client, chain, backend, blockchair_key));
+        .into_iter()
+        .chain(chain.final_backend());
+    let fallbacks = backends
+        .filter_map(|backend| UtxoAdapter::from_backend(client, chain, backend, blockchair_key));
     let mut last_error = None;
-    for adapter in [primary, fallback].into_iter().flatten() {
+    for adapter in primary.into_iter().chain(fallbacks) {
         match adapter.utxos(chain, address).await {
             Ok(utxos) => return Ok((adapter, utxos)),
             Err(error) => last_error = Some(error),

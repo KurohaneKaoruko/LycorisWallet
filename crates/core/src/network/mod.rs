@@ -5,6 +5,7 @@
 
 pub mod blockbook;
 pub mod blockchair;
+pub mod blockcypher;
 pub mod chainz;
 pub mod evm;
 pub mod history;

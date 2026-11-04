@@ -15,8 +15,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  rust:
-    name: 格式 / lint / 测试
+  # 纯 Rust 核心:密码学、派生、链适配器。不依赖前端产物与 Tauri 系统库,
+  # 单独缓存 core 的 target 前缀,改 UI/打包层时不 invalidate 这份缓存。
+  core:
+    name: 核心库（fmt / clippy / 测试）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: 缓存 Cargo（core）
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: crates/core -> target
+          # core 的依赖随 workspace 依赖表变化;shared-key 让 core 与 tauri
+          # 各自缓存各自的增量产物,互不覆盖。
+          key: lycoris-core
+
+      - name: 格式检查
+        run: cargo fmt --all -- --check
+
+      - name: Clippy（core）
+        run: cargo clippy -p lycoris-core --all-targets -- -D warnings
+
+      - name: 测试（core）
+        run: cargo test -p lycoris-core
+
+  # Tauri 桌面端:需要前端产物(generate_context! 宏)与 webkit 系统库。
+  # 只有 src-tauri 变更时才重建这部分重依赖,缓存 key 独立于 core。
+  tauri:
+    name: Tauri 桌面端（clippy / 测试）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,12 +71,13 @@ jobs:
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
 
-      - name: 缓存 Cargo
+      - name: 缓存 Cargo（tauri）
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: . -> target
+          workspaces: src-tauri -> target
+          key: lycoris-tauri
 
       - name: 安装 Tauri 编译依赖
         run: |
@@ -57,14 +90,13 @@ jobs:
             build-essential \
             file
 
-      - name: 格式检查
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
+      - name: Clippy（workspace，覆盖 cli/wasm/core 集成层）
+        # 全 workspace clippy 保证 tauri 引用 core 的代码也过 lint;core 自身
+        # 的 all-targets lint 已由 core job 把关,此处保持原有门禁强度。
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: 测试
-        run: cargo test --workspace
+      - name: 测试（tauri）
+        run: cargo test -p lycoris-wallet
 
   frontend:
     name: 前端与演示内核检查

@@ -147,6 +147,20 @@ enum UtxoAdapter {
     Chainz(ChainzClient),
 }
 
+impl std::fmt::Debug for UtxoAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // 只打变体名——不把 base URL(可能含 API key)写进日志。
+        match self {
+            Self::Esplora(_) => f.write_str("UtxoAdapter::Esplora"),
+            Self::Blockbook(_) => f.write_str("UtxoAdapter::Blockbook"),
+            Self::Blockcypher(_) => f.write_str("UtxoAdapter::Blockcypher"),
+            Self::Blockchair(_) => f.write_str("UtxoAdapter::Blockchair"),
+            Self::Woc(_) => f.write_str("UtxoAdapter::Woc"),
+            Self::Chainz(_) => f.write_str("UtxoAdapter::Chainz"),
+        }
+    }
+}
+
 /// EVM/Ed25519 客户端构造:主源 + `rpc_fallbacks()` 备选,任一可用即成功。
 fn evm_with_fallbacks(client: &reqwest::Client, info: &ChainInfo) -> EvmClient {
     let rpcs: Vec<&str> = std::iter::once(info.rpc)
@@ -192,33 +206,53 @@ impl UtxoAdapter {
         backend: UtxoBackend,
         blockchair_key: Option<&str>,
     ) -> Option<Self> {
+        Self::from_backend_at(client, chain, backend, blockchair_key, None)
+    }
+
+    /// `base_at` 把所有数据源的 base URL 换成同一个地址——离线测试用它把
+    /// 请求指到本地 mock 服务器;生产调用传 `None` 走各链的公共实例。
+    /// (Chainz 的 base 由 coin slug 硬拼域名,没有可注入字段;它只做余额
+    /// 查询,回退编排测试不经过它。)
+    fn from_backend_at(
+        client: &reqwest::Client,
+        chain: ChainId,
+        backend: UtxoBackend,
+        blockchair_key: Option<&str>,
+        base_at: Option<&str>,
+    ) -> Option<Self> {
         let info = chain.info();
+        let base = |default: &'static str| base_at.unwrap_or(default);
         match backend {
-            UtxoBackend::Esplora => Some(Self::Esplora(UtxoClient::new(client.clone(), info.rpc))),
+            UtxoBackend::Esplora => Some(Self::Esplora(UtxoClient::new(
+                client.clone(),
+                base(info.rpc),
+            ))),
             UtxoBackend::Blockcypher => Some(Self::Blockcypher(BlockcypherClient::new(
                 client.clone(),
-                blockcypher_base(chain),
+                base(blockcypher_base(chain)),
                 info.decimals,
             ))),
             UtxoBackend::Blockbook => Some(Self::Blockbook(BlockbookClient::new(
                 client.clone(),
-                info.rpc,
+                base(info.rpc),
             ))),
             UtxoBackend::Blockchair => {
                 // The fallback reads Blockchair directly (primary chains keep
                 // their own rpc; blockbook chains get the per-chain base).
-                let base = if chain.utxo_backend() == UtxoBackend::Blockchair {
+                let default = if chain.utxo_backend() == UtxoBackend::Blockchair {
                     info.rpc
                 } else {
                     blockchair_base(chain)
                 };
                 Some(Self::Blockchair(BlockchairClient::with_settings(
                     client.clone(),
-                    base,
+                    base(default),
                     blockchair_key,
                 )))
             }
-            UtxoBackend::WhatsOnChain => Some(Self::Woc(WocClient::new(client.clone(), info.rpc))),
+            UtxoBackend::WhatsOnChain => {
+                Some(Self::Woc(WocClient::new(client.clone(), base(info.rpc))))
+            }
             UtxoBackend::Chainz => Some(Self::Chainz(ChainzClient::new(
                 client.clone(),
                 chain.chainz_coin(),
@@ -235,7 +269,17 @@ impl UtxoAdapter {
         chain: ChainId,
         blockchair_key: Option<&str>,
     ) -> Option<Self> {
-        Self::from_backend(client, chain, chain.utxo_backend(), blockchair_key)
+        Self::from_backend_at(client, chain, chain.utxo_backend(), blockchair_key, None)
+    }
+
+    /// [`Self::for_chain`] with a mock base URL (see [`Self::from_backend_at`]).
+    fn for_chain_at(
+        client: &reqwest::Client,
+        chain: ChainId,
+        blockchair_key: Option<&str>,
+        base_at: Option<&str>,
+    ) -> Option<Self> {
+        Self::from_backend_at(client, chain, chain.utxo_backend(), blockchair_key, base_at)
     }
 
     async fn balance(&self, chain: ChainId, address: &str) -> ApiResult<u64> {
@@ -730,13 +774,27 @@ async fn utxos_with_fallback(
     address: &str,
     blockchair_key: Option<&str>,
 ) -> ApiResult<(UtxoAdapter, Vec<lycoris_core::network::utxo::Utxo>)> {
-    let primary = UtxoAdapter::for_chain(client, chain, blockchair_key);
+    utxos_with_fallback_at(client, chain, address, blockchair_key, None).await
+}
+
+/// [`utxos_with_fallback`] with a mock base URL: every backend is pointed at
+/// `base_at` so offline tests can exercise the fallback orchestration through
+/// a local server without touching the real network.
+async fn utxos_with_fallback_at(
+    client: &reqwest::Client,
+    chain: ChainId,
+    address: &str,
+    blockchair_key: Option<&str>,
+    base_at: Option<&str>,
+) -> ApiResult<(UtxoAdapter, Vec<lycoris_core::network::utxo::Utxo>)> {
+    let primary = UtxoAdapter::for_chain_at(client, chain, blockchair_key, base_at);
     let backends = chain
         .fallback_backend()
         .into_iter()
         .chain(chain.final_backend());
-    let fallbacks = backends
-        .filter_map(|backend| UtxoAdapter::from_backend(client, chain, backend, blockchair_key));
+    let fallbacks = backends.filter_map(|backend| {
+        UtxoAdapter::from_backend_at(client, chain, backend, blockchair_key, base_at)
+    });
     let mut last_error = None;
     for adapter in primary.into_iter().chain(fallbacks) {
         match adapter.utxos(chain, address).await {
@@ -1521,5 +1579,176 @@ fn fiat_string(value: f64, currency: FiatCurrency) -> String {
     match currency {
         FiatCurrency::Usd => format!("${value:.2}"),
         FiatCurrency::Cny => format!("¥{value:.2}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// Short-timeout client so a dead source fails fast and the fallback
+    /// actually runs inside the test.
+    fn test_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(3))
+            .connect_timeout(Duration::from_secs(2))
+            // Loopback only: never touch the real network from a test.
+            .local_address(Some(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)))
+            .build()
+            .unwrap()
+    }
+
+    /// Serve `count` HTTP responses: the first `fail_first` answer `503`,
+    /// the rest `body`. Returns the bound address and how many requests
+    /// actually arrived (the fallback-order assertion reads it back).
+    async fn serve_mixed(
+        count: usize,
+        fail_first: usize,
+        body: &'static str,
+    ) -> (String, tokio::task::JoinHandle<usize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let mut served = 0usize;
+            for _ in 0..count {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut buf = vec![0u8; 16 * 1024];
+                let Ok(read) = socket.read(&mut buf).await else {
+                    break;
+                };
+                let _request = String::from_utf8_lossy(&buf[..read]);
+                let status = if served < fail_first { "503" } else { "200" };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                if socket.write_all(response.as_bytes()).await.is_err() {
+                    break;
+                }
+                served += 1;
+                let _ = socket.flush().await;
+            }
+            served
+        });
+        (format!("http://{addr}"), handle)
+    }
+
+    /// Every response answers `503`, so the whole chain must exhaust and
+    /// surface the last error.
+    async fn serve_dead(count: usize) -> (String, tokio::task::JoinHandle<usize>) {
+        let (base, handle) = serve_mixed(count, usize::MAX, "{}").await;
+        (base, handle)
+    }
+
+    /// DOGE 编排:Blockbook 主源挂 → Blockcypher 回退 → Blockchair 兜底。
+    /// 备选逐个发 503,最后一级才给合法 UTXO 列表,证明三级顺序与回退成功。
+    #[tokio::test]
+    async fn dogecoin_falls_through_to_final_backend() {
+        // Three backends are tried; the mock answers every request. The
+        // Blockbook UTXO endpoint is hit first, then Blockcypher's, then
+        // Blockchair's — only the last response is a valid payload.
+        let (base, server) = serve_mixed(
+            3,
+            2,
+            r#"{"data":[{"txid":"ab","vout":0,"value":123,"block":800000}],"context":{}}"#,
+        )
+        .await;
+        let client = test_client();
+        let result = utxos_with_fallback_at(
+            &client,
+            ChainId::Dogecoin,
+            "DTestsEUmfmMKiPnMxcueibUxtcMPzYyTvd",
+            None,
+            Some(&base),
+        )
+        .await;
+        let served = server.await.unwrap();
+        let (adapter, utxos) = match result {
+            Ok(ok) => ok,
+            Err(error) => panic!("final backend must answer (served {served}): {error}"),
+        };
+        assert!(matches!(adapter, UtxoAdapter::Blockchair(_)));
+        assert_eq!(utxos.len(), 1);
+        assert_eq!(utxos[0].value, 123);
+        assert!(utxos[0].confirmed);
+        assert_eq!(served, 3, "all three sources were tried");
+    }
+
+    /// 主源就答对时不再打后续源:Blockbook 一次给出合法 UTXO,请求数恰为 1。
+    #[tokio::test]
+    async fn dogecoin_primary_success_skips_fallbacks() {
+        let (base, server) = serve_mixed(
+            1,
+            0,
+            r#"[{"txid":"cd","vout":1,"value":"777","height":700000,"confirmations":12}]"#,
+        )
+        .await;
+        let client = test_client();
+        let (adapter, utxos) = utxos_with_fallback_at(
+            &client,
+            ChainId::Dogecoin,
+            "DTestsEUmfmMKiPnMxcueibUxtcMPzYyTvd",
+            None,
+            Some(&base),
+        )
+        .await
+        .expect("primary must answer");
+        assert!(matches!(adapter, UtxoAdapter::Blockbook(_)));
+        assert_eq!(utxos.len(), 1);
+        assert_eq!(utxos[0].value, 777);
+        assert_eq!(server.await.unwrap(), 1, "no fallback request was made");
+    }
+
+    /// 所有源都 503:错误沿编排冒泡,调用方拿到最后一级的错误而不是 panic。
+    #[tokio::test]
+    async fn dogecoin_all_sources_down_surfaces_last_error() {
+        let (base, server) = serve_dead(3).await;
+        let client = test_client();
+        let error = utxos_with_fallback_at(
+            &client,
+            ChainId::Dogecoin,
+            "DTestsEUmfmMKiPnMxcueibUxtcMPzYyTvd",
+            None,
+            Some(&base),
+        )
+        .await
+        .expect_err("every source is down");
+        assert!(error.message.contains("utxos"));
+        assert_eq!(server.await.unwrap(), 3, "every fallback was tried");
+    }
+
+    /// Balance 走同一条编排:Blockbook 503 → Blockcypher 报价成功。
+    #[tokio::test]
+    async fn dogecoin_balance_uses_the_same_fallback_order() {
+        // Blockbook balance 报文(blockbook balance 路径先被 503),之后
+        // Blockcypher 的 /addrs/…/balance 报 final_balance。
+        let (base, server) = serve_mixed(2, 1, r#"{"final_balance":4242}"#).await;
+        let client = test_client();
+        let adapter = UtxoAdapter::for_chain_at(&client, ChainId::Dogecoin, None, Some(&base))
+            .expect("doge has a primary backend");
+        let fallback = UtxoAdapter::from_backend_at(
+            &client,
+            ChainId::Dogecoin,
+            ChainId::Dogecoin.fallback_backend().unwrap(),
+            None,
+            Some(&base),
+        )
+        .unwrap();
+        let primary_error = adapter
+            .balance(ChainId::Dogecoin, "DTestsEUmfmMKiPnMxcueibUxtcMPzYyTvd")
+            .await
+            .expect_err("primary source answers 503");
+        assert!(primary_error.message.contains("balance"));
+        let amount = fallback
+            .balance(ChainId::Dogecoin, "DTestsEUmfmMKiPnMxcueibUxtcMPzYyTvd")
+            .await
+            .expect("blockcypher fallback answers");
+        assert_eq!(amount, 4242);
+        assert_eq!(server.await.unwrap(), 2);
     }
 }

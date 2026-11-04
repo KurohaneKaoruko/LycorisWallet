@@ -240,6 +240,8 @@ impl BlockcypherClient {
 }
 
 /// `2026-10-28T17:31:52Z` → unix seconds. Blockcypher timestamps are UTC ISO.
+/// Sub-second fractions (`…T16:02:07.148107381Z`) are tolerated: the live
+/// chain-info endpoint answers with nanosecond precision.
 fn parse_iso8601_unix(text: &str) -> Option<i64> {
     // Manual parse avoids a chrono dependency: "YYYY-MM-DDTHH:MM:SS" prefix.
     let (date, rest) = text.split_once('T')?;
@@ -251,7 +253,13 @@ fn parse_iso8601_unix(text: &str) -> Option<i64> {
     let mut time_parts = time.split(':');
     let hour: i64 = time_parts.next()?.parse().ok()?;
     let minute: i64 = time_parts.next()?.parse().ok()?;
-    let second: i64 = time_parts.next().unwrap_or("0").parse().ok()?;
+    // Seconds may carry a sub-second fraction — keep the integer part only.
+    let seconds_text = time_parts.next().unwrap_or("0");
+    let second: i64 = seconds_text
+        .split_once('.')
+        .map_or(seconds_text, |(whole, _)| whole)
+        .parse()
+        .ok()?;
     // days-from-civil algorithm (Howard Hinnant), valid for the Gregorian era.
     let y = if month <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;
@@ -349,6 +357,24 @@ mod tests {
         let t = parse_iso8601_unix("2026-10-28T17:31:52Z").expect("parses");
         assert!(t > 1_767_225_600);
         assert_eq!(parse_iso8601_unix("1970-01-01T00:00:00Z"), Some(0));
+    }
+
+    #[test]
+    fn iso8601_with_subsecond_fraction_parses() {
+        // 实测 chain-info 与 tx confirmed 字段带纳秒小数, 之前会被整体判废。
+        assert_eq!(
+            parse_iso8601_unix("2026-11-04T16:02:07.148107381Z"),
+            parse_iso8601_unix("2026-11-04T16:02:07Z")
+        );
+        assert_eq!(
+            parse_iso8601_unix("2026-01-01T00:00:00.500Z"),
+            Some(1_767_225_600)
+        );
+        // 无时区后缀的形态同样成立。
+        assert_eq!(
+            parse_iso8601_unix("2026-01-01T00:00:00.1"),
+            Some(1_767_225_600)
+        );
     }
 
     #[test]

@@ -59,7 +59,9 @@ impl EvmClient {
                     continue;
                 }
             };
-            if let Some(error) = value.get("error") {
+            // JSON-RPC 2.0 规范允许成功响应显式携带 `"error": null`,
+            // 此时按成功处理而不是换源。
+            if let Some(error) = value.get("error").filter(|e| !e.is_null()) {
                 // RPC 层错误(参数/状态问题)换源也一样的概率低, 但仍继续试下一源。
                 last_error = Some(Error::Network(format!(
                     "{method}: {}",
@@ -177,4 +179,143 @@ pub fn keccak(data: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// Serve `count` requests, each answered with `status` and `body`, and
+    /// record how many arrived. Slow responses delay before answering so the
+    /// client timeout can be observed without touching the real network.
+    async fn serve(
+        count: usize,
+        status: &'static str,
+        body: &'static str,
+        delay: Duration,
+    ) -> (Vec<String>, tokio::task::JoinHandle<usize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let mut served = 0usize;
+            for _ in 0..count {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut buf = vec![0u8; 16 * 1024];
+                let Ok(read) = socket.read(&mut buf).await else {
+                    break;
+                };
+                let _request = String::from_utf8_lossy(&buf[..read]);
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                tokio::time::sleep(delay).await;
+                if socket.write_all(response.as_bytes()).await.is_err() {
+                    break;
+                }
+                served += 1;
+                let _ = socket.flush().await;
+            }
+            served
+        });
+        (vec![format!("http://{addr}")], handle)
+    }
+
+    fn client(timeout: Duration) -> reqwest::Client {
+        reqwest::Client::builder().timeout(timeout).build().unwrap()
+    }
+
+    #[tokio::test]
+    async fn falls_back_when_primary_is_down() {
+        // 主源端口没人听(连接被拒) → 自动切到备源成功。
+        let dead = "http://127.0.0.1:1";
+        let (rpcs, server) = serve(
+            1,
+            "200 OK",
+            r#"{"jsonrpc":"2.0","id":1,"result":"0x10d4f"}"#,
+            Duration::ZERO,
+        )
+        .await;
+        let client =
+            EvmClient::with_fallbacks(client(Duration::from_secs(5)), [dead, rpcs[0].as_str()]);
+        assert_eq!(client.chain_id().await.unwrap(), 0x10d4f);
+        assert_eq!(server.await.unwrap(), 1, "备源应收到恰好一次请求");
+    }
+
+    #[tokio::test]
+    async fn falls_back_on_http_error_and_bad_json() {
+        // 备源一:HTTP 500;备源二:非 JSON;备源三:正常。
+        let (ok, server) = serve(
+            1,
+            "200 OK",
+            r#"{"jsonrpc":"2.0","id":1,"result":"0x2710"}"#,
+            Duration::ZERO,
+        )
+        .await;
+        let (bad_status, _) = serve(0, "500 Internal Server Error", "nope", Duration::ZERO).await;
+        let (garbage, _) = serve(1, "200 OK", "<html>502</html>", Duration::ZERO).await;
+        let client = EvmClient::with_fallbacks(
+            client(Duration::from_secs(5)),
+            [bad_status[0].clone(), garbage[0].clone(), ok[0].clone()],
+        );
+        assert_eq!(client.chain_id().await.unwrap(), 10_000);
+        assert_eq!(server.await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn slow_source_times_out_and_falls_back() {
+        // 主源 1.5s 后才应答,客户端 200ms 超时 → 切到立即应答的备源。
+        let (ok, server) = serve(
+            1,
+            "200 OK",
+            r#"{"jsonrpc":"2.0","id":1,"result":"0x64"}"#,
+            Duration::ZERO,
+        )
+        .await;
+        let (slow, slow_server) = serve(
+            1,
+            "200 OK",
+            r#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#,
+            Duration::from_millis(1500),
+        )
+        .await;
+        let client = EvmClient::with_fallbacks(
+            client(Duration::from_millis(200)),
+            [slow[0].clone(), ok[0].clone()],
+        );
+        assert_eq!(client.chain_id().await.unwrap(), 100);
+        assert_eq!(server.await.unwrap(), 1, "快速备源应被使用");
+        // 慢源可以收到请求,但超时后其迟到的应答不会被采纳。
+        let _ = slow_server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn explicit_null_error_is_success() {
+        // JSON-RPC 2.0 允许成功响应显式携带 "error": null,不应误判为失败。
+        let (rpcs, server) = serve(
+            1,
+            "200 OK",
+            r#"{"jsonrpc":"2.0","id":1,"result":"0x3e8","error":null}"#,
+            Duration::ZERO,
+        )
+        .await;
+        let client = EvmClient::with_fallbacks(client(Duration::from_secs(5)), [rpcs[0].as_str()]);
+        assert_eq!(client.chain_id().await.unwrap(), 1000);
+        assert_eq!(server.await.unwrap(), 1, "不应换源重试");
+    }
+
+    #[tokio::test]
+    async fn all_sources_failing_reports_last_error() {
+        let (a, _) = serve(1, "500 Internal Server Error", "down", Duration::ZERO).await;
+        let (b, _) = serve(1, "200 OK", "not json", Duration::ZERO).await;
+        let client =
+            EvmClient::with_fallbacks(client(Duration::from_secs(5)), [a[0].clone(), b[0].clone()]);
+        let error = client.chain_id().await.unwrap_err();
+        assert!(error.to_string().contains("eth_chainId"), "{error}");
+    }
 }

@@ -1042,8 +1042,12 @@ impl ChainKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HashAlgorithm {
+    /// UTXO 地址管线（hash160 = SHA-256 → RIPEMD-160）的第一步。
     Sha256,
+    /// EVM 与 CryptoNote 地址管线的 pubkey 哈希。
     Keccak256,
+    /// Groestlcoin 地址管线：所有 SHA-256 步骤替换为 Groestl-512。
+    Groestl512,
 }
 
 impl HashAlgorithm {
@@ -1051,13 +1055,15 @@ impl HashAlgorithm {
         match self {
             HashAlgorithm::Sha256 => "SHA-256",
             HashAlgorithm::Keccak256 => "Keccak-256",
+            HashAlgorithm::Groestl512 => "Groestl-512",
         }
     }
 
     pub fn detail(self) -> &'static str {
         match self {
             HashAlgorithm::Sha256 => "FIPS 180-4 · 32 byte digest",
-            HashAlgorithm::Keccak256 => "Ethereum native hash · 32 byte digest",
+            HashAlgorithm::Keccak256 => "Ethereum/CryptoNote native hash · 32 byte digest",
+            HashAlgorithm::Groestl512 => "Groestl-512 · 32 byte digest（GRS 地址管线哈希）",
         }
     }
 }

@@ -776,7 +776,8 @@ impl BatchStrategy {
     }
 
     /// Upper bound for user-supplied indices. Keeps a mistyped count from
-    /// freezing the UI (iterated hashing is fast, but BIP-39 to_seed is ~30 ms per account).
+    /// freezing the UI (iterated SHA-256 is fast, but BIP-39 to_seed is
+    /// ~30 ms per account and Monero kholaw paths cost more).
     pub fn max_count(self) -> u32 {
         match self {
             Self::Path | Self::Salted => 100,
@@ -2783,6 +2784,7 @@ mod tests {
                 .unwrap();
         let accounts = derive_accounts(&secret).unwrap();
 
+        // LTC 的地址管线是 hash160（SHA-256 → RIPEMD-160），口令哈希是 SHA-256。
         let ltc = accounts
             .iter()
             .find(|x| x.chain == ChainId::Litecoin)
@@ -2791,6 +2793,14 @@ mod tests {
         assert_eq!(ltc.hash_algorithm, "SHA-256");
         assert_eq!(ltc.hash_detail, "FIPS 180-4 · 32 byte digest");
 
+        // GRS 地址管线把所有 SHA-256 换成 Groestl-512（Groestl-hash160）。
+        let grs = accounts
+            .iter()
+            .find(|x| x.chain == ChainId::Groestlcoin)
+            .unwrap();
+        assert_eq!(grs.hash_algorithm, "Groestl-512");
+
+        // XMR 地址管线是 CryptoNote 的 Keccak-256。
         let xmr = accounts
             .iter()
             .find(|x| x.chain == ChainId::Monero)
@@ -2815,7 +2825,7 @@ mod tests {
             .unwrap();
         assert_eq!(ltc.address, "ltc1qjmxnz78nmc8nq77wuxh25n2es7rzm5c2rkk4wh");
         assert_eq!(sol.address, "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk");
-        // 哈希算法必须报真实哈希(BIP-39 钱包与口令钱包同一套 label),而不是派生方式串。
+        // 哈希算法必须报地址管线真实哈希(BIP-39 钱包与口令钱包同一套 label)。
         assert_eq!(ltc.hash_algorithm, "SHA-256");
         assert_eq!(sol.hash_algorithm, "SHA-256");
         let eth = accounts
@@ -2828,8 +2838,8 @@ mod tests {
 
     #[test]
     fn passphrase_isolated_vectors() {
-        // Cross-checked against an independent Python implementation
-        // (bip_utils) of the same formula.
+        // Cross-checked against an independent Python implementation of the
+        // same formula. LTC 的口令哈希是其地址管线第一步 SHA-256，与 BTC 同哈希但域名不同。
         let secret =
             WalletSecret::new_passphrase("a quiet garden at dusk", DerivationMode::Isolated)
                 .unwrap();
@@ -2848,7 +2858,7 @@ mod tests {
         );
         assert_eq!(
             address(ChainId::Litecoin),
-            "ltc1qg06z6x74fe6f2qyqkfqk7kle8llgty3s78tfql"
+            "ltc1qk2umxszmlmqat7v8y6323w7k25ax6xhpj7kk79"
         );
         assert_eq!(
             address(ChainId::Ethereum),
@@ -2952,8 +2962,8 @@ mod tests {
                 "{chain:?} must differ from Ethereum in isolated mode"
             );
         }
-        // Dogecoin shares Litecoin's hash160 pipeline but has its own domain,
-        // hence a different key.
+        // Dogecoin 与 Litecoin 同为 hash160 地址管线（SHA-256 口令哈希），
+        // 但域名里链名不同，私钥不同。
         assert_ne!(
             find(ChainId::Dogecoin).address,
             find(ChainId::Litecoin).address

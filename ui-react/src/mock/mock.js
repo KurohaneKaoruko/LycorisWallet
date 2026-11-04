@@ -25,7 +25,7 @@ if (wantsCore) {
   }
 }
 
-/** Derivation is hash-heavy; cache per secret so a refresh does not re-derive. */
+/** Derivation is hash-heavy (BIP-39 PBKDF2 / per-chain digest); cache per secret so a refresh does not re-derive. */
 const PREVIEW_CACHE = new Map();
 
 function corePreview(secret) {
@@ -161,15 +161,17 @@ const BALANCES = {
 };
 
 const ALGOS = {
+  // 与核心 chains.rs 的 HashAlgorithm 一致：口令哈希 = 该链「私钥 → 地址」
+  // 管线中真实使用的哈希。
   bitcoin: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
   litecoin: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
   dogecoin: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
   bitcoincash: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
-  ethereum: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
-  "ethereum-classic": ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
+  ethereum: ["Keccak-256", "EVM 原生哈希 · 32 字节摘要"],
+  "ethereum-classic": ["Keccak-256", "EVM 原生哈希 · 32 字节摘要"],
   ethw: ["Keccak-256", "EVM 原生哈希 · 32 字节摘要"],
-  bsc: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
-  polygon: ["Keccak-256", "Ethereum 原生哈希 · 32 字节摘要"],
+  bsc: ["Keccak-256", "EVM 原生哈希 · 32 字节摘要"],
+  polygon: ["Keccak-256", "EVM 原生哈希 · 32 字节摘要"],
   solana: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
   monero: ["Keccak-256", "CryptoNote 原生哈希 · 32 字节摘要"],
   bitcoinsv: ["SHA-256", "FIPS 180-4 · 32 字节摘要"],
@@ -1248,6 +1250,7 @@ export async function mockCall(command, args = {}) {
         hasHint: Boolean(store.hint),
         hint: store.hint,
         label: store.locked ? null : activeWallet()?.label ?? null,
+        cold: store.cold ?? { coldActive: false, localExists: store.exists, coldExists: false },
       };
 
     case "create_vault": {
@@ -1621,12 +1624,7 @@ export async function mockCall(command, args = {}) {
         : trimmed;
       const basePreview = "基础账户私钥（base）";
       const domain = `lycoris/v1/${chain}`;
-      const hashName =
-        chain === "litecoin" || chain === "dogecoin"
-          ? "SHA-256"
-          : chain === "monero"
-            ? "Keccak-256"
-            : "SHA-256";
+      const hashName = ALGOS[chain]?.[0] ?? "SHA-256";
       const isolated = !isMnemonic && wallet.secret.derivation !== "strict";
       const index = spec?.index ?? 0;
       const strategyKey = spec?.strategy ?? "base";
@@ -2407,6 +2405,48 @@ export async function mockCall(command, args = {}) {
     case "window_toggle_maximize":
     case "window_close":
       return command === "window_toggle_maximize" ? false : null;
+
+    /* U盘冷钱包：演示模式没有真实磁盘，返回固定形状的假数据，
+       让设置页的卡片可以正常渲染与交互。 */
+    case "usb_drives":
+      return [
+        {
+          mount: "E:\\",
+          label: "E: 演示U盘",
+          hasWallet: false,
+          freeBytes: 8_589_934_592,
+          totalBytes: 15_518_914_048,
+        },
+      ];
+
+    case "cold_status":
+      return store.cold ?? { coldActive: false, localExists: store.exists, coldExists: false };
+
+    case "cold_enable": {
+      if (!store.exists) throw { code: "VAULT_NOT_FOUND", message: "找不到本机钱包文件" };
+      if (args.password !== store.password) {
+        throw { code: "INCORRECT_PASSWORD", message: "密码不正确" };
+      }
+      store.cold = { coldActive: true, localExists: true, coldExists: true };
+      persist();
+      return store.cold;
+    }
+
+    case "cold_disable": {
+      const status = { coldActive: false, localExists: store.exists, coldExists: Boolean(store.cold?.coldActive) };
+      if (args.pull && args.password !== store.password) {
+        throw { code: "INCORRECT_PASSWORD", message: "密码不正确" };
+      }
+      store.cold = status;
+      persist();
+      return status;
+    }
+
+    case "cold_delete_local": {
+      store.cold = { coldActive: true, localExists: false, coldExists: true };
+      persist();
+      return store.cold;
+    }
 
     default:
       throw { code: "UNKNOWN_COMMAND", message: `演示模式未实现：${command}` };

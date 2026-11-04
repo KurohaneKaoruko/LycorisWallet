@@ -1,5 +1,6 @@
 use crate::chains::{ChainId, HashAlgorithm};
 use crate::error::{Error, Result};
+use groestl::Groestl512;
 use sha2::{Digest, Sha256};
 use sha3::Keccak256;
 use unicode_normalization::UnicodeNormalization;
@@ -31,9 +32,13 @@ pub fn derivation_message(phrase: &str, chain: ChainId, isolated: bool) -> Resul
 /// Derive 32 bytes of key material with the hash the chain itself uses on
 /// its key → address path:
 ///
-/// - UTXO chains hash the pubkey through SHA-256 → RIPEMD-160 (hash160),
-///   so the passphrase hash is SHA-256.
+/// - UTXO chains hash the pubkey through SHA-256 → RIPEMD-160 (hash160), so
+///   the passphrase hash is SHA-256.
 /// - EVM and CryptoNote chains hash pubkeys with Keccak-256, so Keccak-256.
+/// - Groestlcoin replaces every SHA-256 in its address pipeline with
+///   Groestl-512 ("Groestl-hash160"), so Groestl-512 here.
+/// - Solana addresses are bare ed25519 pubkeys (no hash step); SHA-256 is
+///   used only to turn the phrase into a 32-byte seed.
 ///
 /// This is a *direct* passphrase derivation. It is intentionally simple and
 /// reproducible, and consequently far weaker than BIP-39 for low-entropy
@@ -79,18 +84,33 @@ pub fn chain_key_iterated(base: [u8; 32], chain: ChainId, rounds: u32) -> Result
 }
 
 fn hash_message(message: &[u8], chain: ChainId) -> Result<[u8; 32]> {
-    let algorithm = chain.info().hash;
-    match algorithm {
+    match chain.info().hash {
+        // UTXO 地址管线：pubkey → SHA-256 → RIPEMD-160（hash160）。口令哈希取管线里的第一步 SHA-256。
         HashAlgorithm::Sha256 => {
             let digest = Sha256::digest(message);
             let mut out = [0u8; 32];
             out.copy_from_slice(&digest);
             Ok(out)
         }
+        // EVM 与 CryptoNote：pubkey → Keccak-256 → 地址。
         HashAlgorithm::Keccak256 => {
             let digest = Keccak256::digest(message);
             let mut out = [0u8; 32];
             out.copy_from_slice(&digest);
+            Ok(out)
+        }
+        // Groestlcoin 地址管线把所有 SHA-256 换成 Groestl-512（官方
+        // "Groestl-hash160"：取 Groestl-512 输出的前 32 字节再 RIPEMD-160，
+        // 与 SHA-256 → RIPEMD-160 的截断方式一致），因此口令哈希同样取
+        // Groestl-512 输出的前 32 字节。
+        // groestl 0.11 用 digest 0.11 的 trait，与 sha2 0.10 的不同。
+        HashAlgorithm::Groestl512 => {
+            use digest11::Digest as Digest11;
+            let mut hasher = Groestl512::new();
+            Digest11::update(&mut hasher, message);
+            let digest = Digest11::finalize(hasher);
+            let mut out = [0u8; 32];
+            out.copy_from_slice(&digest[..32]);
             Ok(out)
         }
     }

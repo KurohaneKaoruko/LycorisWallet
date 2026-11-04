@@ -16,7 +16,8 @@
 ---
 
 除标准的 BIP-39 助记词钱包外，Lycoris 提供一种「**口令钱包**」：输入任意一句话，
-由每条链地址管线使用的哈希算法直接派生该链私钥——比特币等 UTXO 链用 SHA-256、EVM 用
+由每条链「私钥 → 地址」管线中真实使用的哈希算法直接派生该链私钥——UTXO 链用 SHA-256、
+Groestlcoin 用 Groestl-512（其地址管线把所有 SHA-256 替换为 Groestl-512）、EVM 与 CryptoNote 用
 Keccak-256、Solana 用 SHA-256 → ed25519。**一句话，管住全部钱包。**
 
 所有密钥、签名与网络请求都发生在 Rust 侧。Monero 与 Zephyr 是唯一例外：CryptoNote 的
@@ -74,7 +75,7 @@ RingCT 环签名交给官方的本地 wallet-rpc 完成，密钥仍由本应用�
 | Potcoin | POT | SHA-256 | `m/44'/81'/0'/0/0` | base58（P2PKH） |
 | e-Gulden | EFL | SHA-256 | `m/44'/78'/0'/0/0` | base58（P2PKH） |
 | Dash | DASH | SHA-256 | `m/44'/5'/0'/0/0` | base58（P2PKH） |
-| Groestlcoin | GRS | SHA-256 | `m/44'/17'/0'/0/0` | bech32（P2WPKH） |
+| Groestlcoin | GRS | Groestl-512 | `m/44'/17'/0'/0/0` | bech32（P2WPKH） |
 | Vertcoin | VTC | SHA-256 | `m/44'/28'/0'/0/0` | bech32（P2WPKH） |
 | Ravencoin | RVN | SHA-256 | `m/44'/175'/0'/0/0` | base58（P2PKH） |
 | Monacoin | MONA | SHA-256 | `m/84'/22'/0'/0/0` | bech32（P2WPKH） |
@@ -133,7 +134,7 @@ RingCT 环签名交给官方的本地 wallet-rpc 完成，密钥仍由本应用�
 | 网络 | 地址 |
 | --- | --- |
 | BTC | `bc1qx0q0wdh4z5a64twecyg0kqyqkpc3h66nv8n2gt` |
-| LTC | `ltc1qg06z6x74fe6f2qyqkfqk7kle8llgty3s78tfql` |
+| LTC | `ltc1qk2umxszmlmqat7v8y6323w7k25ax6xhpj7kk79` |
 | ETH | `0x9231e3Fa53ABF00CeC08DB45a7dEDe19f939a0CB` |
 | SOL | `5HeimWLA7nee4kKKL8mWbPjMHPXKYTY6gM43LgMk9Q4a` |
 | XMR | `48zQvBdmMxj9ByEJWD3uPAVdSKJEnJEsMS8ppnVdJXuh5GjcU9wRcuBck7NTZidFd44bFJmpumZRRi5yufFhd3dP7mHe5Eb` |

@@ -10,7 +10,7 @@ import { copyText } from "../clipboard";
 import { useSession } from "./session";
 import { useDialogs, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
-import type { ChainId, DerivationPreview, WalletView } from "../types";
+import type { ChainId, DerivationPreview, UsbDrive, WalletView } from "../types";
 
 const STEPS = ["选择模式", "生成密钥", "设置密码"];
 
@@ -352,8 +352,9 @@ export function OnboardingView() {
               <span className="tag">H_chain(phrase) → private key</span>
               <h3>口令钱包</h3>
               <p>
-                输入任意一句话，用该链地址管线使用的哈希算法直接派生私钥——UTXO 链与
-                Solana 用 SHA-256、EVM 与 CryptoNote 用 Keccak-256。
+                输入任意一句话，直接用该链「私钥 → 地址」管线中真实使用的哈希算法派生私钥——
+                UTXO 链用 SHA-256、Groestlcoin 用 Groestl-512、EVM 与 CryptoNote 用
+                Keccak-256、Solana 用 SHA-256。
               </p>
               <div className="foot">一句话管所有链 · 口令一旦忘记无法找回</div>
             </button>
@@ -591,7 +592,7 @@ export function OnboardingView() {
             <div>
               <h2>口令</h2>
               <p className="hint">
-                这句话会被每条链的原生哈希算法处理，直接得到该链的私钥。同一个口令在隔离模式下每条链得到不同私钥。
+                这句话会被该链「私钥 → 地址」管线中真实使用的哈希算法处理，直接得到该链的私钥。同一个口令在隔离模式下每条链得到不同私钥。
               </p>
             </div>
             <div className="field">
@@ -910,6 +911,69 @@ export function OnboardingView() {
 
 /** 锁屏：密码提示、错误次数冷却倒计时、忘记密码走 resetVault。
  *  移植自 ui/js/views/unlock.js。 */
+/** 本机没有保险柜时，在解锁页提供「从U盘冷钱包恢复」入口：枚举可移动磁盘，
+ *  验密码后把U盘上的保险柜拉回本机并解锁。换电脑场景用。 */
+function RestoreFromUsbBlock({ onRestored }: { onRestored: () => Promise<void> }) {
+  const toast = useToast();
+  const { askPassword } = useDialogs();
+  const [drives, setDrives] = useState<UsbDrive[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const scan = async () => {
+    setBusy(true);
+    try {
+      const list = await api.usbDrives();
+      setDrives(list);
+      if (list.length === 0) toast("没有找到可移动磁盘，请插入U盘后重试。", "info");
+    } catch (e) {
+      toast((e as Error).message || "无法枚举可移动磁盘", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restore = async (mount: string) => {
+    const password = await askPassword({
+      title: "从U盘恢复钱包",
+      description: "将验证密码，把U盘上的加密保险柜复制到本机。完成后即可正常使用。",
+      confirmText: "恢复",
+    });
+    if (!password) return;
+    setBusy(true);
+    try {
+      await api.coldDisable(true, password, mount);
+      await onRestored();
+      toast("已从U盘恢复钱包。", "success");
+    } catch (e) {
+      toast((e as Error).message || "恢复失败", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="stack-sm">
+      <button className="btn btn-ghost btn-block" type="button" disabled={busy} onClick={() => void scan()}>
+        <Icon name="usb" />
+        从U盘冷钱包恢复
+      </button>
+      {(drives ?? []).map((drive) => (
+        <button
+          key={drive.mount}
+          className="btn btn-ghost btn-block"
+          type="button"
+          disabled={busy}
+          onClick={() => void restore(drive.mount)}
+        >
+          <Icon name="download" />
+          恢复自 {drive.label}
+          {drive.hasWallet ? "（检测到冷钱包）" : ""}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function UnlockView() {
   const { status, setWallet, refreshStatus, go } = useSession();
   const toast = useToast();
@@ -1019,12 +1083,28 @@ export function UnlockView() {
           <button className="btn btn-primary btn-block" type="button" disabled={busy || locked} onClick={() => void submit()}>
             解锁
           </button>
+          {info?.cold?.coldActive ? (
+            <div className="note note-ok">
+              <Icon name="usb" />
+              <div>U盘冷钱包模式：保险柜文件当前存放在U盘上，拔出U盘会立即锁定。</div>
+            </div>
+          ) : null}
           <p className="hint">
             密码只用于解密本机钱包文件，忘记密码无法找回，只能删除钱包后重新导入助记词或重建口令钱包。
           </p>
           <button className="btn btn-ghost btn-block" type="button" onClick={() => void forgot()}>
             忘记密码？删除本机钱包文件
           </button>
+          {info && !info.exists ? (
+            <RestoreFromUsbBlock onRestored={async () => {
+              const st = await refreshStatus();
+              if (st.exists) {
+                const wallet = await api.unlockVault(password);
+                setWallet(wallet);
+                go("dashboard");
+              }
+            }} />
+          ) : null}
         </div>
       </div>
     </section>

@@ -175,6 +175,28 @@ export interface VaultStatus {
   hasHint: boolean;
   hint: string | null;
   label: string | null;
+  /** U盘冷钱包状态（旧后端/演示模式可能没有该字段）。 */
+  cold?: ColdStatus | null;
+}
+
+/** U盘冷钱包状态（布尔值，路径保留在后端）。 */
+export interface ColdStatus {
+  /** 冷钱包模式生效中：当前保险柜文件就是U盘上的那份。 */
+  coldActive: boolean;
+  /** 本机目录存在保险柜文件。 */
+  localExists: boolean;
+  /** 已挂载的冷盘上存在保险柜文件。 */
+  coldExists: boolean;
+}
+
+/** 一个可移动磁盘（冷钱包候选）。 */
+export interface UsbDrive {
+  /** 挂载点/盘符根路径，如 `E:\`。 */
+  mount: string;
+  label: string;
+  hasWallet: boolean;
+  freeBytes: number | null;
+  totalBytes: number | null;
 }
 
 /** 资产子页的一行地址（基础 + 该链的派生账户）。 */

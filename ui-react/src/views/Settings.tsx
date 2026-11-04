@@ -10,6 +10,7 @@ import { Modal, useDialogs, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
 import { copyText } from "../clipboard";
 import { formatDateTime } from "../format";
+import { ColdWalletCard } from "./ColdWallet";
 import type { ChainId, KeySlotKind, Settings as SettingsModel, WalletView } from "../types";
 const CHAIN_LABELS: Record<ChainId, string> = {
   bitcoin: "Bitcoin",
@@ -381,6 +382,9 @@ export function SettingsView() {
             </button>
           </div>
         </div>
+
+        {/* U盘冷钱包 */}
+        <ColdWalletCard />
 
         {/* 危险区 */}
         <div className="card card-pad">

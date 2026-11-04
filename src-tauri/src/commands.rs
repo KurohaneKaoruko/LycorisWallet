@@ -9,7 +9,7 @@ use lycoris_core::chains::ChainId;
 use lycoris_core::derive::KeySlotKind;
 use lycoris_core::derive::{DerivationMode, DerivationPreview, WalletSecret};
 use lycoris_core::models::{
-    Contact, Portfolio, SendQuote, SendResult, Settings, VaultStatus, WalletView,
+    ColdStatus, Contact, Portfolio, SendQuote, SendResult, Settings, VaultStatus, WalletView,
 };
 use lycoris_core::qr;
 use lycoris_core::vault::now;
@@ -79,6 +79,59 @@ pub struct ExportedKey {
 #[tauri::command]
 pub fn vault_status(state: State<'_, crate::state::AppState>) -> VaultStatus {
     state.status()
+}
+
+/* ------------------------------------------------------------- cold wallet */
+
+#[tauri::command]
+pub fn usb_drives() -> Vec<crate::usb::UsbDrive> {
+    crate::usb::drives()
+}
+
+#[tauri::command]
+pub fn cold_enable(
+    state: State<'_, crate::state::AppState>,
+    mount: String,
+    password: String,
+    keep_local: Option<bool>,
+) -> ApiResult<ColdStatus> {
+    Ok(state.cold_enable(
+        &mount,
+        &password,
+        keep_local.unwrap_or(true),
+    )?)
+}
+
+#[tauri::command]
+pub fn cold_disable(
+    state: State<'_, crate::state::AppState>,
+    pull: Option<bool>,
+    password: Option<String>,
+    mount: Option<String>,
+) -> ApiResult<ColdStatus> {
+    let pull = pull.unwrap_or(false);
+    let password = if pull { password.as_deref() } else { None };
+    if pull && password.is_none() {
+        return Err(ApiError::new(
+            "INCORRECT_PASSWORD",
+            "恢复本机副本需要验证保险柜密码",
+        ));
+    }
+    Ok(state.cold_disable(pull, password.unwrap_or(""), mount.as_deref())?)
+}
+
+#[tauri::command]
+pub fn cold_delete_local(state: State<'_, crate::state::AppState>) -> ApiResult<ColdStatus> {
+    let local = state.local_vault_path();
+    if local.exists() {
+        std::fs::remove_file(&local)?;
+    }
+    Ok(state.status_full())
+}
+
+#[tauri::command]
+pub fn cold_status(state: State<'_, crate::state::AppState>) -> ApiResult<ColdStatus> {
+    Ok(state.status_full())
 }
 
 #[tauri::command]

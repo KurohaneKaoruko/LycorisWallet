@@ -52,6 +52,9 @@ const ICONS: Record<string, string> = {
     '<path d="M12 4.4l1.7 4.6 4.6 1.7-4.6 1.7L12 17l-1.7-4.6L5.7 10.7l4.6-1.7L12 4.4Z"/><path d="M18.6 16.4l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z"/>',
   layers:
     '<path d="m12 4 8.4 4.4L12 12.8 3.6 8.4 12 4Z"/><path d="m4.4 12.6 7.6 4 7.6-4"/><path d="m4.4 16.6 7.6 4 7.6-4"/>',
+  usb: '<rect x="8.4" y="10.2" width="7.2" height="9.6" rx="1.2"/><path d="M10.2 10.2V6l1.8-2.2L13.8 6v4.2"/><path d="M10.4 6.8h3.2"/>',
+  download:
+    '<path d="M12 4v11"/><path d="m7.5 11.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/>',
 };
 
 export type IconName = keyof typeof ICONS | string;

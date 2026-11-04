@@ -8,6 +8,7 @@ mod error;
 mod monero;
 mod portfolio;
 mod state;
+mod usb;
 mod window;
 
 use state::AppState;
@@ -18,6 +19,10 @@ use tauri::Manager;
 /// How often the idle timer is checked. Short enough that the UI reacts
 /// promptly, long enough to be free when the wallet is idle.
 const AUTO_LOCK_TICK: Duration = Duration::from_secs(20);
+
+/// How often the cold-wallet watch loop polls for the USB drive. Two seconds
+/// is fast enough that a yank feels immediate, cheap enough to run forever.
+const COLD_WATCH_TICK: Duration = Duration::from_secs(2);
 
 fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
     if let Ok(custom) = std::env::var("LYCORIS_VAULT_DIR") {
@@ -52,10 +57,32 @@ pub fn run() {
                     }
                 }
             });
+
+            // Cold-wallet watchdog: when the USB drive that currently hosts the
+            // vault disappears, lock immediately and tell the UI why.
+            let cold_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(COLD_WATCH_TICK).await;
+                    let Some(state) = cold_handle.try_state::<AppState>() else {
+                        continue;
+                    };
+                    if state.cold_drive_lost() {
+                        use tauri::Emitter;
+                        let _ = cold_handle.emit("lycoris://locked", ());
+                        let _ = cold_handle.emit("lycoris://cold-drive-lost", ());
+                    }
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::vault_status,
+            commands::usb_drives,
+            commands::cold_enable,
+            commands::cold_disable,
+            commands::cold_delete_local,
+            commands::cold_status,
             commands::create_vault,
             commands::unlock_vault,
             commands::lock_vault,

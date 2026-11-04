@@ -50,6 +50,10 @@ pub enum Error {
     InsufficientBalance,
     #[error("operation cancelled")]
     Cancelled,
+    #[error("cold wallet USB drive not present")]
+    UsbDriveMissing,
+    #[error("cold wallet USB drive lost while unlocked; session locked")]
+    UsbDriveRemoved,
     #[error("{0}")]
     Message(String),
     #[error(transparent)]
@@ -85,6 +89,8 @@ impl Error {
             Error::Crypto(_) => "CRYPTO",
             Error::InsufficientBalance => "INSUFFICIENT_BALANCE",
             Error::Cancelled => "CANCELLED",
+            Error::UsbDriveMissing => "USB_DRIVE_MISSING",
+            Error::UsbDriveRemoved => "USB_DRIVE_REMOVED",
             Error::Message(_) => "ERROR",
             Error::Io(_) => "IO",
             Error::Json(_) => "JSON",

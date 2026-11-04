@@ -329,4 +329,19 @@ pub struct VaultStatus {
     pub has_hint: bool,
     pub hint: Option<String>,
     pub label: Option<String>,
+    /// U盘冷钱包状态。`None` = 旧前端/旧保险柜格式，前端需自行兼容。
+    #[serde(default)]
+    pub cold: Option<ColdStatus>,
+}
+
+/// Cold-wallet (USB vault) state. Booleans only; paths stay in the backend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColdStatus {
+    /// Cold mode currently active: the live vault file is the one on the drive.
+    pub cold_active: bool,
+    /// A vault file exists in the normal local app-data location.
+    pub local_exists: bool,
+    /// A vault file exists on the mounted cold drive.
+    pub cold_exists: bool,
 }

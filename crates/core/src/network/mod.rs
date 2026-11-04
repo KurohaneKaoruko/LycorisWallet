@@ -21,7 +21,12 @@ pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(35))
         .connect_timeout(Duration::from_secs(15))
-        .user_agent("LycorisWallet/0.6 (+https://github.com/KurohaneKaoruko/LycorisWallet)")
+        // UA 版本跟随 crate 版本，避免升版后 UA 仍停在旧号。
+        .user_agent(concat!(
+            "LycorisWallet/",
+            env!("CARGO_PKG_VERSION"),
+            " (+https://github.com/KurohaneKaoruko/LycorisWallet)"
+        ))
         // 本机 IPv6 出口经常不可达或被干扰(表现为间歇性连接超时), 强制 IPv4。
         .local_address(Some(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)))
         .build()

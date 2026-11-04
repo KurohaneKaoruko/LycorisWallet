@@ -95,11 +95,7 @@ pub fn cold_enable(
     password: String,
     keep_local: Option<bool>,
 ) -> ApiResult<ColdStatus> {
-    Ok(state.cold_enable(
-        &mount,
-        &password,
-        keep_local.unwrap_or(true),
-    )?)
+    Ok(state.cold_enable(&mount, &password, keep_local.unwrap_or(true))?)
 }
 
 #[tauri::command]

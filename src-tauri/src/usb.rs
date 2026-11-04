@@ -56,7 +56,9 @@ fn windows_drives() -> Vec<UsbDrive> {
     use std::path::Path;
 
     let mut out = Vec::new();
-    use windows::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetDriveTypeW, GetVolumeInformationW};
+    use windows::Win32::Storage::FileSystem::{
+        GetDiskFreeSpaceExW, GetDriveTypeW, GetVolumeInformationW,
+    };
     let letter = |n: u32| char::from_u32(b'A' as u32 + n).unwrap_or('?');
 
     for n in 0..26u32 {
@@ -111,8 +113,7 @@ fn windows_drives() -> Vec<UsbDrive> {
             };
 
             let mount_path = Path::new(&root);
-            let has_wallet = cold_vault_path(&root).exists()
-                || mount_path.join(COLD_MARK).exists();
+            let has_wallet = cold_vault_path(&root).exists() || mount_path.join(COLD_MARK).exists();
 
             out.push(UsbDrive {
                 mount: root,

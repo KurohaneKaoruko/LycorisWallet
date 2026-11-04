@@ -195,8 +195,7 @@ impl AppState {
         let mounted = self.cold_path().is_some();
         let local_exists = self.dir.join(VAULT_FILE).exists();
         //「盘上有冷钱包」对恢复流程有用：查所有可移动磁盘上是否有标记文件。
-        let cold_exists = mounted
-            || crate::usb::drives().iter().any(|d| d.has_wallet);
+        let cold_exists = mounted || crate::usb::drives().iter().any(|d| d.has_wallet);
         ColdStatus {
             cold_active: configured && mounted,
             local_exists,
@@ -248,7 +247,12 @@ impl AppState {
     /// when cold mode is off. `pull` = copy the drive vault to local storage
     /// first. `mount` selects which drive to pull from (used on a fresh
     /// machine where cold mode was never enabled here).
-    pub fn cold_disable(&self, pull: bool, password: &str, mount: Option<&str>) -> CoreResult<ColdStatus> {
+    pub fn cold_disable(
+        &self,
+        pull: bool,
+        password: &str,
+        mount: Option<&str>,
+    ) -> CoreResult<ColdStatus> {
         let cold_on = self
             .cold_path
             .lock()
@@ -1632,14 +1636,21 @@ mod tests {
         let mount = temp_dir("cold-mount");
         let state = AppState::new(&dir);
         state
-            .create(passphrase("a quiet garden at dusk"), "correct horse battery", None, None)
+            .create(
+                passphrase("a quiet garden at dusk"),
+                "correct horse battery",
+                None,
+                None,
+            )
             .unwrap();
 
         // 未启用时拔盘检测是 no-op。
         assert!(!state.cold_drive_lost());
 
         // 启用：密码错误被拒。
-        assert!(state.cold_enable(mount.to_str().unwrap(), "wrong password", true).is_err());
+        assert!(state
+            .cold_enable(mount.to_str().unwrap(), "wrong password", true)
+            .is_err());
         let status = state
             .cold_enable(mount.to_str().unwrap(), "correct horse battery", true)
             .unwrap();

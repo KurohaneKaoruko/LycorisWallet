@@ -62,7 +62,18 @@ export interface ActivitySyncReport {
   newItems: number;
   confirmedItems: number;
   failedChains: string[];
+  /** 本次同步里 pending → confirmed 的记录，UI 原地更新状态徽标。 */
+  statusUpdates?: ActivityStatusUpdate[];
 }
+
+/** One activity entry whose status changed during a sync. */
+export interface ActivityStatusUpdate {
+  chain: ChainId;
+  txid: string;
+  status: ActivityStatus;
+  confirmations: number;
+}
+
 export type ActivityStatus = "pending" | "confirmed" | "failed";
 
 export interface Settings {
@@ -101,7 +112,10 @@ export interface ActivityItem {
   txid: string;
   status: ActivityStatus;
   timestamp: number;
-  note: string;
+  /** 手续费(主单位字符串)。旧记录可能为空串。 */
+  fee?: string;
+  /** 该链交易页链接(Rust 侧按模板生成)。旧记录可能缺失。 */
+  explorerUrl?: string;
 }
 
 export interface Account {

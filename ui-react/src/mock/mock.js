@@ -2002,10 +2002,19 @@ export async function mockCall(command, args = {}) {
       const wallet = activeWallet();
       wallet.activity = wallet.activity ?? [];
       let confirmedItems = 0;
+      const statusUpdates = [];
       for (const item of wallet.activity) {
         if (item.status === "pending") {
           item.status = "confirmed";
           confirmedItems += 1;
+          // Same shape as the Rust report: txid + a demo confirmation count,
+          // so the Activity view can show it on the detail panel.
+          statusUpdates.push({
+            chain: item.chain,
+            txid: item.txid,
+            status: "confirmed",
+            confirmations: 6,
+          });
         }
       }
       let newItems = 0;
@@ -2037,6 +2046,7 @@ export async function mockCall(command, args = {}) {
         newItems,
         confirmedItems,
         failedChains: [],
+        statusUpdates,
       };
     }
 

@@ -8,6 +8,7 @@ import { useSession } from "../shell/session";
 import { CopyField, Modal, useTabScroll, useToast } from "../ui/overlay";
 import { Icon } from "../ui/Icon";
 import { formatDateTime, groupDigits, shortAddress } from "../format";
+import { activityExplorerUrl, explorerAddressUrl } from "../explorers";
 import type { ActivityItem } from "../types";
 
 const STATUS: Record<string, { label: string; cls: string }> = {
@@ -15,21 +16,6 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   confirmed: { label: "已确认", cls: "badge badge-ok" },
   failed: { label: "失败", cls: "badge badge-danger" },
 };
-
-const EXPLORERS: Record<string, string> = {
-  bitcoin: "https://mempool.space/tx/",
-  litecoin: "https://litecoinspace.org/tx/",
-  ethereum: "https://etherscan.io/tx/",
-  bsc: "https://bscscan.com/tx/",
-  polygon: "https://polygonscan.com/tx/",
-  solana: "https://solscan.io/tx/",
-};
-
-function explorerUrl(item: ActivityItem): string {
-  const withUrl = item as ActivityItem & { explorerUrl?: string };
-  if (withUrl.explorerUrl?.startsWith("http")) return withUrl.explorerUrl;
-  return `${EXPLORERS[item.chain] ?? ""}${item.txid}`;
-}
 
 function dayLabel(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -84,11 +70,29 @@ function ActivityRow({ item, onOpen }: { item: ActivityItem; onOpen: () => void 
   );
 }
 
-function DetailDialog({ item, onClose }: { item: ActivityItem; onClose: () => void }) {
+function DetailDialog({
+  item,
+  confirmations,
+  onClose,
+}: {
+  item: ActivityItem;
+  /** 确认数来自最近一次同步报告的回写；无数据时相应行不显示。 */
+  confirmations?: number;
+  onClose: () => void;
+}) {
   const meta = STATUS[item.status] ?? STATUS.pending;
   const send = item.direction === "send";
   const toast = useToast();
-  const itemAny = item as ActivityItem & { fee?: string };
+  const txUrl = activityExplorerUrl(item);
+  const addressUrl = explorerAddressUrl(item.chain, item.counterparty);
+  const open = async (url: string) => {
+    if (!url) return;
+    try {
+      await api.openExternal(url);
+    } catch (error) {
+      toast((error as Error).message, "error");
+    }
+  };
 
   return (
     <Modal title={`${item.symbol}${send ? "发送" : "接收"}详情`} onClose={onClose}>
@@ -97,6 +101,9 @@ function DetailDialog({ item, onClose }: { item: ActivityItem; onClose: () => vo
           <span className="kv-key">状态</span>
           <span className="kv-value">
             <span className={meta.cls}>{meta.label}</span>
+            {item.status === "confirmed" && typeof confirmations === "number" && confirmations > 0
+              ? ` · ${confirmations} 次确认`
+              : ""}
           </span>
         </div>
         <div className="kv">
@@ -106,11 +113,11 @@ function DetailDialog({ item, onClose }: { item: ActivityItem; onClose: () => vo
             {groupDigits(item.amount)} {item.symbol}
           </span>
         </div>
-        {itemAny.fee ? (
+        {item.fee ? (
           <div className="kv">
             <span className="kv-key">手续费</span>
             <span className="kv-value">
-              {groupDigits(itemAny.fee)} {item.symbol}
+              {groupDigits(item.fee)} {item.symbol}
             </span>
           </div>
         ) : null}
@@ -120,6 +127,12 @@ function DetailDialog({ item, onClose }: { item: ActivityItem; onClose: () => vo
         </div>
         <span className="field-label">{send ? "收款地址" : "来源地址"}</span>
         <CopyField value={item.counterparty} />
+        {addressUrl ? (
+          <button className="btn btn-ghost" type="button" onClick={() => void open(addressUrl)}>
+            <Icon name="external" />
+            在区块浏览器查看该地址
+          </button>
+        ) : null}
         <span className="field-label">交易哈希</span>
         <CopyField value={item.txid} />
         <div className="note">
@@ -134,16 +147,11 @@ function DetailDialog({ item, onClose }: { item: ActivityItem; onClose: () => vo
         <button
           className="btn btn-primary"
           type="button"
-          onClick={async () => {
-            try {
-              await api.openExternal(explorerUrl(item));
-            } catch (error) {
-              toast((error as Error).message, "error");
-            }
-          }}
+          disabled={!txUrl}
+          onClick={() => void open(txUrl)}
         >
           <Icon name="external" />
-          区块浏览器
+          打开区块浏览器
         </button>
       </div>
     </Modal>
@@ -157,6 +165,8 @@ export function ActivityView() {
   const [dir, setDir] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<ActivityItem | null>(null);
+  /** txid → 确认数,来自最近一次同步报告的回写;详情面板据此展示。 */
+  const [confirmations, setConfirmations] = useState<Record<string, number>>({});
   const [syncing, setSyncing] = useState(false);
   const [syncHint, setSyncHint] = useState("");
   const syncingRef = useRef(false);
@@ -175,6 +185,15 @@ export function ActivityView() {
         parts.push(`${report.failedChains.join("、")} 暂不可用`);
       }
       setSyncHint(parts.join(" · "));
+      if (report.statusUpdates?.length) {
+        setConfirmations((prev) => {
+          const next = { ...prev };
+          for (const update of report.statusUpdates ?? []) {
+            if (update.confirmations > 0) next[update.txid] = update.confirmations;
+          }
+          return next;
+        });
+      }
       if (report.newItems > 0 || report.confirmedItems > 0) await reloadWallet();
     } catch {
       setSyncHint("同步失败，稍后重试");
@@ -350,7 +369,13 @@ export function ActivityView() {
           )}
         </div>
       </div>
-      {detail ? <DetailDialog item={detail} onClose={() => setDetail(null)} /> : null}
+      {detail ? (
+        <DetailDialog
+          item={detail}
+          confirmations={confirmations[detail.txid]}
+          onClose={() => setDetail(null)}
+        />
+      ) : null}
     </section>
   );
 }

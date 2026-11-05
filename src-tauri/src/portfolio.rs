@@ -519,6 +519,21 @@ pub struct ActivitySyncReport {
     pub confirmed_items: usize,
     /// Chains that failed; their names, for a short status hint.
     pub failed_chains: Vec<String>,
+    /// Pending → confirmed transitions from this sync, so the open Activity
+    /// view can flip its badges in place instead of waiting for a full reload.
+    #[serde(default)]
+    pub status_updates: Vec<ActivityStatusUpdate>,
+}
+
+/// One activity entry whose status changed during a sync.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityStatusUpdate {
+    pub chain: ChainId,
+    pub txid: String,
+    pub status: ActivityStatus,
+    /// Block confirmations as reported by the chain's history endpoint.
+    pub confirmations: u64,
 }
 
 /// Pulls on-chain history for every address of the active wallet and merges
@@ -570,6 +585,7 @@ pub async fn refresh_activity(state: &AppState) -> ApiResult<ActivitySyncReport>
         new_items: 0,
         confirmed_items: 0,
         failed_chains,
+        status_updates: Vec::new(),
     };
     merge_incoming(&mut merged, incoming, &mut report);
     state.replace_activity(merged)?;
@@ -597,6 +613,12 @@ fn merge_incoming(
             if *confirmations > 0 {
                 item.status = ActivityStatus::Confirmed;
                 report.confirmed_items += 1;
+                report.status_updates.push(ActivityStatusUpdate {
+                    chain: item.chain,
+                    txid: item.txid.clone(),
+                    status: ActivityStatus::Confirmed,
+                    confirmations: *confirmations,
+                });
             }
         }
     }
@@ -1885,6 +1907,7 @@ mod tests {
             new_items: 0,
             confirmed_items: 0,
             failed_chains: Vec::new(),
+            status_updates: Vec::new(),
         };
         merge_incoming(&mut merged, incoming, &mut report);
 
@@ -1933,6 +1956,7 @@ mod tests {
             new_items: 0,
             confirmed_items: 0,
             failed_chains: Vec::new(),
+            status_updates: Vec::new(),
         };
         merge_incoming(&mut merged, incoming, &mut report);
         assert_eq!(report.new_items, 2, "placeholders never become rows");
@@ -1963,6 +1987,7 @@ mod tests {
             new_items: 0,
             confirmed_items: 0,
             failed_chains: Vec::new(),
+            status_updates: Vec::new(),
         };
         merge_incoming(&mut merged, incoming, &mut report);
         assert_eq!(merged.len(), ACTIVITY_CAP);
@@ -2004,6 +2029,7 @@ mod tests {
             new_items: 0,
             confirmed_items: 0,
             failed_chains: Vec::new(),
+            status_updates: Vec::new(),
         };
         merge_incoming(&mut merged, incoming, &mut report);
         let status_of = |txid: &str| {
@@ -2020,6 +2046,14 @@ mod tests {
             report.new_items, 0,
             "local entries are updated, not duplicated"
         );
+        // The report carries the flip to the UI: exactly one update, with the
+        // live confirmation count, for the entry that actually confirmed.
+        assert_eq!(report.status_updates.len(), 1);
+        let update = &report.status_updates[0];
+        assert_eq!(update.chain, ChainId::Bitcoin);
+        assert_eq!(update.txid, "will-confirm");
+        assert_eq!(update.status, ActivityStatus::Confirmed);
+        assert_eq!(update.confirmations, 4);
     }
 
     /// 价格缓存降级:先成功一次(写入缓存),再打一个必然失败的地址,

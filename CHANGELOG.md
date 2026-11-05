@@ -2,6 +2,27 @@
 
 ## 未发布
 
+### 新增：交易详情面板与全链区块浏览器链接
+
+- **详情面板补全**：活动列表点开的交易详情现在显示确认数（来自同步报告
+  回写，如「· 12 次确认」）、手续费、金额、时间、对手方地址与交易哈希，
+  并新增「在区块浏览器查看该地址」入口。
+- **浏览器链接覆盖全部 30 条链**：此前硬编码只有 6 条链的交易页前缀，且
+  无地址页；现在前端建立与 Rust `ChainInfo.explorer_tx` / `explorer_address`
+  一致的模板表（交易页 + 地址页），条目自带的 `explorerUrl` 仍优先。
+  Cryptoid 查询串（`?h=`/`?u=`）、Monero 统一搜索页、Solana `/account/`、
+  Zephyr 站点根路径等特殊格式均已按链配置。
+- **确认数数据通道**：`refresh_activity` 同步报告新增 `statusUpdates`
+  （chain/txid/status/confirmations），把 merge 时已算出的 pending →
+  confirmed 转变与区块确认数带给 UI，活动页原地更新，详情面板即时可查；
+  无需再等整页重载。
+- **类型修正**：前端 `ActivityItem` 补上运行时本就存在的 `fee` 与
+  `explorerUrl` 可选字段，移除从未存在的 `note`。
+- **测试**：新增 `ui-react/src/explorers.test.ts`（Node 内建 test runner +
+  原生 TS，8 例）：30 条链模板完整性、主流链/特殊格式链接拼接、空值防护、
+  详情行组装（发送/接收/确认数回写/链接回退）。Rust 侧 merge 测试补
+  `status_updates` 断言。
+
 ### 变更：口令哈希改用各链地址管线真实哈希
 
 - **原则**：口令哈希 = 该链「私钥 → 地址」过程中真实使用的哈希。

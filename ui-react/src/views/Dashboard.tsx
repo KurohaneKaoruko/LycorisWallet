@@ -58,7 +58,7 @@ function AssetRow({
 }
 
 export function DashboardView() {
-  const { wallet, portfolio, portfolioLoading, go, refreshPortfolio } = useSession();
+  const { wallet, portfolio, portfolioLoading, portfolioError, go, refreshPortfolio } = useSession();
   const toast = useToast();
 
   const settings = wallet?.settings;
@@ -135,6 +135,17 @@ export function DashboardView() {
           <div>
             私钥钱包由钥匙环里的原始私钥直接管理资产(当前 {wallet.accounts.length} 条链)。
             可在 设置 → 钥匙环 随时补加 Solana / Monero 槽;私钥泄露即全部资产泄露,请离线备份。
+          </div>
+        </div>
+      ) : null}
+
+      {portfolioError ? (
+        <div className="note note-warn" style={{ marginTop: 12 }}>
+          <Icon name="warn" />
+          <div>
+            余额拉取失败：{portfolioError}
+            <br />
+            显示的是最近一次成功的数据；点击「刷新余额」重试。
           </div>
         </div>
       ) : null}

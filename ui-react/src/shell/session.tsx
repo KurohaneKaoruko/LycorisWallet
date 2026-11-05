@@ -36,6 +36,8 @@ export interface SessionState {
   status: VaultStatus | null;
   portfolio: Portfolio | null;
   portfolioLoading: boolean;
+  /** 最近一次 refreshPortfolio 失败的原因——null 表示没有待展示的错误。 */
+  portfolioError: string | null;
   lastSendChain: string | null;
   lastReceiveChain: string | null;
 }
@@ -82,6 +84,7 @@ export function SessionProvider({
     status: null,
     portfolio: null,
     portfolioLoading: false,
+    portfolioError: null,
     lastSendChain: null,
     lastReceiveChain: null,
   });
@@ -124,11 +127,22 @@ export function SessionProvider({
         .then((portfolio) => {
           lastPortfolioAt = Date.now() / 1000;
           portfolioRef.current = portfolio;
-          setState((s) => ({ ...s, portfolio, portfolioLoading: false }));
+          // 成功即清错误——上一次失败不代表这一次还在失败。
+          setState((s) => ({ ...s, portfolio, portfolioLoading: false, portfolioError: null }));
           return portfolio;
         })
-        .catch(() => {
-          setState((s) => ({ ...s, portfolioLoading: false }));
+        .catch((error) => {
+          // 不再静默吞错:错误挂到 session 状态上,Dashboard 顶部横幅显式
+          // 告知"余额拉取失败",而不是永远挂着"正在同步…"暗示用户再等等。
+          const message =
+            typeof error?.message === "string" && error.message
+              ? error.message
+              : "余额拉取失败";
+          setState((s) => ({
+            ...s,
+            portfolioLoading: false,
+            portfolioError: message,
+          }));
           portfolioFetch = null;
           return null as unknown as Portfolio;
         })

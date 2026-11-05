@@ -84,12 +84,25 @@ fn price_of(
         .copied()
 }
 
-/// Best-effort spot prices; failures degrade to `None` rather than failing the
-/// whole request.
+/// Best-effort spot prices; failures degrade to the last successful fetch
+/// (module-level stale cache) rather than failing the whole request.
+///
+/// Returns `(table, stale)` — `stale` tells the caller the table came from
+/// the cache because the live source was unreachable (rate limit, offline).
+/// CoinGecko rate-limits aggressively and a local-first wallet is offline a
+/// lot, so a bounded stale table beats flashing the fiat column to "—".
+const PRICE_CACHE_TTL_SECS: u64 = 24 * 60 * 60;
+
+/// `id -> currency -> price`,即 CoinGecko 单次应答的形状。
+type PriceTable = HashMap<String, HashMap<String, f64>>;
+
+static PRICE_CACHE: std::sync::Mutex<Option<(std::time::Instant, PriceTable)>> =
+    std::sync::Mutex::new(None);
+
 async fn load_prices(
     client: &reqwest::Client,
     chain: Option<ChainId>,
-) -> HashMap<String, HashMap<String, f64>> {
+) -> (HashMap<String, HashMap<String, f64>>, bool) {
     let ids: Vec<&str> = match chain {
         Some(chain) => vec![chain.info().price_id],
         None => {
@@ -102,9 +115,50 @@ async fn load_prices(
             ids
         }
     };
-    prices::fetch_prices(client, &ids, &["usd", "cny"])
-        .await
-        .unwrap_or_default()
+    match prices::fetch_prices(client, &ids, &["usd", "cny"]).await {
+        Ok(fetched) if !fetched.is_empty() => {
+            let is_full = chain.is_none();
+            if let Ok(mut cache) = PRICE_CACHE.lock() {
+                if is_full {
+                    // 全量拉取直接替换,条目下架后不会在缓存里滞留。
+                    *cache = Some((std::time::Instant::now(), fetched.clone()));
+                } else {
+                    // 单链拉取只合并进全量表,其他链的价格不丢。
+                    let merged = match cache.take() {
+                        Some((_, mut cached)) => {
+                            for (id, entry) in fetched.clone() {
+                                cached.insert(id, entry);
+                            }
+                            cached
+                        }
+                        None => fetched.clone(),
+                    };
+                    *cache = Some((std::time::Instant::now(), merged));
+                }
+            }
+            (fetched, false)
+        }
+        _ => {
+            // 拉取失败(限流/断网/解析失败):降级到缓存,过期缓存也不比
+            // 空表更糟——空表会让法币栏闪变 "—" 且报价看不到手续费折算法币。
+            let requested: std::collections::HashSet<&str> = ids.into_iter().collect();
+            if let Ok(cache) = PRICE_CACHE.lock() {
+                if let Some((fetched_at, cached)) = cache.as_ref() {
+                    let fresh =
+                        fetched_at.elapsed() < std::time::Duration::from_secs(PRICE_CACHE_TTL_SECS);
+                    let subset: HashMap<_, _> = cached
+                        .iter()
+                        .filter(|(id, _)| requested.contains(id.as_str()))
+                        .map(|(id, entry)| (id.clone(), entry.clone()))
+                        .collect();
+                    if !subset.is_empty() && fresh {
+                        return (subset, true);
+                    }
+                }
+            }
+            (HashMap::new(), true)
+        }
+    }
 }
 
 // ------------------------------------------------------------------ portfolio
@@ -517,7 +571,19 @@ pub async fn refresh_activity(state: &AppState) -> ApiResult<ActivitySyncReport>
         confirmed_items: 0,
         failed_chains,
     };
+    merge_incoming(&mut merged, incoming, &mut report);
+    state.replace_activity(merged)?;
+    Ok(report)
+}
 
+/// Merge freshly fetched on-chain transactions into the stored activity list
+/// (the whole merge half of [`refresh_activity`] — pure, so the edge cases
+/// around dedup/confirm are testable offline).
+fn merge_incoming(
+    merged: &mut Vec<ActivityItem>,
+    incoming: Vec<lycoris_core::network::history::HistoryTx>,
+    report: &mut ActivitySyncReport,
+) {
     // Confirm pending local entries: the history pages carry live status.
     let live: HashMap<(ChainId, String), (bool, u64)> = incoming
         .iter()
@@ -592,11 +658,16 @@ pub async fn refresh_activity(state: &AppState) -> ApiResult<ActivitySyncReport>
     report.new_items = fresh.len();
     merged.extend(fresh);
     merged.sort_by_key(|entry| std::cmp::Reverse(entry.timestamp));
-    merged.dedup_by(|a, b| a.txid == b.txid && a.chain == b.chain && a.direction == b.direction);
-    merged.truncate(500);
-    state.replace_activity(merged)?;
-    Ok(report)
+    // dedup_by 只删相邻重复——同一笔交易先记本地、后又从链上拉回时,两条
+    // timestamp 不同(本地 now() vs 链上 block_time),排序后中间隔着别的
+    // 交易,相邻去重漏删,活动列表出现双行。按键去重一次到位。
+    let mut seen = std::collections::HashSet::new();
+    merged.retain(|entry| seen.insert((entry.chain, entry.txid.clone(), entry.direction)));
+    merged.truncate(ACTIVITY_CAP);
 }
+
+/// Activity list hard cap — old entries fall off the tail.
+const ACTIVITY_CAP: usize = 500;
 
 pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
     state.touch();
@@ -604,7 +675,7 @@ pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
     let all_accounts = state.all_accounts()?;
     let current = state.accounts()?;
     let client = lycoris_core::network::http_client();
-    let table = load_prices(&client, None).await;
+    let (table, prices_stale) = load_prices(&client, None).await;
 
     // Monero needs the active secret and a wallet RPC, so it cannot join the
     // stateless balance fan-out below.
@@ -715,6 +786,8 @@ pub async fn refresh(state: &AppState) -> ApiResult<Portfolio> {
 
     if table.is_empty() {
         warnings.push("价格服务暂时不可用，仅显示链上余额".to_string());
+    } else if prices_stale {
+        warnings.push("价格服务暂时不可用，展示最近一次缓存价格".to_string());
     }
 
     let total_usd = assets
@@ -1184,7 +1257,7 @@ pub async fn quote(state: &AppState, request: &QuoteRequest) -> ApiResult<SendQu
     )
     .await?;
 
-    let table = load_prices(&client, Some(request.chain)).await;
+    let (table, _prices_stale) = load_prices(&client, Some(request.chain)).await;
     let mut options = quote.options;
     for option in options.iter_mut() {
         if let Some(price) = price_of(&table, &info, "usd") {
@@ -1750,5 +1823,260 @@ mod tests {
             .expect("blockcypher fallback answers");
         assert_eq!(amount, 4242);
         assert_eq!(server.await.unwrap(), 2);
+    }
+
+    /// 本地记录与链上同笔交易 timestamp 不同(本地 now() vs 链上 block_time),
+    /// 排序后不相邻——去重必须按键而非相邻性。构造:本地一条 pending、链上
+    /// 拉回同 txid(已确认)+两条别的交易垫在中间,合并后该 txid 只剩一行。
+    #[test]
+    fn merge_dedups_local_and_onchain_copy_of_same_tx() {
+        let local = ActivityItem {
+            id: "local-1".into(),
+            chain: ChainId::Dash,
+            direction: Direction::Receive,
+            amount: "1.5".into(),
+            symbol: "DASH".into(),
+            counterparty: "本地记录".into(),
+            txid: "same-tx".into(),
+            status: ActivityStatus::Pending,
+            fee: String::new(),
+            timestamp: 1_700_000_100, // 与链上 block_time 不同
+            explorer_url: "https://x/tx/same-tx".into(),
+        };
+        let filler = |txid: &str, ts: i64| ActivityItem {
+            id: format!("filler-{txid}"),
+            chain: ChainId::Dash,
+            direction: Direction::Receive,
+            amount: "0.1".into(),
+            symbol: "DASH".into(),
+            counterparty: "链上记录".into(),
+            txid: txid.into(),
+            status: ActivityStatus::Confirmed,
+            fee: String::new(),
+            timestamp: ts,
+            explorer_url: format!("https://x/tx/{txid}"),
+        };
+        let onchain = lycoris_core::network::history::HistoryTx {
+            chain: ChainId::Dash,
+            txid: "same-tx".into(),
+            outgoing: false,
+            amount: 150_000_000,
+            fee: Some(1_000),
+            timestamp: 1_700_000_000, // 链上时间与本地记录不同
+            confirmations: 6,
+        };
+        let incoming = vec![
+            lycoris_core::network::history::HistoryTx {
+                chain: ChainId::Dash,
+                txid: "newer-tx".into(),
+                outgoing: false,
+                amount: 10_000,
+                fee: None,
+                timestamp: 1_700_000_500,
+                confirmations: 1,
+            },
+            onchain,
+        ];
+        let mut merged = vec![
+            filler("mid-a", 1_700_000_300), // 排序后垫在两条 same-tx 之间
+            local,
+        ];
+        let mut report = ActivitySyncReport {
+            new_items: 0,
+            confirmed_items: 0,
+            failed_chains: Vec::new(),
+        };
+        merge_incoming(&mut merged, incoming, &mut report);
+
+        let same_tx = merged
+            .iter()
+            .filter(|entry| entry.txid == "same-tx")
+            .count();
+        assert_eq!(
+            same_tx, 1,
+            "local copy and onchain copy collapse to one row"
+        );
+        // 本地 pending 被链上确认状态更新。
+        assert_eq!(report.confirmed_items, 1);
+        // 只新增 newer-tx 一行。
+        assert_eq!(report.new_items, 1);
+        assert!(merged.iter().any(|entry| entry.txid == "newer-tx"));
+        // 排序:时间倒序。
+        let stamps: Vec<i64> = merged.iter().map(|entry| entry.timestamp).collect();
+        let mut sorted = stamps.clone();
+        sorted.sort_unstable_by_key(|t| std::cmp::Reverse(*t));
+        assert_eq!(stamps, sorted);
+    }
+
+    /// 链上见到的 sends(本地没记过)也进列表;amount=0 的占位行跳过;
+    /// 超过 ACTIVITY_CAP 从尾部截断。
+    #[test]
+    fn merge_adds_unseen_sends_and_skips_placeholders() {
+        let mk =
+            |txid: &str, outgoing: bool, amount: u128| lycoris_core::network::history::HistoryTx {
+                chain: ChainId::Litecoin,
+                txid: txid.into(),
+                outgoing,
+                amount,
+                fee: Some(100),
+                timestamp: 1_700_000_000,
+                confirmations: 3,
+            };
+        let incoming = vec![
+            mk("send-unseen", true, 5_000),  // 本地没记过的 send → 新增
+            mk("recv-unseen", false, 7_000), // 新收款
+            mk("placeholder", false, 0),     // amount=0 且 fee 有 → 跳过
+            mk("empty", true, 0),            // amount=0 无 fee → 跳过
+        ];
+        let mut merged = Vec::new();
+        let mut report = ActivitySyncReport {
+            new_items: 0,
+            confirmed_items: 0,
+            failed_chains: Vec::new(),
+        };
+        merge_incoming(&mut merged, incoming, &mut report);
+        assert_eq!(report.new_items, 2, "placeholders never become rows");
+        assert_eq!(merged.len(), 2);
+        assert!(merged
+            .iter()
+            .any(|e| e.txid == "send-unseen" && e.direction == Direction::Send));
+        assert!(merged
+            .iter()
+            .any(|e| e.txid == "recv-unseen" && e.direction == Direction::Receive));
+    }
+
+    #[test]
+    fn merge_truncates_to_activity_cap() {
+        let incoming: Vec<_> = (0..ACTIVITY_CAP + 50)
+            .map(|index| lycoris_core::network::history::HistoryTx {
+                chain: ChainId::Bitcoin,
+                txid: format!("tx-{index}"),
+                outgoing: false,
+                amount: 1,
+                fee: None,
+                timestamp: 1_700_000_000 + index as i64,
+                confirmations: 1,
+            })
+            .collect();
+        let mut merged = Vec::new();
+        let mut report = ActivitySyncReport {
+            new_items: 0,
+            confirmed_items: 0,
+            failed_chains: Vec::new(),
+        };
+        merge_incoming(&mut merged, incoming, &mut report);
+        assert_eq!(merged.len(), ACTIVITY_CAP);
+        // 截断保留最新的:tx-49 是被丢掉的最旧一行,tx-50 是留下的最旧一行。
+        assert!(!merged.iter().any(|entry| entry.txid == "tx-49"));
+        assert!(merged.iter().any(|entry| entry.txid == "tx-50"));
+        assert!(merged.iter().any(|entry| entry.txid == "tx-549"));
+    }
+
+    /// 链上确认数>0 时,本地 pending 升级为 confirmed;链上还没确认
+    /// (mempool)时保持 pending,不误标。
+    #[test]
+    fn merge_promotes_pending_only_when_confirmed() {
+        let item = |txid: &str| ActivityItem {
+            id: format!("local-{txid}"),
+            chain: ChainId::Bitcoin,
+            direction: Direction::Send,
+            amount: "0.01".into(),
+            symbol: "BTC".into(),
+            counterparty: "本地记录".into(),
+            txid: txid.into(),
+            status: ActivityStatus::Pending,
+            fee: String::new(),
+            timestamp: 1_700_000_000,
+            explorer_url: format!("https://x/tx/{txid}"),
+        };
+        let tx = |txid: &str, confirmations: u64| lycoris_core::network::history::HistoryTx {
+            chain: ChainId::Bitcoin,
+            txid: txid.into(),
+            outgoing: true,
+            amount: 100_000,
+            fee: Some(500),
+            timestamp: 1_700_000_000,
+            confirmations,
+        };
+        let mut merged = vec![item("will-confirm"), item("still-pending")];
+        let incoming = vec![tx("will-confirm", 4), tx("still-pending", 0)];
+        let mut report = ActivitySyncReport {
+            new_items: 0,
+            confirmed_items: 0,
+            failed_chains: Vec::new(),
+        };
+        merge_incoming(&mut merged, incoming, &mut report);
+        let status_of = |txid: &str| {
+            merged
+                .iter()
+                .find(|entry| entry.txid == txid)
+                .map(|entry| entry.status)
+                .unwrap()
+        };
+        assert_eq!(status_of("will-confirm"), ActivityStatus::Confirmed);
+        assert_eq!(status_of("still-pending"), ActivityStatus::Pending);
+        assert_eq!(report.confirmed_items, 1);
+        assert_eq!(
+            report.new_items, 0,
+            "local entries are updated, not duplicated"
+        );
+    }
+
+    /// 价格缓存降级:先成功一次(写入缓存),再打一个必然失败的地址,
+    /// load_prices 返回缓存表且 stale=true;缓存被消费后不误导为新鲜数据。
+    /// PRICE_CACHE 是进程级静态,两条缓存测试必须串行,否则互相覆盖。
+    /// 用 tokio 的异步锁——测试体内跨 await 持有,标准库锁会被 clippy 拦。
+    static PRICE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    #[tokio::test]
+    async fn load_prices_degrades_to_cached_table_on_failure() {
+        let _guard = PRICE_TEST_LOCK.lock().await;
+        // 先写入缓存:成功响应按 base URL 路由,client 直连 mock。
+        let (base, server) = serve_mixed(
+            1,
+            0,
+            r#"{"bitcoin":{"usd":65000,"cny":470000},"litecoin":{"usd":90}}"#,
+        )
+        .await;
+        let table = prices::fetch_prices_from(
+            &test_client(),
+            &base,
+            &["bitcoin", "litecoin"],
+            &["usd", "cny"],
+        )
+        .await
+        .expect("mock answers once");
+        server.await.unwrap();
+        *PRICE_CACHE.lock().unwrap() = Some((std::time::Instant::now(), table));
+
+        // 再打一个立即拒绝连接的地址——拉取失败,降级到缓存。
+        let (table, stale) = load_prices(&test_client().clone(), None).await;
+        assert!(stale, "failure path must report stale");
+        assert_eq!(table["bitcoin"]["usd"], 65000.0);
+        // mock 报文里 litecoin 只有 usd,cny 侧不存在的键不能凭空出现。
+        assert_eq!(table["litecoin"]["usd"], 90.0);
+        assert!(!table["litecoin"].contains_key("cny"));
+
+        // 清缓存,还原成"无缓存可用"的空表路径,不污染其他测试。
+        *PRICE_CACHE.lock().unwrap() = None;
+    }
+
+    /// 全新缓存被单链拉取合并而不是替换——单链报价只改自己那条,其他
+    /// 链的价格不丢。
+    #[tokio::test]
+    async fn load_prices_single_chain_merges_into_cache() {
+        let _guard = PRICE_TEST_LOCK.lock().await;
+        *PRICE_CACHE.lock().unwrap() = Some((
+            std::time::Instant::now(),
+            HashMap::from([(
+                "bitcoin".to_string(),
+                HashMap::from([("usd".to_string(), 65000.0)]),
+            )]),
+        ));
+        let (table, stale) = load_prices(&test_client().clone(), Some(ChainId::Bitcoin)).await;
+        // 这个测试没有 mock 服务器——拉取必然失败,走缓存路径。
+        assert!(stale);
+        assert_eq!(table["bitcoin"]["usd"], 65000.0);
+        *PRICE_CACHE.lock().unwrap() = None;
     }
 }

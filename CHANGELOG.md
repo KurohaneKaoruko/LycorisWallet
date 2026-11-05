@@ -28,6 +28,44 @@
 - **演示模式**：`usb_drives`/`cold_*` 命令在演示模式下返回假数据，卡片
   可完整走通启用/停用/删除副本交互。
 
+### 新增：网络层稳定性——多源回退与离线测试
+
+- **EVM/Solana RPC 多源回退**（b4f8910/c957e31）：余额与报价请求按
+  `rpc_fallbacks` 列表逐源尝试，任一可用即成功；JSON-RPC 应答里显式
+  `"error": null` 按成功处理（部分节点会把 error 字段带 null 发回来）。
+  慢源不再拖死整个刷新：客户端 35s 总超时 + 15s 连接超时。
+- **Blockcypher 适配器**（e115001/c68ebf0）：DOGE/DASH 增加 keyless 三级
+  回退源（Blockbook → Blockcypher → Blockchair）；兼容其时间戳带纳秒
+  小数后缀的格式。
+- **IPv4 强制**（b4f8910）：本机 IPv6 出口不可达或被干扰导致间歇性连接
+  超时，HTTP 客户端强制走 IPv4。
+- **UA 版本跟随**（cdefbb9）：`User-Agent` 里的版本号改读
+  `CARGO_PKG_VERSION`，升版不再漏改。
+- **离线 mock 测试**（a2b8df6/c957e31）：UtxoAdapter 构造支持注入 base
+  URL，EVM/SOL/UTXO 回退编排全部用本机 TcpListener 零网络验证。
+
+### 修复：交易历史与汇率展示
+
+- **BTC/LTC 链上历史修复**：Esplora 解析结构误用 `camelCase` 字段名——
+  mempool.space 的 wire 格式是 `snake_case`（`block_time`/
+  `scriptpubkey_address`），字段全部落回默认值导致地址永远匹配不上，
+  BTC/LTC 的活动列表此前拉不到任何链上记录。
+- **活动列表去重修复**：同一笔交易本地记录与链上拉回的时间戳不同
+  （本地 `now()` vs 链上 `block_time`），按时间排序后不相邻，原
+  `dedup_by` 相邻去重漏删，列表出现双行；改为按键（链+txid+方向）去重。
+- **历史页容量**：Blockbook 历史请求 `pageSize` 从 25 提到 100，大账户
+  （数百笔交易）活动列表不再只看到最近一两天。
+- **汇率缓存降级**：CoinGecko 限流或断网时，法币换算降级到 24h 内的
+  最近一次缓存并在警告条注明「展示缓存价格」，不再闪变 "—"；价格服务
+  彻底不可用时警告「仅显示链上余额」。
+- **余额拉取失败显式提示**：Dashboard 顶部出现错误横幅（含后端消息与
+  重试指引），不再静默吞错后永远挂着「正在同步…」。
+
+### 变更：CI
+
+- rust job 拆分 core/tauri 双 job（c34c11b），workspaces 前缀独立缓存；
+  release notes 改从本文件提取本版段落（d8932db/07f2156/8ff6b1b）。
+
 ---
 
 ## 0.7.0（2026-10-28）

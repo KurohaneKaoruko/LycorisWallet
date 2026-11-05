@@ -220,9 +220,13 @@ impl BlockbookClient {
         chain: crate::chains::ChainId,
         address: &str,
     ) -> Result<Vec<HistoryTx>> {
+        // Large accounts: 25 rows meant the activity list only ever saw the
+        // last day or two. Older instances silently cap below 100, which is
+        // fine — a short page still parses.
+        let page_size = history::BLOCKBOOK_PAGE_SIZE;
         let text = self
             .get_text(
-                &format!("/api/v2/address/{address}?details=txs&pageSize=25"),
+                &format!("/api/v2/address/{address}?details=txs&pageSize={page_size}"),
                 "history",
             )
             .await?;

@@ -134,6 +134,11 @@ pub fn parse_blockbook_txs(payload: &str, chain: ChainId, address: &str) -> Resu
     let decimals = chain.info().decimals;
     let mut out = Vec::with_capacity(page.transactions.len());
     for tx in page.transactions {
+        // One malformed entry (indexer hiccup, partial prune) must not throw
+        // away the whole page — skip it and keep the neighbours.
+        if tx.txid.is_empty() {
+            continue;
+        }
         let funded_by_us = tx
             .vin
             .iter()
@@ -186,10 +191,15 @@ pub fn parse_blockbook_txs(payload: &str, chain: ChainId, address: &str) -> Resu
     Ok(out)
 }
 
+/// Same page, several times: the adapter asks for `pageSize=100` but older
+/// Blockbook instances cap at 25 and answer `200` with a short page. The
+/// parsing side does not care (it normalises whatever comes back), so there is
+/// nothing to branch on here — the size lives in the request URL only.
+pub const BLOCKBOOK_PAGE_SIZE: u32 = 100;
+
 /* -------------------------------------------------------------------- esplora */
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct EsploraTx {
     txid: String,
     #[serde(default)]
@@ -202,8 +212,10 @@ struct EsploraTx {
     fee: i64,
 }
 
+/// Esplora 的 wire 字段是 snake_case(`block_time`/`scriptpubkey_address`),
+/// 不是 Blockbook 那套 camelCase——此前误加 `rename_all = "camelCase"`,
+/// 字段全部落回 default,地址永远匹配不上,BTC/LTC 的链上历史整页被跳过。
 #[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 struct EsploraStatus {
     #[serde(default)]
     confirmed: bool,
@@ -212,21 +224,18 @@ struct EsploraStatus {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct EsploraVin {
     #[serde(default)]
     prevout: Option<EsploraPrevout>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct EsploraPrevout {
     #[serde(default)]
     scriptpubkey_address: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct EsploraVout {
     #[serde(default)]
     scriptpubkey_address: Option<String>,
@@ -254,10 +263,19 @@ pub async fn fetch_esplora(
     if !status.is_success() {
         return Err(Error::Network(format!("history: HTTP {status}")));
     }
+    parse_esplora_txs(&text, chain, address)
+}
+
+/// Parsing half of [`fetch_esplora`], exposed for offline tests.
+pub fn parse_esplora_txs(payload: &str, chain: ChainId, address: &str) -> Result<Vec<HistoryTx>> {
     let txs: Vec<EsploraTx> =
-        serde_json::from_str(&text).map_err(|e| Error::Network(format!("history: {e}")))?;
+        serde_json::from_str(payload).map_err(|e| Error::Network(format!("history: {e}")))?;
     let mut out = Vec::with_capacity(txs.len());
     for tx in txs {
+        // Same rule as the Blockbook side: one malformed entry skips alone.
+        if tx.txid.is_empty() {
+            continue;
+        }
         let funded_by_us = tx.vin.iter().any(|vin| {
             vin.prevout
                 .as_ref()
@@ -368,5 +386,120 @@ mod tests {
         }]}"#;
         let txs = parse_blockbook_txs(payload, ChainId::Dash, "XOWN").unwrap();
         assert!(txs.is_empty());
+    }
+
+    #[test]
+    fn blockbook_page_without_transactions_key_is_empty_not_an_error() {
+        // Fresh addresses answer `{"address": "…", "txs": 0}` with no
+        // transactions array at all — the serde default handles it, but this
+        // pins the "empty page is success" contract.
+        let txs =
+            parse_blockbook_txs(r#"{"address":"XOWN","txs":0}"#, ChainId::Dash, "XOWN").unwrap();
+        assert!(txs.is_empty());
+    }
+
+    #[test]
+    fn skips_single_malformed_blockbook_entry() {
+        // Indexer hiccup: an entry with no txid sits between two good ones.
+        // The page must survive with the good neighbours intact.
+        let payload = r#"{"transactions": [
+            {"txid": "good1", "vin": [{"addresses": ["XOWN"], "isAddress": true}],
+             "vout": [{"addresses": ["XOTHER"], "isAddress": true, "value": "5"}],
+             "confirmations": 2, "blockTime": 1700000000},
+            {"txid": "", "vin": [], "vout": []},
+            {"txid": "good2", "vin": [], "vout": [{"addresses": ["XOWN"], "isAddress": true, "value": "1"}],
+             "confirmations": 9, "blockTime": 1700000500}
+        ]}"#;
+        let txs = parse_blockbook_txs(payload, ChainId::Dash, "XOWN").unwrap();
+        assert_eq!(txs.len(), 2);
+        assert_eq!(txs[0].txid, "good1");
+        // Canonical AmountString "5" = 5 smallest units, not 5 coins.
+        assert_eq!(txs[0].amount, 5);
+        assert_eq!(txs[1].txid, "good2");
+        assert_eq!(txs[1].amount, 1);
+    }
+
+    #[test]
+    fn blockbook_dust_outputs_with_undecodable_amount_are_skipped_not_fatal() {
+        // `parse_amount` returns None on out-of-range precision; that output
+        // drops out of the sum instead of failing the whole tx row.
+        let payload = r#"{"transactions": [{
+          "txid": "dd",
+          "vin": [{"addresses": ["XOWN"], "isAddress": true}],
+          "vout": [
+            {"addresses": ["XOWN"], "isAddress": true, "value": "0.000000001"},
+            {"addresses": ["XOTHER"], "isAddress": true, "value": "2.5"}
+          ],
+          "confirmations": 1, "blockTime": 1700000200
+        }]}"#;
+        let txs = parse_blockbook_txs(payload, ChainId::Dash, "XOWN").unwrap();
+        assert_eq!(txs.len(), 1);
+        // The 1-ct dust output was undecodable, so only the 2.5 side counts.
+        assert!(txs[0].outgoing);
+        assert_eq!(txs[0].amount, 250_000_000);
+    }
+
+    #[test]
+    fn parses_esplora_page() {
+        // mempool.space shape: prevout addresses, status.confirmed flag.
+        let payload = r#"[
+          {
+            "txid": "esplora1",
+            "fee": 500,
+            "status": {"confirmed": true, "block_time": 1700000000},
+            "vin": [
+              {"prevout": {"scriptpubkey_address": "XOTHER", "value": 3000}},
+              {"prevout": {"scriptpubkey_address": "XOWN", "value": 7000}}
+            ],
+            "vout": [
+              {"scriptpubkey_address": "XOWN", "value": 2500},
+              {"scriptpubkey_address": "XOTHER", "value": 4400}
+            ]
+          },
+          {
+            "txid": "esplora2",
+            "fee": 300,
+            "status": {"confirmed": false, "block_time": 0},
+            "vin": [],
+            "vout": [{"scriptpubkey_address": "XOWN", "value": 1234}]
+          }
+        ]"#;
+        let txs = super::parse_esplora_txs(payload, ChainId::Bitcoin, "XOWN").unwrap();
+        assert_eq!(txs.len(), 2);
+        // Self-send with change: outgoing = spent_to_others only.
+        assert!(txs[0].outgoing);
+        assert_eq!(txs[0].amount, 4400);
+        assert_eq!(txs[0].fee, Some(500));
+        assert_eq!(txs[0].confirmations, 1);
+        // Mempool receive: confirmed=false → confirmations 0.
+        assert!(!txs[1].outgoing);
+        assert_eq!(txs[1].amount, 1234);
+        assert_eq!(txs[1].confirmations, 0);
+    }
+
+    #[test]
+    fn esplora_page_skips_malformed_entry() {
+        let payload = r#"[
+          {"txid": "", "vout": [{"scriptpubkey_address": "XOWN", "value": 1}]},
+          {"txid": "ok", "vout": [{"scriptpubkey_address": "XOWN", "value": 42}]}
+        ]"#;
+        let txs = super::parse_esplora_txs(payload, ChainId::Bitcoin, "XOWN").unwrap();
+        assert_eq!(txs.len(), 1);
+        assert_eq!(txs[0].txid, "ok");
+    }
+
+    #[test]
+    fn esplora_page_neither_side_is_skipped() {
+        let payload = r#"[
+          {"txid": "unrelated", "vin": [], "vout": [{"scriptpubkey_address": "XOTHER", "value": 9}]}
+        ]"#;
+        let txs = super::parse_esplora_txs(payload, ChainId::Bitcoin, "XOWN").unwrap();
+        assert!(txs.is_empty());
+    }
+
+    #[test]
+    fn esplora_rejects_object_root() {
+        // The endpoint answers an array; an object means a wrong/hostile host.
+        assert!(super::parse_esplora_txs(r#"{"txs":[]}"#, ChainId::Bitcoin, "XOWN").is_err());
     }
 }

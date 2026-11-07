@@ -9,6 +9,7 @@ pub mod blockcypher;
 pub mod chainz;
 pub mod evm;
 pub mod history;
+pub mod insight;
 pub mod monero;
 pub mod prices;
 pub mod solana;
@@ -19,8 +20,10 @@ use std::time::Duration;
 
 pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(35))
-        .connect_timeout(Duration::from_secs(15))
+        // 死源(超时主机)不应拖死回退链:总 20s/连接 8s 意味着主源不可达时
+        // 最多 ~20s 就轮到下一个源。Monero 用自己的长超时客户端,不受影响。
+        .timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(8))
         // UA 版本跟随 crate 版本，避免升版后 UA 仍停在旧号。
         .user_agent(concat!(
             "LycorisWallet/",

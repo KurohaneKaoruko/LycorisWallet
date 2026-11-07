@@ -48,16 +48,16 @@ test("主流链的交易页/地址页 URL 拼接格式", () => {
   assert.equal(explorerTxUrl("litecoin", "ltc1"), "https://litecoinspace.org/tx/ltc1");
 });
 
-test("特殊格式链:Cryptoid 查询串、Monero 搜索页、单页式浏览器", () => {
+test("特殊格式链:BitInfoCharts 单页式、Monero 搜索页、Blockchair 通用页", () => {
   assert.equal(
     explorerTxUrl("litecoincash", "h1"),
-    "https://chainz.cryptoid.info/lcc/tx.dws?h=h1",
-    "Cryptoid 交易页是 ?h= 查询串",
+    "https://bitinfocharts.com/litecoincash/explorer/h1",
+    "chainz 死后 LCC 用 bitinfocharts 单页式(同 e-Gulden)",
   );
   assert.equal(
     explorerAddressUrl("potcoin", "p1"),
-    "https://chainz.cryptoid.info/pot/address.dws?u=p1",
-    "Cryptoid 地址页是 ?u= 查询串",
+    "https://bitinfocharts.com/potcoin/explorer/p1",
+    "chainz 死后 POT 地址页同样单页式",
   );
   assert.equal(
     explorerAddressUrl("monero", "4Ax1"),
@@ -77,6 +77,16 @@ test("特殊格式链:Cryptoid 查询串、Monero 搜索页、单页式浏览器
     explorerAddressUrl("zephyr", "z1"),
     "https://explorer.zephyrprotocol.com/z1",
     "Zephyr 地址页前缀是站点根路径",
+  );
+  assert.equal(
+    explorerTxUrl("dogecoin", "d1"),
+    "https://blockchair.com/dogecoin/transaction/d1",
+    "trezor fleet 死后 DOGE 浏览器链接指向 Blockchair",
+  );
+  assert.equal(
+    explorerAddressUrl("dash", "Xa"),
+    "https://insight.dash.org/address/Xa",
+    "zelcore 死后 DASH 浏览器链接指向 insight.dash.org",
   );
 });
 
@@ -166,6 +176,7 @@ test("activityExplorerUrl:条目自带链接优先,否则按模板回退", () =>
       txid: "dt",
       status: "confirmed",
       timestamp: 1,
+      // 旧记录存的还是死主机(trezor)的链接——自带链接优先的契约不变。
       explorerUrl: "https://doge.trezor.io/tx/dt",
     }),
     "https://doge.trezor.io/tx/dt",
@@ -181,7 +192,7 @@ test("activityExplorerUrl:条目自带链接优先,否则按模板回退", () =>
       status: "confirmed",
       timestamp: 1,
     }),
-    "https://doge.trezor.io/tx/dt",
-    "无自带链接时按本地模板生成,结果一致",
+    "https://blockchair.com/dogecoin/transaction/dt",
+    "无自带链接时按本地模板生成(新模板指向 blockchair)",
   );
 });

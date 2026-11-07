@@ -2,6 +2,39 @@
 
 ## 未发布
 
+### 修复：余额数据源大面积失效——换源与新增 Insight 适配器
+
+- **根因排查**（2026-11 全端点实测）：Trezor 公共 Blockbook 舰队
+  （`doge/bch.trezor.io`，DNS 污染 + 超时）、zelcore 舰队
+  （`blockbook.{dash,zec,clore}.zelcore.io`，全部超时）、`blockbook.firo.org`
+  （超时）与 Chainz/Cryptoid（`chainz.cryptoid.io` 域名 NXDOMAIN，服务关停）
+  集体死亡——DOGE/BCH/DASH/ZEC/FIRO/CLORE/VTC/NMC/LCC/POT/EFL 十一条链的
+  余额因此「无法获取」。
+- **换源**（全部逐端点实测 200 后落地）：DOGE 主源 → Blockcypher
+  （原回退顶上）；BCH/ZEC 主源 → Blockchair（两者最后存活的免钥源，主键仅
+  提升限额）；DASH/FIRO 主源 → 新增 **Insight 适配器**
+  （`insight.dash.org/insight-api`、`explorer.firo.org/api`，balance/UTXO/
+  历史/广播四端点实测可用）。
+- **新增 `network::insight`**：Insight 式浏览器 API 适配器（`/addr/…`、
+  `/txs?address=…`、`POST /tx/send` 表单 `rawtx=`），防御性解析（坏行跳过
+  不致命），兼容整数 satoshis 与 coins 两种报文；带离线单测。
+- **降级处理**：VTC/NMC/LCC/POT/EFL/CLORE 六链已无任何公共索引 API，路由
+  `UtxoBackend::None`，余额明确提示「该链暂无公共数据源」而非报网络错误；
+  浏览器链接指向仍存活的站点（bitinfocharts 单页式等）。
+- **正确性 bug 修复**：`blockchair_base()` 此前缺 ZEC slug——ZEC 回退时
+  命中 `_ => bitcoin` 通配，把 ZEC 地址当 BTC 查询静默返回错余额。改为
+  逐链精确 slug + `unreachable!` 兜底，新增
+  `blockchair_slugs_are_precise` 回归测试（任何走 Blockchair 的链必须在
+  slug 表里有精确条目）。
+- **浏览器链接同步**（Rust `ChainInfo` + 前端 `explorers.ts`）：死主机
+  （trezor/zelcore/cryptoid）的链接全部换成存活站点；旧活动记录自带的
+  链接仍优先展示（契约不变，前端测试断言）。
+- **超时收紧**：`http_client()` 35s→20s / 连接 15s→8s——死源最多拖
+  ~20s 就轮到下一级回退，不再整页刷新挂一分钟。Monero 的长超时客户端
+  不受影响。
+- **测试**：core 141→145、tauri 19（DOGE 编排测试改为两级回退、DASH 承担
+  三级耗尽场景）、前端 8（Cryptoid 查询串断言改为 bitinfocharts/Blockchair）。
+
 ### 新增：交易详情面板与全链区块浏览器链接
 
 - **详情面板补全**：活动列表点开的交易详情现在显示确认数（来自同步报告

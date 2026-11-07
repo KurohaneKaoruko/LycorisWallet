@@ -15,8 +15,8 @@ use lycoris_core::models::{
 };
 use lycoris_core::network::{
     blockbook::BlockbookClient, blockchair::BlockchairClient, blockcypher::BlockcypherClient,
-    chainz::ChainzClient, evm::EvmClient, history, prices, solana::SolanaClient, utxo::UtxoClient,
-    woc::WocClient,
+    evm::EvmClient, history, insight::InsightClient, prices, solana::SolanaClient,
+    utxo::UtxoClient, woc::WocClient,
 };
 use lycoris_core::tx::evm::{sign_transaction, EvmCall, EvmFee};
 use lycoris_core::tx::solana::build_transfer;
@@ -195,10 +195,10 @@ fn asset_from(
 enum UtxoAdapter {
     Esplora(UtxoClient),
     Blockbook(BlockbookClient),
+    Insight(InsightClient),
     Blockcypher(BlockcypherClient),
     Blockchair(BlockchairClient),
     Woc(WocClient),
-    Chainz(ChainzClient),
 }
 
 impl std::fmt::Debug for UtxoAdapter {
@@ -207,10 +207,10 @@ impl std::fmt::Debug for UtxoAdapter {
         match self {
             Self::Esplora(_) => f.write_str("UtxoAdapter::Esplora"),
             Self::Blockbook(_) => f.write_str("UtxoAdapter::Blockbook"),
+            Self::Insight(_) => f.write_str("UtxoAdapter::Insight"),
             Self::Blockcypher(_) => f.write_str("UtxoAdapter::Blockcypher"),
             Self::Blockchair(_) => f.write_str("UtxoAdapter::Blockchair"),
             Self::Woc(_) => f.write_str("UtxoAdapter::Woc"),
-            Self::Chainz(_) => f.write_str("UtxoAdapter::Chainz"),
         }
     }
 }
@@ -232,16 +232,22 @@ fn solana_with_fallbacks(client: &reqwest::Client, info: &ChainInfo) -> SolanaCl
 
 const NO_DATA_SOURCE: &str = "该链暂无公共数据源（浏览器链接仍可用）";
 
-/// Blockchair's per-chain base URL, used by the fallback backend only.
+/// Blockchair's per-chain base URL for the chains routed to it (primary or
+/// fallback). The wildcard-free arms are deliberate: a missing slug would
+/// silently query a different chain's addresses through the `_ => bitcoin`
+/// default — that exact bug shipped for ZEC once (ZEC fell through to the
+/// bitcoin slug and got BTC's balance for a ZEC address). Any chain whose
+/// `utxo_backend()`/`fallback_backend()`/`final_backend()` yields Blockchair
+/// must have an arm here; the `blockchair_slugs_are_precise` test enforces it.
 fn blockchair_base(chain: ChainId) -> &'static str {
     match chain {
+        ChainId::Bitcoin => "https://api.blockchair.com/bitcoin",
         ChainId::Dogecoin => "https://api.blockchair.com/dogecoin",
         ChainId::BitcoinCash => "https://api.blockchair.com/bitcoin-cash",
+        ChainId::Zcash => "https://api.blockchair.com/zcash",
         ChainId::Dash => "https://api.blockchair.com/dash",
         ChainId::Groestlcoin => "https://api.blockchair.com/groestlcoin",
-        ChainId::Feathercoin => "https://api.blockchair.com/feathercoin",
-        ChainId::Viacoin => "https://api.blockchair.com/viacoin",
-        _ => "https://api.blockchair.com/bitcoin",
+        _ => unreachable!("blockchair_base: unsluged chain {chain:?} — add an arm"),
     }
 }
 
@@ -281,18 +287,22 @@ impl UtxoAdapter {
                 client.clone(),
                 base(info.rpc),
             ))),
+            UtxoBackend::Blockbook => Some(Self::Blockbook(BlockbookClient::new(
+                client.clone(),
+                base(info.rpc),
+            ))),
+            UtxoBackend::Insight => Some(Self::Insight(InsightClient::new(
+                client.clone(),
+                base(info.rpc),
+            ))),
             UtxoBackend::Blockcypher => Some(Self::Blockcypher(BlockcypherClient::new(
                 client.clone(),
                 base(blockcypher_base(chain)),
                 info.decimals,
             ))),
-            UtxoBackend::Blockbook => Some(Self::Blockbook(BlockbookClient::new(
-                client.clone(),
-                base(info.rpc),
-            ))),
             UtxoBackend::Blockchair => {
                 // The fallback reads Blockchair directly (primary chains keep
-                // their own rpc; blockbook chains get the per-chain base).
+                // their own rpc; blockchair chains get the per-chain base).
                 let default = if chain.utxo_backend() == UtxoBackend::Blockchair {
                     info.rpc
                 } else {
@@ -307,11 +317,6 @@ impl UtxoAdapter {
             UtxoBackend::WhatsOnChain => {
                 Some(Self::Woc(WocClient::new(client.clone(), base(info.rpc))))
             }
-            UtxoBackend::Chainz => Some(Self::Chainz(ChainzClient::new(
-                client.clone(),
-                chain.chainz_coin(),
-                info.decimals,
-            ))),
             UtxoBackend::None => None,
         }
     }
@@ -343,10 +348,10 @@ impl UtxoAdapter {
                 .balance(address, chain.info().decimals)
                 .await
                 .map_err(Into::into),
+            Self::Insight(client) => client.balance(address).await.map_err(Into::into),
             Self::Blockcypher(client) => client.balance(address).await.map_err(Into::into),
             Self::Blockchair(client) => client.balance(address).await.map_err(Into::into),
             Self::Woc(client) => client.balance(address).await.map_err(Into::into),
-            Self::Chainz(client) => client.balance(address).await.map_err(Into::into),
         }
     }
 
@@ -361,13 +366,10 @@ impl UtxoAdapter {
                 .utxos(address, chain.info().decimals)
                 .await
                 .map_err(Into::into),
+            Self::Insight(client) => client.utxos(address).await.map_err(Into::into),
             Self::Blockcypher(client) => client.utxos(address).await.map_err(Into::into),
             Self::Blockchair(client) => client.utxos(address).await.map_err(Into::into),
             Self::Woc(client) => client.utxos(address).await.map_err(Into::into),
-            Self::Chainz(_) => Err(ApiError::new(
-                "UNSUPPORTED",
-                "该链暂无公共 UTXO 数据源，无法转账（余额查询可用）",
-            )),
         }
     }
 
@@ -376,9 +378,9 @@ impl UtxoAdapter {
             Self::Esplora(client) => client.fees().await.map_err(Into::into),
             Self::Blockbook(client) => client.fees(chain.info().decimals).await.map_err(Into::into),
             Self::Blockcypher(client) => client.fees().await.map_err(Into::into),
-            // Blockchair/WoC/Chainz have no free recommended-fee endpoint:
+            // Insight/Blockchair/WoC have no free recommended-fee endpoint:
             // fall back to the chain's documented default rate.
-            Self::Blockchair(_) | Self::Woc(_) | Self::Chainz(_) => Ok(default_fees(chain)),
+            Self::Insight(_) | Self::Blockchair(_) | Self::Woc(_) => Ok(default_fees(chain)),
         }
     }
 
@@ -386,13 +388,10 @@ impl UtxoAdapter {
         match self {
             Self::Esplora(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Blockbook(client) => client.broadcast(raw_hex).await.map_err(Into::into),
+            Self::Insight(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Blockcypher(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Blockchair(client) => client.broadcast(raw_hex).await.map_err(Into::into),
             Self::Woc(client) => client.broadcast(raw_hex).await.map_err(Into::into),
-            Self::Chainz(_) => Err(ApiError::new(
-                "UNSUPPORTED",
-                "该链暂无公共广播端点，无法转账（余额查询可用）",
-            )),
         }
     }
 
@@ -415,10 +414,14 @@ impl UtxoAdapter {
                 .transactions(chain, address)
                 .await
                 .map_err(ApiError::from),
+            Self::Insight(client) => client
+                .transactions(chain, address)
+                .await
+                .map_err(ApiError::from),
             Self::Blockcypher(client) => {
                 client.history(chain, address).await.map_err(ApiError::from)
             }
-            Self::Blockchair(_) | Self::Woc(_) | Self::Chainz(_) => Ok(Vec::new()),
+            Self::Blockchair(_) | Self::Woc(_) => Ok(Vec::new()),
         }
     }
 }
@@ -1740,16 +1743,16 @@ mod tests {
         (base, handle)
     }
 
-    /// DOGE 编排:Blockbook 主源挂 → Blockcypher 回退 → Blockchair 兜底。
-    /// 备选逐个发 503,最后一级才给合法 UTXO 列表,证明三级顺序与回退成功。
+    /// DOGE 编排:Blockcypher 主源挂 → Blockchair 兜底(现在只有两级)。
+    /// 第一级发 503,第二级才给合法 UTXO 列表,证明回退顺序与成功。
     #[tokio::test]
     async fn dogecoin_falls_through_to_final_backend() {
-        // Three backends are tried; the mock answers every request. The
-        // Blockbook UTXO endpoint is hit first, then Blockcypher's, then
-        // Blockchair's — only the last response is a valid payload.
+        // Two backends are tried; the mock answers every request. The
+        // Blockcypher UTXO endpoint is hit first, then Blockchair's — only
+        // the second response is a valid payload.
         let (base, server) = serve_mixed(
-            3,
             2,
+            1,
             r#"{"data":[{"txid":"ab","vout":0,"value":123,"block":800000}],"context":{}}"#,
         )
         .await;
@@ -1771,16 +1774,18 @@ mod tests {
         assert_eq!(utxos.len(), 1);
         assert_eq!(utxos[0].value, 123);
         assert!(utxos[0].confirmed);
-        assert_eq!(served, 3, "all three sources were tried");
+        assert_eq!(served, 2, "both sources were tried");
     }
 
-    /// 主源就答对时不再打后续源:Blockbook 一次给出合法 UTXO,请求数恰为 1。
+    /// 主源就答对时不再打后续源:Blockcypher(DOGE 现主源)一次给出合法
+    /// UTXO,请求数恰为 1。
     #[tokio::test]
     async fn dogecoin_primary_success_skips_fallbacks() {
+        // Blockcypher /addrs?unspentOnly=true 的报文形态。
         let (base, server) = serve_mixed(
             1,
             0,
-            r#"[{"txid":"cd","vout":1,"value":"777","height":700000,"confirmations":12}]"#,
+            r#"{"txrefs":[{"tx_hash":"cd","tx_output_n":1,"value":777,"confirmations":12}]}"#,
         )
         .await;
         let client = test_client();
@@ -1793,21 +1798,23 @@ mod tests {
         )
         .await
         .expect("primary must answer");
-        assert!(matches!(adapter, UtxoAdapter::Blockbook(_)));
+        assert!(matches!(adapter, UtxoAdapter::Blockcypher(_)));
         assert_eq!(utxos.len(), 1);
         assert_eq!(utxos[0].value, 777);
         assert_eq!(server.await.unwrap(), 1, "no fallback request was made");
     }
 
     /// 所有源都 503:错误沿编排冒泡,调用方拿到最后一级的错误而不是 panic。
+    /// (DASH 还有三级源:insight → Blockcypher → Blockchair,用 DASH 测
+    /// 完整耗尽;DOGE 现在只有两级。)
     #[tokio::test]
-    async fn dogecoin_all_sources_down_surfaces_last_error() {
+    async fn dash_all_sources_down_surfaces_last_error() {
         let (base, server) = serve_dead(3).await;
         let client = test_client();
         let error = utxos_with_fallback_at(
             &client,
-            ChainId::Dogecoin,
-            "DTestsEUmfmMKiPnMxcueibUxtcMPzYyTvd",
+            ChainId::Dash,
+            "XTestAddrNotRealButWellFormed1234",
             None,
             Some(&base),
         )
@@ -1817,12 +1824,19 @@ mod tests {
         assert_eq!(server.await.unwrap(), 3, "every fallback was tried");
     }
 
-    /// Balance 走同一条编排:Blockbook 503 → Blockcypher 报价成功。
+    /// Balance 走同一条编排:主源 503 → Blockchair 兜底成功(DOGE 现在是
+    /// Blockcypher 主源 + Blockchair 回退)。
     #[tokio::test]
     async fn dogecoin_balance_uses_the_same_fallback_order() {
-        // Blockbook balance 报文(blockbook balance 路径先被 503),之后
-        // Blockcypher 的 /addrs/…/balance 报 final_balance。
-        let (base, server) = serve_mixed(2, 1, r#"{"final_balance":4242}"#).await;
+        // Blockcypher balance 报文(主源路径先被 503),之后 Blockchair 的
+        // /dashboards/address 报文兜底。用 LCC 之外 Blockchair 实测支持的
+        // DOGE key 作 dashboard key(报文里 key 任意,解析按 values().max())。
+        let (base, server) = serve_mixed(
+            2,
+            1,
+            r#"{"data":{"DMV4":{"address":{"balance":4242,"received":0,"spent":0}}},"context":{}}"#,
+        )
+        .await;
         let client = test_client();
         let adapter = UtxoAdapter::for_chain_at(&client, ChainId::Dogecoin, None, Some(&base))
             .expect("doge has a primary backend");
@@ -1842,7 +1856,7 @@ mod tests {
         let amount = fallback
             .balance(ChainId::Dogecoin, "DTestsEUmfmMKiPnMxcueibUxtcMPzYyTvd")
             .await
-            .expect("blockcypher fallback answers");
+            .expect("blockchair fallback answers");
         assert_eq!(amount, 4242);
         assert_eq!(server.await.unwrap(), 2);
     }

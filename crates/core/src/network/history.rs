@@ -373,7 +373,8 @@ mod tests {
         assert_eq!(txs[1].amount, 199_000_000);
         assert_eq!(
             txs[1].explorer_url(),
-            "https://blockbook.dash.zelcore.io/tx/bb"
+            "https://insight.dash.org/tx/bb",
+            "DASH explorer links follow the new insight.dash.org host"
         );
     }
 

@@ -120,11 +120,12 @@ impl ChainId {
                 bip44_coin: 3,
                 derivation_path: "m/44'/3'/0'/0/0",
                 accent: "#C2A633",
-                explorer: "https://doge.trezor.io",
-                explorer_tx: "https://doge.trezor.io/tx/",
-                explorer_address: "https://doge.trezor.io/address/",
-                // Trezor Suite's own public Blockbook — keyless, no rate plan.
-                rpc: "https://doge.trezor.io",
+                explorer: "https://blockchair.com/dogecoin",
+                explorer_tx: "https://blockchair.com/dogecoin/transaction/",
+                explorer_address: "https://blockchair.com/dogecoin/address/",
+                // Blockcypher keyless API (trezor Blockbook fleet dead;
+                // dogechain.info's public API is a web app, not an index).
+                rpc: "https://api.blockcypher.com/v1/doge/main",
                 price_id: "dogecoin",
                 send_note: "Legacy P2PKH (Base58)",
             },
@@ -138,11 +139,12 @@ impl ChainId {
                 bip44_coin: 145,
                 derivation_path: "m/44'/145'/0'/0/0",
                 accent: "#8DC351",
-                explorer: "https://bch.trezor.io",
-                explorer_tx: "https://bch.trezor.io/tx/",
-                explorer_address: "https://bch.trezor.io/address/",
-                // Trezor Suite's own public Blockbook — keyless, no rate plan.
-                rpc: "https://bch.trezor.io",
+                explorer: "https://blockchair.com/bitcoin-cash",
+                explorer_tx: "https://blockchair.com/bitcoin-cash/transaction/",
+                explorer_address: "https://blockchair.com/bitcoin-cash/address/",
+                // Blockchair keyless dashboard (trezor Blockbook dead;
+                // bch.loping.net gates API behind a bot check).
+                rpc: "https://api.blockchair.com/bitcoin-cash",
                 price_id: "bitcoin-cash",
                 send_note: "Legacy P2PKH / cashaddr",
             },
@@ -315,10 +317,11 @@ impl ChainId {
                 bip44_coin: 192,
                 derivation_path: "m/44'/192'/0'/0/0",
                 accent: "#BEBEBE",
-                explorer: "https://chainz.cryptoid.info/lcc/",
-                explorer_tx: "https://chainz.cryptoid.info/lcc/tx.dws?h=",
-                explorer_address: "https://chainz.cryptoid.info/lcc/address.dws?u=",
-                // No public index API (chainz is explorer-only).
+                explorer: "https://bitinfocharts.com/litecoincash/explorer/",
+                explorer_tx: "https://bitinfocharts.com/litecoincash/explorer/",
+                explorer_address: "https://bitinfocharts.com/litecoincash/explorer/",
+                // No public index API (chainz shut down; bitinfocharts is
+                // explorer-only, single-page style like e-Gulden below).
                 rpc: "",
                 price_id: "litecoin-cash",
                 send_note: "Legacy P2PKH（经典 sighash）",
@@ -367,10 +370,11 @@ impl ChainId {
                 bip44_coin: 81,
                 derivation_path: "m/44'/81'/0'/0/0",
                 accent: "#3F8C48",
-                explorer: "https://chainz.cryptoid.info/pot/",
-                explorer_tx: "https://chainz.cryptoid.info/pot/tx.dws?h=",
-                explorer_address: "https://chainz.cryptoid.info/pot/address.dws?u=",
-                // No public index API (chainz is explorer-only).
+                explorer: "https://bitinfocharts.com/potcoin/explorer/",
+                explorer_tx: "https://bitinfocharts.com/potcoin/explorer/",
+                explorer_address: "https://bitinfocharts.com/potcoin/explorer/",
+                // No public index API (chainz shut down; bitinfocharts is
+                // explorer-only, single-page style like e-Gulden below).
                 rpc: "",
                 price_id: "potcoin",
                 send_note: "Legacy P2PKH（经典 sighash）",
@@ -403,10 +407,11 @@ impl ChainId {
                 bip44_coin: 5,
                 derivation_path: "m/44'/5'/0'/0/0",
                 accent: "#008DE4",
-                explorer: "https://blockbook.dash.zelcore.io",
-                explorer_tx: "https://blockbook.dash.zelcore.io/tx/",
-                explorer_address: "https://blockbook.dash.zelcore.io/address/",
-                rpc: "https://blockbook.dash.zelcore.io",
+                explorer: "https://insight.dash.org",
+                explorer_tx: "https://insight.dash.org/tx/",
+                explorer_address: "https://insight.dash.org/address/",
+                // Insight API (zelcore Blockbook fleet unreachable).
+                rpc: "https://insight.dash.org/insight-api",
                 price_id: "dash",
                 send_note: "Legacy P2PKH（经典 sighash）",
             },
@@ -508,10 +513,12 @@ impl ChainId {
                 // Blockchair 兜底。签名走 ZIP-243(见 tx::utxo)。
                 derivation_path: "m/44'/133'/0'/0/0",
                 accent: "#F4B728",
-                explorer: "https://blockbook.zec.zelcore.io",
-                explorer_tx: "https://blockbook.zec.zelcore.io/tx/",
-                explorer_address: "https://blockbook.zec.zelcore.io/address/",
-                rpc: "https://blockbook.zec.zelcore.io",
+                explorer: "https://blockchair.com/zcash",
+                explorer_tx: "https://blockchair.com/zcash/transaction/",
+                explorer_address: "https://blockchair.com/zcash/address/",
+                // Blockchair keyless dashboard (zelcore Blockbook unreachable);
+                // slug must match blockchair_base() in the Tauri layer.
+                rpc: "https://api.blockchair.com/zcash",
                 price_id: "zcash",
                 send_note: "透明地址 t1… (P2PKH, ZIP-243 签名)",
             },
@@ -525,10 +532,11 @@ impl ChainId {
                 bip44_coin: 136,
                 derivation_path: "m/44'/136'/0'/0/0",
                 accent: "#7C4DFF",
-                explorer: "https://blockbook.firo.org",
-                explorer_tx: "https://blockbook.firo.org/tx/",
-                explorer_address: "https://blockbook.firo.org/address/",
-                rpc: "https://blockbook.firo.org",
+                explorer: "https://explorer.firo.org",
+                explorer_tx: "https://explorer.firo.org/tx/",
+                explorer_address: "https://explorer.firo.org/address/",
+                // Insight API (blockbook.firo.org unreachable; verified live).
+                rpc: "https://explorer.firo.org/api",
                 price_id: "zcoin",
                 send_note: "Legacy P2PKH (Base58 a…)",
             },
@@ -559,10 +567,11 @@ impl ChainId {
                 bip44_coin: 899,
                 derivation_path: "m/44'/899'/0'/0/0",
                 accent: "#33A6FF",
-                explorer: "https://blockbook.clore.zelcore.io",
-                explorer_tx: "https://blockbook.clore.zelcore.io/tx/",
-                explorer_address: "https://blockbook.clore.zelcore.io/address/",
-                rpc: "https://blockbook.clore.zelcore.io",
+                explorer: "https://blockchair.com/clore",
+                explorer_tx: "https://blockchair.com/clore/transaction/",
+                explorer_address: "https://blockchair.com/clore/address/",
+                // zelcore Blockbook fleet unreachable; no public index API.
+                rpc: "",
                 price_id: "clore",
                 send_note: "Legacy P2PKH (Base58 c…)",
             },
@@ -686,37 +695,35 @@ impl ChainId {
     /// history routing in the Tauri layer.
     pub fn utxo_backend(self) -> UtxoBackend {
         match self {
-            // Trezor Suite's public Blockbook instances come first (keyless,
-            // no rate plan); Blockchair is the configured fallback.
-            ChainId::Dogecoin
-            | ChainId::BitcoinCash
-            | ChainId::Viacoin
+            // Keyless public index APIs, each verified live (balance answered
+            // 200) on 2026-11: Blockcypher for DOGE and insight.dash.org for
+            // DASH replace the dead trezor/zelcore Blockbook fleets;
+            // explorer.firo.org's insight API replaces the dead
+            // blockbook.firo.org; blockbook.{viacoin,ravencoin,
+            // electrum-mona,neurai}.org and explorer.{feathercoin,fujicoin}.com
+            // stay (earlier "400 Invalid address" reports were the probe's
+            // own malformed test addresses, not the hosts).
+            ChainId::Dogecoin => UtxoBackend::Blockcypher,
+            ChainId::Dash | ChainId::Firo => UtxoBackend::Insight,
+            ChainId::Viacoin
             | ChainId::Feathercoin
             | ChainId::Groestlcoin
-            | ChainId::Dash
-            // Ravencoin / Monacoin / Fujicoin community Blockbook instances
-            // (verified live: balance, UTXO and history endpoints answer).
             | ChainId::Ravencoin
             | ChainId::Monacoin
             | ChainId::Fujicoin
-            // Firo / Neurai / Clore community Blockbook instances
-            // (firo.org and neurai.org verified live; clore runs on
-            // zelcore's Blockbook fleet).
-            | ChainId::Firo
-            | ChainId::Neurai
-            | ChainId::Clore => UtxoBackend::Blockbook,
+            | ChainId::Neurai => UtxoBackend::Blockbook,
             ChainId::Bitcoin | ChainId::Litecoin => UtxoBackend::Esplora,
             ChainId::BitcoinSv => UtxoBackend::WhatsOnChain,
-            // Zcash transparent addresses: zelcore's Blockbook indexes the
-            // transparent pool; Blockchair (keyless, rate-limited) backs it
-            // up. Shielded pools are out of scope by design.
-            ChainId::Zcash => UtxoBackend::Blockbook,
-            // Chainz-only chains: balance via the keyless cryptoid API.
-            ChainId::Namecoin
-            | ChainId::LitecoinCash
-            | ChainId::Potcoin
-            | ChainId::EGulden
-            | ChainId::Vertcoin => UtxoBackend::Chainz,
+            // Zcash / Bitcoin Cash: Blockchair's keyless dashboard is the
+            // only surviving fleet-level source (trezor/zelcore Blockbooks
+            // unreachable, no other keyless index). Shielded pools are out
+            // of scope by design.
+            ChainId::Zcash | ChainId::BitcoinCash => UtxoBackend::Blockchair,
+            // Chainz (cryptoid.info) shut down in 2026-11 — the domain no
+            // longer resolves anywhere. No replacement public index API for
+            // these chains; balance queries report a friendly error and the
+            // explorer links carry their own hosts.
+            ChainId::Vertcoin | ChainId::EGulden => UtxoBackend::None,
             // Non-UTXO kinds never route through here; the arm keeps the
             // match exhaustive if chains are added later.
             _ => UtxoBackend::None,
@@ -731,12 +738,11 @@ impl ChainId {
     /// and a chain stays usable when its primary fleet is unreachable.
     pub fn fallback_backend(self) -> Option<UtxoBackend> {
         match self {
-            ChainId::Dogecoin | ChainId::Dash => Some(UtxoBackend::Blockcypher),
-            ChainId::BitcoinCash
-            | ChainId::Groestlcoin
-            | ChainId::Feathercoin
-            | ChainId::Viacoin
-            | ChainId::Zcash => Some(UtxoBackend::Blockchair),
+            // DOGE's Blockcypher primary falls back to Blockchair; DASH's
+            // insight primary mirrors the old Blockcypher second source.
+            ChainId::Dogecoin => Some(UtxoBackend::Blockchair),
+            ChainId::Dash => Some(UtxoBackend::Blockcypher),
+            ChainId::Groestlcoin => Some(UtxoBackend::Blockchair),
             _ => None,
         }
     }
@@ -744,13 +750,18 @@ impl ChainId {
     /// Last-resort backend after `fallback_backend()` also fails.
     pub fn final_backend(self) -> Option<UtxoBackend> {
         match self {
-            // DOGE/DASH: Blockcypher first, Blockchair behind it.
-            ChainId::Dogecoin | ChainId::Dash => Some(UtxoBackend::Blockchair),
+            // DASH: insight.dash.org → Blockcypher → Blockchair.
+            ChainId::Dash => Some(UtxoBackend::Blockchair),
             _ => None,
         }
     }
 
     /// The chain's slug on chainz.cryptoid.info (see `ChainzClient`).
+    ///
+    /// Historically drove the Chainz balance adapter; cryptoid shut down in
+    /// 2026-11 so these chains have no balance source. The slugs stay because
+    /// the explorer links are built from the same per-coin paths.
+    #[allow(dead_code)]
     pub fn chainz_coin(self) -> &'static str {
         match self {
             ChainId::Namecoin => "nmc",
@@ -1003,19 +1014,19 @@ impl fmt::Display for ChainId {
 pub enum UtxoBackend {
     /// mempool.space-style `/address/…` endpoints.
     Esplora,
-    /// trezor Blockbook `/api/v2/…` endpoints.
+    /// Blockbook `/api/v2/…` endpoints (trezor fleet and community hosts).
     Blockbook,
-    /// Blockcypher v1 API (DOGE/DASH keyless fallback).
+    /// Insight explorer API (`/api/addr/…`) — insight.dash.org, FIRO.
+    Insight,
+    /// Blockcypher v1 API (keyless fallback).
     Blockcypher,
     /// Blockchair dashboards (API key recommended).
     Blockchair,
     /// WhatsOnChain REST API (BSV).
     WhatsOnChain,
-    /// Chainz cryptoid keyless balance API (Namecoin, Litecoin Cash,
-    /// Potcoin, e-Gulden, Vertcoin) — balance only, no UTXO feed.
-    Chainz,
     /// No public index API here; only address derivation and explorer links
-    /// work, balance queries report a friendly error instead.
+    /// work, balance queries report a friendly error instead. (The Chainz
+    /// cryptoid API this variant replaced shut down in 2026-11.)
     None,
 }
 
@@ -1126,8 +1137,24 @@ mod tests {
 
     #[test]
     fn every_utxo_chain_routes_to_a_backend() {
+        // These chains lost their last public index API (chainz shut down,
+        // zelcore's fleet is unreachable) and degrade to explorer-only; every
+        // other UTXO chain must still route to a live backend.
+        let explorer_only = [
+            ChainId::Namecoin,
+            ChainId::LitecoinCash,
+            ChainId::Potcoin,
+            ChainId::Vertcoin,
+            ChainId::EGulden,
+            ChainId::Clore,
+        ];
         for chain in ChainId::ALL {
-            if chain.info().kind == ChainKind::Utxo {
+            if chain.info().kind != ChainKind::Utxo {
+                continue;
+            }
+            if explorer_only.contains(&chain) {
+                assert_eq!(chain.utxo_backend(), UtxoBackend::None, "{chain:?}");
+            } else {
                 assert_ne!(chain.utxo_backend(), UtxoBackend::None, "{chain:?}");
             }
         }
@@ -1135,18 +1162,25 @@ mod tests {
 
     #[test]
     fn keyless_balance_sources_cover_all_utxo_chains() {
-        // Balance must work out of the box: the primary source is keyless
-        // (Esplora/Blockbook/WoC/Chainz) and only the fallback may be
-        // Blockchair, where a key merely raises the rate limit.
+        // Balance must work out of the box without a user key. Blockchair is
+        // keyless-with-rate-limit: acceptable as a fallback, and as a primary
+        // only where it is the last surviving source (BCH/ZEC — their hosts
+        // died and no other keyless index exists). Keys only raise the rate
+        // limit there.
+        let blockchair_primary = [ChainId::BitcoinCash, ChainId::Zcash];
         for chain in ChainId::ALL {
             if chain.info().kind != ChainKind::Utxo {
                 continue;
             }
-            assert_ne!(
-                chain.utxo_backend(),
-                UtxoBackend::Blockchair,
-                "{chain:?} should not depend on a Blockchair key"
-            );
+            if blockchair_primary.contains(&chain) {
+                assert_eq!(chain.utxo_backend(), UtxoBackend::Blockchair, "{chain:?}");
+            } else {
+                assert_ne!(
+                    chain.utxo_backend(),
+                    UtxoBackend::Blockchair,
+                    "{chain:?} should not depend on a Blockchair key"
+                );
+            }
             if let Some(fallback) = chain.fallback_backend() {
                 assert!(
                     fallback == UtxoBackend::Blockchair || fallback == UtxoBackend::Blockcypher,
@@ -1157,7 +1191,43 @@ mod tests {
     }
 
     #[test]
+    fn blockchair_slugs_are_precise() {
+        // A missing slug falls through to some default and would silently
+        // query another chain's addresses (this exact bug shipped for ZEC:
+        // the `_ => bitcoin` arm answered BTC balances for ZEC addresses).
+        // Every chain routed to Blockchair must have its own arm in
+        // `blockchair_base()` — tested via the adapter's construction, since
+        // the slug table lives in the Tauri layer.
+        let blockchair_chains: Vec<ChainId> = ChainId::ALL
+            .iter()
+            .copied()
+            .filter(|chain| {
+                chain.info().kind == ChainKind::Utxo
+                    && (chain.utxo_backend() == UtxoBackend::Blockchair
+                        || chain.fallback_backend() == Some(UtxoBackend::Blockchair)
+                        || chain.final_backend() == Some(UtxoBackend::Blockchair))
+            })
+            .collect();
+        for chain in &blockchair_chains {
+            assert!(
+                matches!(
+                    chain,
+                    ChainId::Bitcoin
+                        | ChainId::Dogecoin
+                        | ChainId::BitcoinCash
+                        | ChainId::Zcash
+                        | ChainId::Dash
+                        | ChainId::Groestlcoin
+                ),
+                "{chain:?} routes to Blockchair but blockchair_base() has no exact slug for it"
+            );
+        }
+    }
+
+    #[test]
     fn chainz_slugs_match_the_supported_chains() {
+        // The Chainz adapter is gone (cryptoid shut down 2026-11); the slugs
+        // survive only as explorer-link paths and are kept in sync here.
         assert_eq!(ChainId::Namecoin.chainz_coin(), "nmc");
         assert_eq!(ChainId::LitecoinCash.chainz_coin(), "lcc");
         assert_eq!(ChainId::Potcoin.chainz_coin(), "pot");
@@ -1168,11 +1238,25 @@ mod tests {
     }
 
     #[test]
-    fn dogecoin_and_cash_use_trezor_blockbook() {
-        assert_eq!(ChainId::Dogecoin.utxo_backend(), UtxoBackend::Blockbook);
-        assert_eq!(ChainId::Dogecoin.info().rpc, "https://doge.trezor.io");
-        assert_eq!(ChainId::BitcoinCash.utxo_backend(), UtxoBackend::Blockbook);
-        assert_eq!(ChainId::BitcoinCash.info().rpc, "https://bch.trezor.io");
+    fn dogecoin_and_cash_use_live_replacements() {
+        assert_eq!(
+            ChainId::Dogecoin.utxo_backend(),
+            UtxoBackend::Blockcypher,
+            "trezor fleet dead; Blockcypher is the verified live primary"
+        );
+        assert_eq!(
+            ChainId::Dogecoin.info().rpc,
+            "https://api.blockcypher.com/v1/doge/main"
+        );
+        assert_eq!(
+            ChainId::BitcoinCash.utxo_backend(),
+            UtxoBackend::Blockchair,
+            "trezor fleet dead; Blockchair is the last keyless source"
+        );
+        assert_eq!(
+            ChainId::BitcoinCash.info().rpc,
+            "https://api.blockchair.com/bitcoin-cash"
+        );
     }
 
     #[test]
@@ -1234,17 +1318,42 @@ mod tests {
         let zec = ChainId::Zcash.utxo_params().unwrap();
         assert_eq!(zec.p2pkh_version, &[0x1c, 0xb8]);
         assert_eq!(zec.p2sh_version, &[0x1c, 0xbd]);
-        assert_eq!(ChainId::Zcash.utxo_backend(), UtxoBackend::Blockbook);
+        assert_eq!(
+            ChainId::Zcash.utxo_backend(),
+            UtxoBackend::Blockchair,
+            "zelcore Blockbook unreachable; Blockchair is the surviving source"
+        );
         assert_eq!(
             ChainId::Zcash.fallback_backend(),
-            Some(UtxoBackend::Blockchair)
+            None,
+            "the Blockchair primary has no cheaper second source"
         );
         assert!(!ChainId::Zcash.legacy_utxo(), "t1… P2PKH signs ZIP-243");
-        // Firo / Neurai / Clore: Ravencoin-family, SegWit-less, Blockbook.
-        for (chain, p2pkh, p2sh, wif) in [
-            (ChainId::Firo, &[82u8][..], &[7u8][..], 210u8),
-            (ChainId::Neurai, &[53u8][..], &[117u8][..], 128u8),
-            (ChainId::Clore, &[23u8][..], &[122u8][..], 112u8),
+        // Neurai / Clore: Ravencoin-family, SegWit-less. (Firo left the
+        // Blockbook fleet for insight.dash.org-style hosting; its params and
+        // legacy sighash are unchanged.)
+        for (chain, backend, p2pkh, p2sh, wif) in [
+            (
+                ChainId::Firo,
+                UtxoBackend::Insight,
+                &[82u8][..],
+                &[7u8][..],
+                210u8,
+            ),
+            (
+                ChainId::Neurai,
+                UtxoBackend::Blockbook,
+                &[53u8][..],
+                &[117u8][..],
+                128u8,
+            ),
+            (
+                ChainId::Clore,
+                UtxoBackend::None,
+                &[23u8][..],
+                &[122u8][..],
+                112u8,
+            ),
         ] {
             let params = chain.utxo_params().unwrap();
             assert_eq!(
@@ -1257,7 +1366,7 @@ mod tests {
                 "{chain:?}"
             );
             assert!(chain.legacy_utxo(), "{chain:?}");
-            assert_eq!(chain.utxo_backend(), UtxoBackend::Blockbook, "{chain:?}");
+            assert_eq!(chain.utxo_backend(), backend, "{chain:?}");
         }
         // OctaSpace is a legacy-gas EVM chain (chain id 800001).
         assert_eq!(ChainId::OctaSpace.evm_chain_id(), Some(800001));

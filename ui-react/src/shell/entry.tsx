@@ -934,18 +934,18 @@ function RestoreFromUsbBlock({ onRestored }: { onRestored: () => Promise<void> }
 
   const restore = async (mount: string) => {
     const password = await askPassword({
-      title: "从U盘恢复钱包",
-      description: "将验证密码，把U盘上的加密保险柜复制到本机。完成后即可正常使用。",
-      confirmText: "恢复",
+      title: "从U盘导入钱包",
+      description: "将验证U盘钱包的密码，把它的数据复制到本机。完成后即可正常使用。",
+      confirmText: "导入",
     });
     if (!password) return;
     setBusy(true);
     try {
       await api.coldDisable(true, password, mount);
       await onRestored();
-      toast("已从U盘恢复钱包。", "success");
+      toast("已从U盘导入钱包。", "success");
     } catch (e) {
-      toast((e as Error).message || "恢复失败", "error");
+      toast((e as Error).message || "导入失败", "error");
     } finally {
       setBusy(false);
     }
@@ -955,7 +955,7 @@ function RestoreFromUsbBlock({ onRestored }: { onRestored: () => Promise<void> }
     <div className="stack-sm">
       <button className="btn btn-ghost btn-block" type="button" disabled={busy} onClick={() => void scan()}>
         <Icon name="usb" />
-        从U盘冷钱包恢复
+        从U盘导入钱包
       </button>
       {(drives ?? []).map((drive) => (
         <button
@@ -966,8 +966,8 @@ function RestoreFromUsbBlock({ onRestored }: { onRestored: () => Promise<void> }
           onClick={() => void restore(drive.mount)}
         >
           <Icon name="download" />
-          恢复自 {drive.label}
-          {drive.hasWallet ? "（检测到冷钱包）" : ""}
+          导入自 {drive.label}
+          {drive.hasWallet ? "（检测到U盘钱包）" : ""}
         </button>
       ))}
     </div>
@@ -1086,11 +1086,11 @@ export function UnlockView() {
           {info?.cold?.coldActive ? (
             <div className="note note-ok">
               <Icon name="usb" />
-              <div>U盘冷钱包模式：保险柜文件当前存放在U盘上，拔出U盘会立即锁定。</div>
+              <div>当前要解锁的是U盘上的钱包（用它自己的密码）。拔出U盘会立即回到本机钱包的解锁页。</div>
             </div>
           ) : null}
           <p className="hint">
-            密码只用于解密本机钱包文件，忘记密码无法找回，只能删除钱包后重新导入助记词或重建口令钱包。
+            密码只用于解密当前钱包文件，忘记密码无法找回，只能删除后重新导入助记词或重建口令钱包。
           </p>
           <button className="btn btn-ghost btn-block" type="button" onClick={() => void forgot()}>
             忘记密码？删除本机钱包文件

@@ -78,10 +78,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::vault_status,
+            commands::app_version,
             commands::usb_drives,
             commands::cold_enable,
             commands::cold_disable,
-            commands::cold_delete_local,
             commands::cold_status,
             commands::create_vault,
             commands::unlock_vault,

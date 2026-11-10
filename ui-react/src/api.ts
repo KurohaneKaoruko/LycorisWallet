@@ -111,12 +111,12 @@ export function listen(event: string, handler: (payload: unknown) => void): () =
 
 export const api = {
   vaultStatus: (): Promise<VaultStatus> => call("vault_status") as Promise<VaultStatus>,
+  appVersion: (): Promise<string> => call("app_version", {}) as Promise<string>,
   usbDrives: (): Promise<UsbDrive[]> => call("usb_drives") as Promise<UsbDrive[]>,
-  coldEnable: (mount: string, password: string, keepLocal = true) =>
+  coldEnable: (mount: string, password: string, keepLocal = false) =>
     call("cold_enable", { mount, password, keepLocal }) as Promise<ColdStatus>,
   coldDisable: (pull: boolean, password?: string, mount?: string) =>
     call("cold_disable", { pull, password, mount }) as Promise<ColdStatus>,
-  coldDeleteLocal: () => call("cold_delete_local", {}) as Promise<ColdStatus>,
   coldStatus: () => call("cold_status", {}) as Promise<ColdStatus>,
   createVault: (request: {
     password: string;

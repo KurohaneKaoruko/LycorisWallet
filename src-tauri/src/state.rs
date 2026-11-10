@@ -119,8 +119,11 @@ impl Session {
 #[derive(Clone)]
 pub struct AppState {
     dir: PathBuf,
-    /// When cold-wallet mode is active: the vault file on the USB drive.
-    /// `None` = the vault lives in the normal app-data directory.
+    /// When the active session container is the USB wallet: its file path.
+    /// `None` = the session targets the normal local vault file. Cold mode
+    /// is deliberately NOT persistent: losing the drive only ends the USB
+    /// session and falls back to local, so a missing drive never blocks the
+    /// machine's own wallets.
     cold_path: Arc<Mutex<Option<PathBuf>>>,
     session: Arc<Mutex<Session>>,
 }
@@ -144,22 +147,25 @@ impl AppState {
         }
     }
 
-    /// The vault file currently in effect: on the USB drive in cold-wallet
-    /// mode, otherwise the local copy. In cold mode with the drive missing
-    /// this returns the local path only as a fallback for `status()`; all
-    /// mutating paths check `require_cold_present()` first.
+    /// The vault file currently in effect: the USB wallet while a USB
+    /// session is open, otherwise the local copy. The local file is never
+    /// deleted by the cold-wallet flow, so the fallback always works.
     pub fn vault_path(&self) -> PathBuf {
         self.cold_path()
             .unwrap_or_else(|| self.dir.join(VAULT_FILE))
     }
 
     /// The local (non-cold) vault path, always in the app-data directory.
-    pub fn local_vault_path(&self) -> PathBuf {
+    /// The cold-wallet flow reads it but never deletes or rewrites it: the
+    /// local wallet is an independent container.
+    #[cfg(test)]
+    fn local_vault_path(&self) -> PathBuf {
         self.dir.join(VAULT_FILE)
     }
 
-    /// In cold mode: error out when the drive is gone. Locks the session so
-    /// no command can keep working against a stale in-memory copy.
+    /// In USB-wallet session: error out when the drive is gone. Locks the
+    /// session so no command can keep working against a stale in-memory
+    /// copy.
     fn require_cold_present(&self) -> CoreResult<()> {
         let cold_on = self
             .cold_path
@@ -184,20 +190,15 @@ impl AppState {
         Some(path)
     }
 
-    /// Full status payload for the UI, including cold-wallet info. Never
+    /// Full status payload for the UI, including USB-wallet info. Never
     /// contains secrets; safe to call while locked.
     pub fn status_full(&self) -> ColdStatus {
-        let configured = self
-            .cold_path
-            .lock()
-            .map(|cold| cold.is_some())
-            .unwrap_or(false);
-        let mounted = self.cold_path().is_some();
+        let session_open = self.cold_path().is_some();
         let local_exists = self.dir.join(VAULT_FILE).exists();
         //「盘上有冷钱包」对恢复流程有用：查所有可移动磁盘上是否有标记文件。
-        let cold_exists = mounted || crate::usb::drives().iter().any(|d| d.has_wallet);
+        let cold_exists = session_open || crate::usb::drives().iter().any(|d| d.has_wallet);
         ColdStatus {
-            cold_active: configured && mounted,
+            cold_active: session_open,
             local_exists,
             cold_exists,
         }
@@ -205,15 +206,23 @@ impl AppState {
 
     /* -------------------------------------------------------- cold wallet */
 
-    /// Enable cold-wallet mode against `mount` (a drive root). Copies the
-    /// local vault to the drive (or accepts a vault already there), verifies
-    /// the password against the resulting file, then switches the session to
-    /// it. The local copy is kept.
+    /// Open a USB-wallet session against `mount` (a drive root).
+    ///
+    /// The USB wallet is an **independent container**: it never replaces or
+    /// deletes the machine's own vault. When the drive carries no vault yet,
+    /// the local vault is *copied* over as the USB wallet's initial content
+    /// (the machine keeps its own copy untouched); when the drive already
+    /// carries one, it is adopted as-is with its own password. While the
+    /// session is open every read/write goes to the drive file; pulling the
+    /// drive only ends the USB session — the local wallets keep working.
+    ///
+    /// `keep_local` is accepted for API compatibility and ignored: the local
+    /// file is never touched.
     pub fn cold_enable(
         &self,
         mount: &str,
         password: &str,
-        keep_local: bool,
+        _keep_local: bool,
     ) -> CoreResult<ColdStatus> {
         let target = crate::usb::cold_vault_path(mount);
         if let Some(parent) = target.parent() {
@@ -223,8 +232,9 @@ impl AppState {
         if !local.exists() && !target.exists() {
             return Err(Error::VaultNotFound);
         }
-        if local.exists() {
-            // 拷贝当前本机保险柜到U盘（每次启用都覆盖U盘旧文件）。
+        if !target.exists() {
+            // U盘上还没有钱包：把本机保险柜复制过去作为U盘钱包的初始内容。
+            // 本机原件不动——两个容器从此各自独立。
             std::fs::copy(&local, &target)?;
         }
         // 用密码证明U盘上的文件确实可用，再切换过去。
@@ -237,16 +247,13 @@ impl AppState {
             .cold_path
             .lock()
             .map_err(|_| Error::Message("cold wallet state poisoned".into()))? = Some(target);
-        if !keep_local {
-            let _ = std::fs::remove_file(&local);
-        }
         Ok(self.status_full())
     }
 
-    /// Disable cold-wallet mode, or restore a drive vault onto this machine
-    /// when cold mode is off. `pull` = copy the drive vault to local storage
-    /// first. `mount` selects which drive to pull from (used on a fresh
-    /// machine where cold mode was never enabled here).
+    /// Close the USB-wallet session (back to the local container), or copy a
+    /// drive wallet onto this machine (`pull` = import as the local vault,
+    /// overwriting it; used on a fresh machine). `mount` selects which drive
+    /// to pull from. The drive file itself is never deleted.
     pub fn cold_disable(
         &self,
         pull: bool,
@@ -259,18 +266,11 @@ impl AppState {
             .map_err(|_| Error::Message("cold wallet state poisoned".into()))?
             .is_some();
         let source = match (&mount, cold_on) {
-            // 显式指定盘：换电脑恢复场景，不要求冷模式已在本机启用。
+            // 显式指定盘：换电脑导入场景，不要求USB会话已打开。
             (Some(m), _) => crate::usb::cold_vault_path(m),
             (None, true) => self.vault_path(),
-            (None, false) => return Err(Error::Message("未启用U盘冷钱包".into())),
+            (None, false) => return Ok(self.status_full()),
         };
-        if !cold_on {
-            // 恢复场景：要求U盘上有可识别的冷钱包文件。
-            let marker = source.parent().map(|p| p.join(COLD_MARK));
-            if !source.exists() && !marker.map(|m| m.exists()).unwrap_or(false) {
-                return Err(Error::UsbDriveMissing);
-            }
-        }
         let local = self.dir.join(VAULT_FILE);
         if pull {
             if !source.exists() {
@@ -290,17 +290,17 @@ impl AppState {
                 .lock()
                 .map_err(|_| Error::Message("cold wallet state poisoned".into()))?;
             *cold = None;
-            // 会话里可能还持有旧路径解锁的密钥：一律锁定，要求用新路径重新解锁。
+            // 会话里可能还持有U盘容器的密钥：一律锁定，本机容器用本机密码
+            // 重新解锁即可——本机钱包功能不受任何影响。
             drop(cold);
             self.lock_now();
         }
         Ok(self.status_full())
     }
 
-    /// Called by the watch loop when the drive disappeared. Locks the session
-    /// and reports whether a lock actually happened. Cold mode is "on" as
-    /// long as a cold path is configured — even when the drive is missing —
-    /// so re-plugging the same drive resumes the session storage seamlessly.
+    /// Called by the watch loop when the drive disappeared. Ends the USB
+    /// session only: the local container is untouched, so the machine's own
+    /// wallets unlock and work as usual right away.
     pub fn cold_drive_lost(&self) -> bool {
         let cold_on = self
             .cold_path
@@ -309,6 +309,13 @@ impl AppState {
             .unwrap_or(false);
         if !cold_on || self.cold_path().is_some() {
             return false;
+        }
+        {
+            let mut cold = self
+                .cold_path
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            *cold = None;
         }
         let mut session = self.session();
         let was_unlocked = session.is_unlocked();
@@ -322,7 +329,8 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Never exposes secrets; safe to call while locked.
+    /// Never exposes secrets; safe to call while locked. Describes the
+    /// local container; USB-wallet info rides along in `cold`.
     pub fn status(&self) -> VaultStatus {
         let session = self.session();
         let file = VaultFile::read(&self.vault_path()).ok();
@@ -1628,7 +1636,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 冷钱包全流程：启用 → 文件上盘 → 拔盘锁定 → 回插恢复 → 停用。
+    /// U盘钱包全流程（独立容器语义）：启用=复制到U盘并切换会话 → 拔盘只结束
+    /// U盘会话、本机钱包立即可用 → 重开U盘会话 → 停用回到本机容器。
     /// 用临时目录模拟U盘挂载点（`cold_vault_path` 只做路径拼接，无需真盘）。
     #[test]
     fn cold_wallet_enable_lock_on_removal_and_restore() {
@@ -1652,15 +1661,19 @@ mod tests {
             .cold_enable(mount.to_str().unwrap(), "wrong password", true)
             .is_err());
         let status = state
-            .cold_enable(mount.to_str().unwrap(), "correct horse battery", true)
+            .cold_enable(mount.to_str().unwrap(), "correct horse battery", false)
             .unwrap();
         assert!(status.cold_active);
-        assert!(status.local_exists);
+        assert!(status.local_exists, "本机钱包文件绝不被删除");
         let cold_file = crate::usb::cold_vault_path(mount.to_str().unwrap());
         assert!(cold_file.exists());
         assert!(cold_file.parent().unwrap().join(COLD_MARK).exists());
+        assert!(
+            state.local_vault_path().exists(),
+            "启用只复制，不动本机原件"
+        );
 
-        // 会话继续可用：冷盘在位时 mutate 正常写U盘。
+        // 会话继续可用：U盘会话期间 mutate 正常写U盘文件。
         state
             .upsert_contact(Contact {
                 id: "c1".into(),
@@ -1672,37 +1685,107 @@ mod tests {
             })
             .unwrap();
 
-        // 「拔盘」：删掉冷盘目录模拟U盘消失 → 检测触发锁定。
+        // 备份U盘文件：下面模拟「拔出再插回」——真机回插时文件仍在盘上。
+        let drive_backup = dir.join("drive-backup.json");
+        std::fs::copy(&cold_file, &drive_backup).unwrap();
+
+        // 「拔盘」：删掉冷盘目录模拟U盘消失 → U盘会话结束并锁定。
         let _ = std::fs::remove_dir_all(&mount);
         assert!(state.cold_drive_lost());
         assert!(state.status().locked);
-        // 拔盘状态下写操作被拒绝（不能静默回落到本机副本）。
-        assert!(matches!(
-            state.mutate(|_| Ok(())),
-            Err(Error::UsbDriveMissing)
-        ));
-
-        // 「回插」：重建目录（同一挂载点）→ 无需重新启用，直接解锁成功。
-        std::fs::create_dir_all(cold_file.parent().unwrap()).unwrap();
-        std::fs::copy(state.local_vault_path(), &cold_file).unwrap();
+        // 关键：拔盘后回到本机容器——本机钱包立即可解锁、可写，其它功能
+        // 全部不受影响。
         let view = state.unlock("correct horse battery").unwrap();
-        assert!(view.contacts.is_empty()); // 刚才拔盘后的写入没有落到本机
+        assert!(view.contacts.is_empty(), "U盘会话里的联系人只存在于U盘容器");
         assert_eq!(view.label, "口令钱包");
+        state
+            .upsert_contact(Contact {
+                id: "local1".into(),
+                name: "Local".into(),
+                chain: ChainId::Bitcoin,
+                address: "bc1qlocal".into(),
+                note: String::new(),
+                created_at: now(),
+            })
+            .unwrap();
 
-        // 停用（pull=false）：切回本机副本并锁定会话。
+        // 「回插」：重建目录并放回原U盘文件 → 重新打开U盘会话，数据还在。
+        std::fs::create_dir_all(cold_file.parent().unwrap()).unwrap();
+        std::fs::copy(&drive_backup, &cold_file).unwrap();
+        state
+            .cold_enable(mount.to_str().unwrap(), "correct horse battery", false)
+            .unwrap();
+        let view = state.unlock("correct horse battery").unwrap();
+        assert_eq!(view.contacts.len(), 1, "U盘容器的数据在重开会话后仍在");
+        assert_eq!(view.contacts[0].name, "Alice");
+
+        // 停用：回到本机容器，锁定会话；U盘文件本身保留。
         let status = state.cold_disable(false, "", None).unwrap();
         assert!(!status.cold_active);
         assert!(status.local_exists);
+        assert!(cold_file.exists(), "停用不删除U盘上的钱包");
         assert!(state.status().locked);
-        assert!(state.unlock("correct horse battery").is_ok());
+        let view = state.unlock("correct horse battery").unwrap();
+        assert_eq!(view.contacts[0].name, "Local", "停用后回到本机容器的数据");
 
-        // 恢复流程：删除本机副本后，从指定挂载点拉回（换电脑场景）。
-        std::fs::remove_file(state.local_vault_path()).unwrap();
-        assert!(state
+        // 导入流程：换电脑场景，从指定挂载点把U盘钱包拉回本机（覆盖）。
+        let dir2 = temp_dir("cold-fresh");
+        let fresh = AppState::new(&dir2);
+        assert!(!fresh.status().exists);
+        assert!(fresh
             .cold_disable(true, "correct horse battery", Some(mount.to_str().unwrap()))
             .is_ok());
-        assert!(state.local_vault_path().exists());
-        assert!(state.unlock("correct horse battery").is_ok());
+        assert!(fresh.local_vault_path().exists());
+        assert!(fresh.unlock("correct horse battery").is_ok());
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&mount);
+        let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    /// 独立容器语义：本机钱包与U盘钱包可以有不同的密码与数据，互不覆盖。
+    #[test]
+    fn cold_wallet_is_an_independent_container() {
+        let dir = temp_dir("cold-two");
+        let mount = temp_dir("cold-two-mount");
+        let state = AppState::new(&dir);
+        state
+            .create(
+                passphrase("local garden phrase"),
+                "local password",
+                None,
+                None,
+            )
+            .unwrap();
+
+        // 先启用（复制本机到U盘），停用；再删掉本机文件、换个完全不同的
+        // 秘密重建——模拟「本机与U盘之后各自演化」。
+        state
+            .cold_enable(mount.to_str().unwrap(), "local password", false)
+            .unwrap();
+        state.cold_disable(false, "", None).unwrap();
+        std::fs::remove_file(state.local_vault_path()).unwrap();
+        state
+            .create(
+                passphrase("different usb phrase"),
+                "usb password",
+                None,
+                None,
+            )
+            .unwrap();
+
+        // U盘容器仍用旧密码；本机容器用新密码。两边互不干扰。
+        state
+            .cold_enable(mount.to_str().unwrap(), "local password", false)
+            .unwrap();
+        let view = state.unlock("local password").unwrap();
+        assert_eq!(view.label, "口令钱包");
+        state.lock_now();
+
+        let status = state.cold_disable(false, "", None).unwrap();
+        assert!(!status.cold_active);
+        let view = state.unlock("usb password").unwrap();
+        assert_eq!(view.label, "口令钱包");
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&mount);

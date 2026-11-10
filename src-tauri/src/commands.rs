@@ -81,6 +81,13 @@ pub fn vault_status(state: State<'_, crate::state::AppState>) -> VaultStatus {
     state.status()
 }
 
+/// 编译期取自 Cargo.toml 的 workspace 版本，UI 标题栏从这里取真版本号，
+/// 不再硬编码（v0.7.0 发布版曾因前端常量漏改显示 0.6.0）。
+#[tauri::command]
+pub fn app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 /* ------------------------------------------------------------- cold wallet */
 
 #[tauri::command]
@@ -95,7 +102,8 @@ pub fn cold_enable(
     password: String,
     keep_local: Option<bool>,
 ) -> ApiResult<ColdStatus> {
-    Ok(state.cold_enable(&mount, &password, keep_local.unwrap_or(true))?)
+    // 兼容参数：U盘钱包是独立容器，本机文件永远不会被删除或改写。
+    Ok(state.cold_enable(&mount, &password, keep_local.unwrap_or(false))?)
 }
 
 #[tauri::command]
@@ -110,19 +118,10 @@ pub fn cold_disable(
     if pull && password.is_none() {
         return Err(ApiError::new(
             "INCORRECT_PASSWORD",
-            "恢复本机副本需要验证保险柜密码",
+            "从U盘导入钱包需要验证U盘钱包的密码",
         ));
     }
     Ok(state.cold_disable(pull, password.unwrap_or(""), mount.as_deref())?)
-}
-
-#[tauri::command]
-pub fn cold_delete_local(state: State<'_, crate::state::AppState>) -> ApiResult<ColdStatus> {
-    let local = state.local_vault_path();
-    if local.exists() {
-        std::fs::remove_file(&local)?;
-    }
-    Ok(state.status_full())
 }
 
 #[tauri::command]

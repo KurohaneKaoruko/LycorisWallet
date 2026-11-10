@@ -9,7 +9,8 @@ import { api, isMock } from "../api";
 import { useSession, type ViewId } from "./session";
 import { Icon } from "../ui/Icon";
 
-const VERSION = "0.6.0";
+/// 后端返回的编译期版本号；演示模式（无 Tauri）回退到 package.json 同步的常量。
+const FALLBACK_VERSION = "0.7.0";
 const TOUCH_INTERVAL = 20_000; // ms between session touches
 const AUTO_REFRESH_INTERVAL = 120_000; // ms
 
@@ -106,6 +107,15 @@ export function Rail() {
   const { wallet, view, go } = useSession();
   const compact = useCompact();
   const [moreOpen, setMoreOpen] = useState(false);
+  // 版本号从后端取（编译期注入），取不到再退回常量——升版本时不再漏改。
+  const [version, setVersion] = useState(FALLBACK_VERSION);
+  useEffect(() => {
+    if (isMock) return;
+    api
+      .appVersion()
+      .then(setVersion)
+      .catch(() => {});
+  }, []);
 
   // 旧版 syncChrome():未解锁时导航整条隐藏(rail.hidden = !wallet)。
   if (!wallet) return null;
@@ -200,7 +210,7 @@ export function Rail() {
         </Fragment>
       ))}
       <div className="rail-foot">
-        Lycoris Wallet v{VERSION}
+        Lycoris Wallet v{version}
         <br />
         {isMock ? "演示模式 · 数据不离开本机" : "密钥永远留在本机"}
       </div>

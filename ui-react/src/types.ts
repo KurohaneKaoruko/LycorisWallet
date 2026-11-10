@@ -195,9 +195,9 @@ export interface VaultStatus {
 
 /** U盘冷钱包状态（布尔值，路径保留在后端）。 */
 export interface ColdStatus {
-  /** 冷钱包模式生效中：当前保险柜文件就是U盘上的那份。 */
+  /** U盘钱包会话进行中：当前保险柜文件就是U盘上的那份。 */
   coldActive: boolean;
-  /** 本机目录存在保险柜文件。 */
+  /** 本机目录存在保险柜文件（U盘钱包不影响本机文件）。 */
   localExists: boolean;
   /** 已挂载的冷盘上存在保险柜文件。 */
   coldExists: boolean;

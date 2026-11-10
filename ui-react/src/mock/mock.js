@@ -12,6 +12,9 @@ import { BIP39_WORDS } from "./bip39-words.js?v=23";
 import { loadCore } from "./core.js?v=23";
 import { MONERO_WORDS } from "./monero-words.js?v=23";
 
+/** Version fallback for the demo build (desktop reads the real one via app_version). */
+export const APP_VERSION = "0.7.0";
+
 // The desktop build has a Rust backend already; only the browser demo needs
 // the wasm copy (1.2 MB, skipped entirely when Tauri is present).
 const wantsCore =
@@ -2429,6 +2432,9 @@ export async function mockCall(command, args = {}) {
         },
       ];
 
+    case "app_version":
+      return APP_VERSION;
+
     case "cold_status":
       return store.cold ?? { coldActive: false, localExists: store.exists, coldExists: false };
 
@@ -2437,6 +2443,7 @@ export async function mockCall(command, args = {}) {
       if (args.password !== store.password) {
         throw { code: "INCORRECT_PASSWORD", message: "密码不正确" };
       }
+      // 与桌面端语义一致：U盘钱包是独立容器，本机文件不受影响。
       store.cold = { coldActive: true, localExists: true, coldExists: true };
       persist();
       return store.cold;
@@ -2450,12 +2457,6 @@ export async function mockCall(command, args = {}) {
       store.cold = status;
       persist();
       return status;
-    }
-
-    case "cold_delete_local": {
-      store.cold = { coldActive: true, localExists: false, coldExists: true };
-      persist();
-      return store.cold;
     }
 
     default:

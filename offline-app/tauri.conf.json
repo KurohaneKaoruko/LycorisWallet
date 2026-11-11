@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lycoris Signer",
+  "version": "0.1.0",
+  "identifier": "com.lycoris.signer",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; base-uri 'none'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "category": "Finance",
+    "shortDescription": "离线交易签名器",
+    "longDescription": "Lycoris 离线签名器：与主钱包配套的 air-gapped 交易签名应用。在永不联网的设备上运行，粘贴未签名交易、核对收款方与金额、用本机密钥签名，把结果带回联网电脑广播。零网络权限，私钥即用即弃。"
+  }
+}

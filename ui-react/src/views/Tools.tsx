@@ -692,7 +692,7 @@ function UriTool() {
 
 /** 离线签名工作流：
  *  1. 构造：选链/收款方/金额 → 后端选币定价 → 产出 LYCOSIGN1: 载荷（复制或看QR）；
- *  2. 拿到离线设备（配套 lycoris-offline.html）签名，得到 LYCOSIGNED1: 载荷；
+ *  2. 拿到离线设备（Lycoris Signer Android 应用）签名，得到 LYCOSIGNED1: 载荷；
  *  3. 导入签名载荷 → 后端广播 → 记入活动历史。
  *  联网侧全程不碰私钥；签名在离线设备上完成。 */
 function OfflineSignTool() {
@@ -749,7 +749,7 @@ function OfflineSignTool() {
     <div className="stack">
       <p className="hint">
         三步走：① 在这里构造未签名交易（LYCOSIGN1 载荷）→ ② 拿到
-        <strong>永不联网</strong>的设备上用配套签名应用（仓库 offline/ 目录）签名 →
+        <strong>永不联网</strong>的手机上用「Lycoris Signer」App（离线安装的 APK）签名 →
         ③ 把签名结果（LYCOSIGNED1 载荷）贴回来广播。联网电脑全程不接触私钥。
       </p>
 
@@ -804,8 +804,8 @@ function OfflineSignTool() {
       <div className="detail-card stack">
         <strong>② 离线设备签名</strong>
         <p className="hint">
-          把上面的载荷带到离线设备（旧手机/air-gapped 电脑），用仓库
-          <code> offline/lycoris-offline.html</code> 签名应用打开、粘贴载荷、输入该链私钥，
+          把上面的载荷带到离线手机（装了 Lycoris Signer App 的旧手机，全程不联网）：
+          打开 App、粘贴载荷、输入主钱包助记词或该链私钥，核对收款方与金额后签名，
           得到 LYCOSIGNED1 开头的签名结果。
         </p>
       </div>

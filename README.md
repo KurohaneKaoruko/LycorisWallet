@@ -47,7 +47,8 @@ RingCT 环签名交给官方的本地 wallet-rpc 完成，密钥仍由本应用�
 - **收发与浏览**：总览（法币折算）、收款二维码、转账（EVM EIP-1559 与 legacy gas / UTXO P2WPKH 与 legacy P2PKH / Zcash ZIP-243 / Solana 系统转账 / CryptoNote）、交易记录、地址簿。
 - **工具箱**：地址体检（自动识别链 + 校验和）、单位换算（聪/wei/lamport ↔ 显示单位）、BIP-39 助记词校验、
   哈希与编码（SHA-256/512、Keccak-256、HASH160、RIPEMD-160 与 hex/base64/base58）、
-  消息签名与验签（EVM EIP-191 / Bitcoin BIP-137 / Solana ed25519）、支付 URI（BIP-21 / EIP-681 / Solana Pay 解析与构造）。
+  消息签名与验签（EVM EIP-191 / Bitcoin BIP-137 / Solana ed25519）、支付 URI（BIP-21 / EIP-681 / Solana Pay 解析与构造）、
+  离线签名（构造/广播 `LYCOSIGN1` / `LYCOSIGNED1` 载荷，配合 Android 端 Lycoris Signer App 完成 air-gapped 签名）。
 - **本地加密**：Argon2id + XChaCha20-Poly1305 加密的钱包文件，自动锁定、密码尝试冷却。
 - **演示模式**：`ui-react` 开发服务器（`npm run dev`）加 `?mock=1` 直接加载编译成 WebAssembly 的同一份 Rust 核心——地址、指纹、
   地址校验和二维码都是真数据，只有余额、价格与广播结果是演示值，不需要 Rust 后端。
@@ -169,6 +170,7 @@ Monero 原生格式遵循 monero-project 的 Electrum-words 规范（4 字节 �
 | 哈希 / 编码 | SHA-256、SHA-512、SHA-256d、Keccak-256、HASH160、RIPEMD-160；同一输入并排给出 hex / base64 / base58。 |
 | 消息签名 | 用当前钱包密钥签名（EVM 走 EIP-191 `personal_sign`，Bitcoin 走 BIP-137，Solana 走 ed25519）；验签恢复签名者地址。签名需要密码确认，密钥不出 Rust 侧。 |
 | 支付 URI | BIP-21 / EIP-681（含 `value=1e18` 科学计数法）/ Solana Pay 的解析与构造，解析结果可一键带入转账。 |
+| 离线签名 | 构造 `LYCOSIGN1:` 未签名交易（选链/收款方/金额/手续费档位，含 QR 预览），带到永不联网的手机上用配套的 [Lycoris Signer App](offline-app/README.md) 签名，回贴 `LYCOSIGNED1:` 载荷一键广播。联网侧全程不接触私钥。 |
 
 ## Monero / Zephyr 转账
 

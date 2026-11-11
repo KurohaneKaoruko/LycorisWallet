@@ -1,0 +1,22 @@
+[package]
+name = "lycoris-signer"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Lycoris Offline Signer — air-gapped 交易签名器（Android）"
+
+[lib]
+name = "lycoris_signer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# 只取派生/地址/签名能力：default-features 关掉 network（reqwest/tokio）
+# 与 vault（rand/chrono），离线设备用不上，也让 APK 更小、攻击面更小。
+lycoris-core = { path = "../crates/core", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true

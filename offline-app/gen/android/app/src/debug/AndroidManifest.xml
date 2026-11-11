@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 仅 debug 变体合并此文件：dev 热重载需要连接开发机（adb reverse）。
+     release APK 不含 INTERNET 权限，OS 层面断网。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

@@ -2563,6 +2563,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lycoris-signer"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "lycoris-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+]
+
+[[package]]
 name = "lycoris-wallet"
 version = "0.7.0"
 dependencies = [

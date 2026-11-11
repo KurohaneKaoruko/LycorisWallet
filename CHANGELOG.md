@@ -2,6 +2,22 @@
 
 ## 未发布
 
+### 新增：Lycoris Signer——Android 离线签名 App（Tauri APK）
+
+- **形态变更**：离线签名端从「浏览器打开 HTML」改为**真正的 Android 应用**
+  （`offline-app/`，Tauri 2 APK）。Rust 核心 `lycoris-core` 原生编译进 APK，
+  与主钱包同一套派生/签名实现；前端为本地单页（`offline-app/ui/`），
+  仅调用三个本地命令（`signer_prepare` / `signer_sign` / `signer_validate`），
+  零网络请求。
+- **隐私边界**：App 清单不含 `INTERNET` 权限之外的网络组件，CSP 禁止一切
+  远端加载；私钥只在单次命令调用的栈上存在，签名完成即从内存清除，不落盘。
+- **流程**：联网电脑构造 LYCOSIGN1 载荷（主钱包工具箱「离线签名」卡）→
+  离线手机 App 粘贴载荷 + 输入助记词/口令/私钥 → 逐字核对收款方与金额
+  （EVM 载荷自动核对 from 地址，不一致红色警告）→ 签名产出 LYCOSIGNED1
+  → 带回联网电脑广播。
+- **配套调整**：主钱包工具卡的指引文案改为指向本 App（移除对已撤回的
+  `offline/lycoris-offline.html` 的引用）。
+
 ### 修复：软件内版本号显示 0.6.0
 
 - **根因**：前端 `chrome.tsx` 硬编码 `VERSION = "0.6.0"`，v0.7.0 升版时漏改，

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#12090e" />
+    <title>Lycoris Signer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">Lycoris Signer</span>
+      </div>
+      <span class="airgap-badge">🛫 离线模式</span>
+    </header>
+
+    <main class="stack">
+      <!-- 步骤指示器 -->
+      <ol class="steps" id="steps">
+        <li data-step="1" class="active">粘贴</li>
+        <li data-step="2">核对</li>
+        <li data-step="3">签名</li>
+      </ol>
+
+      <!-- ============ 步骤 1：粘贴载荷 + 密钥 ============ -->
+      <section class="card" id="card-input">
+        <h2>① 粘贴未签名交易</h2>
+        <textarea
+          id="payload"
+          class="input mono"
+          rows="6"
+          placeholder="粘贴 LYCOSIGN1: 开头的未签名载荷…"
+          spellcheck="false"
+          autocomplete="off"
+        ></textarea>
+
+        <h2>② 输入密钥</h2>
+        <p class="hint">
+          与主钱包相同的派生规则：BIP-39 助记词（或口令）。私钥只在本机内存里用一次，签完即清。
+        </p>
+        <div class="secret-row">
+          <input
+            id="secret"
+            class="input mono"
+            type="password"
+            placeholder="24 词助记词（空格分隔）或 H(口令)"
+            autocomplete="off"
+          />
+          <button id="toggle-secret" class="btn ghost" type="button" title="显示/隐藏">👁</button>
+        </div>
+        <p class="hint tiny">
+          私钥钱包也可用：直接粘贴 0x 开头的 EVM 私钥，或 bc1 链的 WIF。
+        </p>
+
+        <button id="btn-prepare" class="btn primary" type="button">解析并核对</button>
+        <div id="prepare-error" class="note note-bad hidden"></div>
+      </section>
+
+      <!-- ============ 步骤 2：核对摘要 ============ -->
+      <section class="card hidden" id="card-review">
+        <h2>③ 核对交易内容</h2>
+        <dl class="summary" id="summary"></dl>
+
+        <div id="from-check" class="note hidden"></div>
+
+        <div class="confirm-row">
+          <input type="checkbox" id="confirm-check" />
+          <label for="confirm-check">我已逐字核对收款方地址与金额</label>
+        </div>
+        <button id="btn-sign" class="btn danger" type="button" disabled>签名（不可逆）</button>
+        <button id="btn-back" class="btn ghost" type="button">← 重新粘贴</button>
+      </section>
+
+      <!-- ============ 步骤 3：签名结果 ============ -->
+      <section class="card hidden" id="card-result">
+        <h2>④ 签名完成</h2>
+        <p class="hint">把下面的 LYCOSIGNED1 载荷带回联网电脑，在工具箱里粘贴广播。</p>
+        <textarea id="signed-out" class="input mono" rows="6" readonly></textarea>
+        <button id="btn-copy" class="btn primary" type="button">复制签名载荷</button>
+        <button id="btn-reset" class="btn ghost" type="button">签下一笔</button>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p>零网络权限 · 私钥即用即弃 · 签名后请清空剪贴板</p>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>

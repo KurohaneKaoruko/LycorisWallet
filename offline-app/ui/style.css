@@ -1,0 +1,313 @@
+/* Lycoris Signer — 深色移动端单页。无网络资源，全部本地。 */
+
+:root {
+  --bg: #12090e;
+  --bg-card: #1c1119;
+  --bg-input: #0d0709;
+  --line: #33202c;
+  --text: #f2e8ef;
+  --text-dim: #a08fa0;
+  --accent: #e0457b;
+  --accent-dim: #8f2c52;
+  --ok: #3ecf8e;
+  --bad: #ff5c5c;
+  --warn: #ffb454;
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, "Noto Sans SC", sans-serif;
+  font-size: 16px;
+  min-height: 100vh;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-card);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.airgap-badge {
+  font-size: 12px;
+  color: var(--ok);
+  border: 1px solid var(--ok);
+  border-radius: 999px;
+  padding: 3px 10px;
+  opacity: 0.9;
+}
+
+/* ---------- 布局 ---------- */
+main.stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  max-width: 560px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ---------- 步骤指示器 ---------- */
+.steps {
+  display: flex;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.steps li {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  padding: 8px 0;
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+}
+
+.steps li.active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-card));
+}
+
+.steps li.done {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+/* ---------- 卡片 ---------- */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--accent);
+  letter-spacing: 0.4px;
+}
+
+/* ---------- 输入 ---------- */
+.input {
+  width: 100%;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.mono {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+textarea.input {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.secret-row {
+  display: flex;
+  gap: 8px;
+}
+
+.secret-row .input {
+  flex: 1;
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+.hint.tiny {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* ---------- 按钮 ---------- */
+.btn {
+  border: 1px solid var(--line);
+  background: var(--bg-input);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn.danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.btn:not(:disabled):active {
+  filter: brightness(1.15);
+}
+
+/* ---------- 摘要表 ---------- */
+.summary {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary .row-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border-radius: 8px;
+}
+
+.summary dt {
+  color: var(--text-dim);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.summary dd {
+  margin: 0;
+  font-size: 14px;
+  text-align: right;
+  word-break: break-all;
+}
+
+.summary dd.emph {
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 15px;
+}
+
+/* ---------- 提示条 ---------- */
+.note {
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  border: 1px solid;
+}
+
+.note-bad {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+}
+
+.note-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+
+.note-ok {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---------- 确认 ---------- */
+.confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.confirm-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+/* ---------- 页脚 ---------- */
+.foot {
+  text-align: center;
+  padding: 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.foot p {
+  margin: 0;
+}

@@ -113,6 +113,8 @@ pub fn run() {
             commands::refresh_activity,
             commands::quote_send,
             commands::send_transaction,
+            commands::offline_export,
+            commands::offline_broadcast,
             commands::save_contact,
             commands::delete_contact,
             commands::save_settings,

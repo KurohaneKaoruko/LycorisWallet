@@ -21,7 +21,7 @@ import type {
   VerifyResult,
 } from "../types";
 
-type ToolId = "inspect" | "units" | "mnemonic" | "hash" | "sign" | "uri";
+type ToolId = "inspect" | "units" | "mnemonic" | "hash" | "sign" | "uri" | "offline";
 
 const TOOLS: Array<{ id: ToolId; label: string; icon: string; blurb: string }> = [
   { id: "inspect", label: "地址体检", icon: "search", blurb: "粘贴任意地址,识别链与格式,检查校验和" },
@@ -30,6 +30,7 @@ const TOOLS: Array<{ id: ToolId; label: string; icon: string; blurb: string }> =
   { id: "hash", label: "哈希 / 编码", icon: "hash", blurb: "SHA / Keccak / RIPEMD 与 hex / base64 / base58" },
   { id: "sign", label: "消息签名", icon: "signature", blurb: "EIP-191 / BIP-137 / ed25519 签名与验签" },
   { id: "uri", label: "支付 URI", icon: "receive", blurb: "BIP-21 / EIP-681 / Solana Pay 解析与构造" },
+  { id: "offline", label: "离线签名", icon: "usb", blurb: "构造未签名交易,拿去离线设备签名后回来广播" },
 ];
 
 const CHAINS: Array<{ id: ChainId; name: string; symbol: string; decimals: number }> = [
@@ -687,6 +688,157 @@ function UriTool() {
   );
 }
 
+/* -------------------------------------------------------------------- 离线签名 */
+
+/** 离线签名工作流：
+ *  1. 构造：选链/收款方/金额 → 后端选币定价 → 产出 LYCOSIGN1: 载荷（复制或看QR）；
+ *  2. 拿到离线设备（配套 lycoris-offline.html）签名，得到 LYCOSIGNED1: 载荷；
+ *  3. 导入签名载荷 → 后端广播 → 记入活动历史。
+ *  联网侧全程不碰私钥；签名在离线设备上完成。 */
+function OfflineSignTool() {
+  const toast = useToast();
+  const { reloadWallet } = useSession();
+  const [chain, setChain] = useState<ChainId>("bitcoin");
+  const [to, setTo] = useState("");
+  const [amount, setAmount] = useState("");
+  const [level, setLevel] = useState("normal");
+  const [exporting, setExporting] = useState(false);
+  const [exported, setExported] = useState<{ payload: string; summary: string } | null>(null);
+  const [signedInput, setSignedInput] = useState("");
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [result, setResult] = useState<{ txid: string; url: string } | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
+
+  const exportTx = async () => {
+    if (!to.trim() || !amount.trim() || exporting) return;
+    setExporting(true);
+    setExported(null);
+    setResult(null);
+    setQr(null);
+    try {
+      const out = await api.offlineExport(chain, to.trim(), amount.trim(), level);
+      setExported({ payload: out.payload, summary: out.summary });
+      const svg = await api.qrSvg(out.payload).catch(() => null);
+      setQr(svg);
+    } catch (e) {
+      toast((e as Error).message || "构造失败", "error");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const broadcast = async () => {
+    const text = signedInput.trim();
+    if (!text || broadcasting) return;
+    setBroadcasting(true);
+    try {
+      const sent = await api.offlineBroadcast(text);
+      setResult({ txid: sent.txid, url: sent.explorerUrl });
+      setSignedInput("");
+      setExported(null);
+      void reloadWallet();
+      toast("已广播离线签名交易。", "success");
+    } catch (e) {
+      toast((e as Error).message || "广播失败", "error");
+    } finally {
+      setBroadcasting(false);
+    }
+  };
+
+  return (
+    <div className="stack">
+      <p className="hint">
+        三步走：① 在这里构造未签名交易（LYCOSIGN1 载荷）→ ② 拿到
+        <strong>永不联网</strong>的设备上用配套签名应用（仓库 offline/ 目录）签名 →
+        ③ 把签名结果（LYCOSIGNED1 载荷）贴回来广播。联网电脑全程不接触私钥。
+      </p>
+
+      <div className="detail-card stack">
+        <strong>① 构造未签名交易</strong>
+        <Field label="链">
+          <select className="input" value={chain} onChange={(e) => setChain(e.target.value as ChainId)}>
+            {CHAINS.filter((c) => !["solana", "monero"].includes(c.id)).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.symbol})
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="收款地址">
+          <input className="input" value={to} onChange={(e) => setTo(e.target.value)} placeholder="目标地址" />
+        </Field>
+        <Field label="金额" hint="留空或填 max = 全额（扣除手续费）">
+          <input className="input" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+        </Field>
+        <Field label="手续费档位">
+          <select className="input" value={level} onChange={(e) => setLevel(e.target.value)}>
+            <option value="fast">快速</option>
+            <option value="normal">标准</option>
+            <option value="economy">经济</option>
+          </select>
+        </Field>
+        <div className="row">
+          <button type="button" className="btn" disabled={exporting || !to.trim() || !amount.trim()} onClick={() => void exportTx()}>
+            <Icon name="signature" /> 生成未签名交易
+          </button>
+        </div>
+        {exported ? (
+          <>
+            <div className="note note-ok">
+              <Icon name="info" />
+              <div>{exported.summary}</div>
+            </div>
+            <CopyRow label="未签名载荷（复制到离线设备）" value={exported.payload} />
+            {qr ? (
+              <div
+                className="qr-holder"
+                style={{ maxWidth: 260 }}
+                dangerouslySetInnerHTML={{ __html: qr }}
+              />
+            ) : null}
+            <p className="hint">载荷较长时建议用文件/剪贴板传输；QR 分段显示可截屏拼接，或直接复制文本。</p>
+          </>
+        ) : null}
+      </div>
+
+      <div className="detail-card stack">
+        <strong>② 离线设备签名</strong>
+        <p className="hint">
+          把上面的载荷带到离线设备（旧手机/air-gapped 电脑），用仓库
+          <code> offline/lycoris-offline.html</code> 签名应用打开、粘贴载荷、输入该链私钥，
+          得到 LYCOSIGNED1 开头的签名结果。
+        </p>
+      </div>
+
+      <div className="detail-card stack">
+        <strong>③ 导入并广播</strong>
+        <Field label="签名结果（LYCOSIGNED1:…）">
+          <textarea
+            className="input"
+            rows={4}
+            value={signedInput}
+            onChange={(e) => setSignedInput(e.target.value)}
+            placeholder="粘贴离线设备返回的签名载荷"
+          />
+        </Field>
+        <div className="row">
+          <button type="button" className="btn btn-primary" disabled={broadcasting || !signedInput.trim()} onClick={() => void broadcast()}>
+            <Icon name="send" /> 广播交易
+          </button>
+        </div>
+        {result ? (
+          <div className="detail-card stack">
+            <div className="kv"><span className="kv-key">交易哈希</span><span className="mono">{result.txid}</span></div>
+            <a className="btn btn-ghost btn-sm" href={result.url} target="_blank" rel="noreferrer">
+              <Icon name="receive" /> 在区块浏览器查看
+            </a>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------- 主视图 */
 
 export function ToolsView() {
@@ -708,6 +860,8 @@ export function ToolsView() {
         return <SignTool />;
       case "uri":
         return <UriTool />;
+      case "offline":
+        return <OfflineSignTool />;
     }
   }, [tool]);
 

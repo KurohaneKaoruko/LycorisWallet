@@ -421,6 +421,36 @@ pub async fn send_transaction(
     portfolio::send(&state, &request).await
 }
 
+/* ---------------------------------------------------------- 离线签名（air-gapped） */
+
+/// 构造未签名交易：联网侧选币/定费，返回 LYCOSIGN1: 文本载荷供扫码或复制。
+#[tauri::command]
+pub async fn offline_export(
+    state: State<'_, crate::state::AppState>,
+    chain: ChainId,
+    to: String,
+    amount: String,
+    level: Option<String>,
+) -> ApiResult<portfolio::OfflineExport> {
+    portfolio::offline_export(
+        &state,
+        chain,
+        to,
+        &amount,
+        level.as_deref().unwrap_or("normal"),
+    )
+    .await
+}
+
+/// 广播离线设备签回的 LYCOSIGNED1: 载荷。
+#[tauri::command]
+pub async fn offline_broadcast(
+    state: State<'_, crate::state::AppState>,
+    signed: String,
+) -> ApiResult<SendResult> {
+    portfolio::offline_broadcast(&state, &signed).await
+}
+
 #[tauri::command]
 pub fn save_contact(
     state: State<'_, crate::state::AppState>,

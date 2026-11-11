@@ -169,6 +169,13 @@ export const api = {
     call("refresh_activity") as Promise<ActivitySyncReport>,
   quoteSend: (request: unknown) => call("quote_send", { request }) as Promise<SendQuote>,
   sendTransaction: (request: unknown) => call("send_transaction", { request }) as Promise<SendResult>,
+  offlineExport: (chain: ChainId, to: string, amount: string, level = "normal") =>
+    call("offline_export", { chain, to, amount, level }) as Promise<{
+      payload: string;
+      chain: ChainId;
+      summary: string;
+    }>,
+  offlineBroadcast: (signed: string) => call("offline_broadcast", { signed }) as Promise<SendResult>,
   saveContact: (contact: Partial<Contact>) => call("save_contact", { contact }) as Promise<Contact[]>,
   deleteContact: (id: string) => call("delete_contact", { id }) as Promise<Contact[]>,
   saveSettings: (settings: Settings) => call("save_settings", { settings }) as Promise<Settings>,

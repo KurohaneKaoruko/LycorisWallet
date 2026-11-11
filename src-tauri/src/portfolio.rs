@@ -19,6 +19,7 @@ use lycoris_core::network::{
     utxo::UtxoClient, woc::WocClient,
 };
 use lycoris_core::tx::evm::{sign_transaction, EvmCall, EvmFee};
+use lycoris_core::tx::offline::OfflineEvmFee;
 use lycoris_core::tx::solana::build_transfer;
 use lycoris_core::tx::utxo::{
     build_signed_p2pkh, build_signed_p2wpkh, change_script, fee_rate_for_level,
@@ -1678,6 +1679,270 @@ fn fiat_string(value: f64, currency: FiatCurrency) -> String {
         FiatCurrency::Usd => format!("${value:.2}"),
         FiatCurrency::Cny => format!("¥{value:.2}"),
     }
+}
+
+// ----------------------------------------------------------------- offline signing
+
+/// 离线签名导出结果：未签名载荷（文本，可扫码/复制）+ 给用户核对的摘要。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfflineExport {
+    pub payload: String,
+    pub chain: ChainId,
+    pub summary: String,
+}
+
+/// 构造未签名交易载荷：联网侧只负责选币、定费率/nonce，绝不碰私钥。
+/// 签名由离线设备完成，回来的是 raw hex，这里只广播。
+pub async fn offline_export(
+    state: &AppState,
+    chain: ChainId,
+    to: String,
+    amount_text: &str,
+    level: &str,
+) -> ApiResult<OfflineExport> {
+    state.touch();
+    let account = state.account_for(chain)?;
+    let info = chain.info();
+    if !info.send_supported() {
+        return Err(ApiError::new(
+            "SEND_UNSUPPORTED",
+            format!("{} 暂不支持离线签名转账", info.name),
+        ));
+    }
+    let amount = parse_amount(amount_text, info.decimals)?;
+    let client = lycoris_core::network::http_client();
+    let from_address = account.address.clone();
+
+    let request = match info.kind {
+        ChainKind::Utxo => {
+            let legacy = chain.legacy_utxo();
+            let (adapter, utxos) = if legacy {
+                utxos_with_fallback(
+                    &client,
+                    chain,
+                    &from_address,
+                    Some(state.settings()?.blockchair_api_key.as_str()),
+                )
+                .await?
+            } else {
+                utxos_with_fallback(&client, chain, &from_address, None).await?
+            };
+            let fees = adapter.fees(chain).await?;
+            let fee_rate = if legacy {
+                legacy_fee_levels(chain)
+                    .iter()
+                    .find(|(name, _, _)| *name == level)
+                    .map(|(_, rate, _)| *rate)
+                    .unwrap_or_else(|| chain.default_fee_rate())
+            } else {
+                fee_rate_for_level(&fees, level)
+            };
+            let inputs: Vec<UtxoInput> = utxos
+                .iter()
+                .map(|utxo| {
+                    UtxoInput::from_parts(&utxo.txid, utxo.vout, utxo.value, utxo.confirmed)
+                })
+                .collect::<Result<_, _>>()?;
+            // 目标金额：显式金额，或扣掉预估手续费后的全部余额。
+            let estimate = if legacy {
+                lycoris_core::tx::utxo::estimate_legacy_vsize(inputs.len(), 2)
+            } else {
+                lycoris_core::tx::utxo::estimate_vsize(inputs.len(), 2)
+            }
+            .saturating_mul(fee_rate.max(1));
+            let target = match amount {
+                Some(value) => {
+                    u64::try_from(value).map_err(|_| Error::InvalidAmount("金额过大".into()))?
+                }
+                None => inputs
+                    .iter()
+                    .map(|i| i.value)
+                    .sum::<u64>()
+                    .saturating_sub(estimate),
+            };
+            if target < chain.dust_limit() {
+                return Err(ApiError::new(
+                    "INVALID_AMOUNT",
+                    format!(
+                        "低于灰尘限额（{} {}）",
+                        chain.dust_limit(),
+                        chain.base_unit()
+                    ),
+                ));
+            }
+            let inputs = inputs
+                .into_iter()
+                .map(|input| lycoris_core::tx::offline::OfflineInput {
+                    txid: hex::encode(input.txid),
+                    vout: input.vout,
+                    value: input.value,
+                })
+                .collect();
+            if legacy {
+                lycoris_core::tx::offline::UnsignedTx::P2pkh {
+                    chain,
+                    change_address: Some(from_address.clone()),
+                    inputs,
+                    to: to.clone(),
+                    value: target,
+                    fee_rate,
+                }
+            } else {
+                lycoris_core::tx::offline::UnsignedTx::P2wpkh {
+                    chain,
+                    change_address: Some(from_address.clone()),
+                    inputs,
+                    to: to.clone(),
+                    value: target,
+                    fee_rate,
+                }
+            }
+        }
+        ChainKind::Evm => {
+            let adapter = evm_with_fallbacks(&client, &info);
+            let chain_id = chain
+                .evm_chain_id()
+                .ok_or_else(|| Error::UnsupportedChain(chain.to_string()))?;
+            let nonce = adapter.nonce(&from_address).await?;
+            let (fee, _cost) = if matches!(chain, ChainId::Ethereum | ChainId::Polygon) {
+                let base = adapter.latest_base_fee().await?.unwrap_or(0).max(GWEI);
+                let priority = adapter.max_priority_fee().await?.unwrap_or(GWEI).max(1);
+                match level {
+                    "fast" => (
+                        EvmFee::Eip1559 {
+                            max_fee_per_gas: base * 2 + priority * 2,
+                            max_priority_fee_per_gas: priority * 2,
+                        },
+                        0u128,
+                    ),
+                    "economy" => (
+                        EvmFee::Eip1559 {
+                            max_fee_per_gas: base + priority / 2,
+                            max_priority_fee_per_gas: priority / 2,
+                        },
+                        0,
+                    ),
+                    _ => (
+                        EvmFee::Eip1559 {
+                            max_fee_per_gas: base * 12 / 10 + priority,
+                            max_priority_fee_per_gas: priority,
+                        },
+                        0,
+                    ),
+                }
+            } else {
+                let price = adapter.gas_price().await?.max(GWEI / 10);
+                match level {
+                    "fast" => (
+                        EvmFee::Legacy {
+                            gas_price: price * 12 / 10,
+                        },
+                        0,
+                    ),
+                    "economy" => (
+                        EvmFee::Legacy {
+                            gas_price: price * 9 / 10,
+                        },
+                        0,
+                    ),
+                    _ => (EvmFee::Legacy { gas_price: price }, 0),
+                }
+            };
+            let value_units = amount.unwrap_or(0);
+            lycoris_core::tx::offline::UnsignedTx::Evm {
+                chain,
+                chain_id,
+                nonce,
+                to: to.clone(),
+                value: value_units.to_string(),
+                gas_limit: NATIVE_TRANSFER_GAS,
+                fee: OfflineEvmFee::capture(&fee),
+                data: None,
+                from: from_address.clone(),
+            }
+        }
+        ChainKind::Ed25519 | ChainKind::Cryptonote => {
+            return Err(ApiError::new(
+                "SEND_UNSUPPORTED",
+                format!("{} 暂不支持离线签名（需要 ed25519/环签名路径）", info.name),
+            ));
+        }
+    };
+
+    let payload = lycoris_core::tx::offline::encode_unsigned(&request)?;
+    let summary = request.summary();
+    Ok(OfflineExport {
+        payload,
+        chain,
+        summary,
+    })
+}
+
+/// 广播离线设备签好的交易：验载荷前缀→（可选）记录活动→交给对应适配器。
+pub async fn offline_broadcast(state: &AppState, signed_text: &str) -> ApiResult<SendResult> {
+    state.touch();
+    let signed = lycoris_core::tx::offline::decode_signed(signed_text)?;
+    let chain = signed.chain;
+    let info = chain.info();
+    let client = lycoris_core::network::http_client();
+
+    let txid = match info.kind {
+        ChainKind::Utxo => {
+            let adapter = if chain.legacy_utxo() {
+                // legacy 链广播走各自的后端即可；用 Blockbook→…回退。
+                let (adapter, _) = utxos_with_fallback(
+                    &client, chain,
+                    // 广播不依赖地址，但适配器构造需要；传空让适配器自己选。
+                    "", None,
+                )
+                .await?;
+                adapter
+            } else {
+                let (adapter, _) = utxos_with_fallback(&client, chain, "", None).await?;
+                adapter
+            };
+            adapter.broadcast(&signed.raw).await?
+        }
+        ChainKind::Evm => {
+            let adapter = evm_with_fallbacks(&client, &info);
+            adapter.send_raw_transaction(&signed.raw).await?
+        }
+        ChainKind::Ed25519 | ChainKind::Cryptonote => {
+            return Err(ApiError::new(
+                "SEND_UNSUPPORTED",
+                format!("{} 不支持离线签名广播", info.name),
+            ));
+        }
+    };
+
+    // 记入活动历史：金额/对手方在签名侧无法可信回传（载荷可被篡改的只有
+    // 文本，raw 才是事实），这里从 raw 反解太重，先用占位——活动列表可在
+    // 下一次 refresh_activity 时被链上数据修正。
+    let result = SendResult {
+        chain,
+        symbol: info.symbol.to_string(),
+        txid: txid.clone(),
+        explorer_url: format!("{}{}", info.explorer_tx, txid),
+        amount: "—".to_string(),
+        fee: "—".to_string(),
+        to: "（离线签名）".to_string(),
+        timestamp: now(),
+    };
+    state.add_activity(ActivityItem {
+        id: uuid::Uuid::new_v4().to_string(),
+        chain,
+        direction: Direction::Send,
+        amount: result.amount.clone(),
+        symbol: info.symbol.to_string(),
+        counterparty: result.to.clone(),
+        txid: txid.clone(),
+        status: ActivityStatus::Pending,
+        fee: result.fee.clone(),
+        timestamp: now(),
+        explorer_url: result.explorer_url.clone(),
+    })?;
+    Ok(result)
 }
 
 #[cfg(test)]
